@@ -1,0 +1,10 @@
+version: 1
+jobs:
+  build:
+    docker:
+      image: node:18
+    steps:
+      - checkout
+      - run: npm install -g eas-cli
+      - run: npm ci
+      - run: eas build --platform all --non-interactive
