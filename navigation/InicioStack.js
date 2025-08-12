@@ -24,13 +24,13 @@ const MenuButton = () => {
 const InicioStack = () => (
   <Stack.Navigator>
     <Stack.Screen
-      name="InicioList"
+      name="Inicio"
       options={{
         title: 'DSicario',
         headerStyle: { backgroundColor: '#FF6B35' },
         headerTintColor: '#fff',
         headerTitleStyle: { fontWeight: 'bold' },
-        headerLeft: () => <MenuButton />,
+        headerLeft: () => <MenuButton />, 
       }}
     >
       {props => <ProductListScreen {...props} mode="inicio" />}

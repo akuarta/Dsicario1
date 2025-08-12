@@ -24,10 +24,16 @@ const SectionProductsScreen = ({ route, navigation }) => {
       <FlatList
         data={products}
         renderItem={({ item }) => (
-          <ProductItem product={item} onPress={handleProductPress} showBadges showRating />
+          <View style={styles.productContainer}>
+            <ProductItem product={item} onPress={handleProductPress} showBadges showRating />
+          </View>
         )}
         keyExtractor={item => item.id?.toString() || Math.random().toString()}
-        contentContainerStyle={{ padding: 16 }}
+        contentContainerStyle={{
+          padding: 16,
+        }}
+        numColumns={2}
+        columnWrapperStyle={{ justifyContent: 'space-between' }}
         showsVerticalScrollIndicator={false}
       />
     </SafeAreaView>
@@ -51,6 +57,21 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  productContainer: {
+    flex: 1,
+    backgroundColor: '#f7f7f7', // Fondo tipo placeholder
+    borderRadius: 12,
+    padding: 12,
+    margin: 8,
+    alignItems: 'center', // Centra imagen y texto
+    justifyContent: 'center',
+    elevation: 2, // Sombra para Android
+    shadowColor: '#000', // Sombra para iOS
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    minHeight: 220, // Altura mínima tipo placeholder
   },
 });
 

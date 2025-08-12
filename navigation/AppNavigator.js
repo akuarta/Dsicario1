@@ -14,6 +14,7 @@ import PurchaseHistoryStack from './PurchaseHistoryStack';
 import FavoritesScreen from '../screens/FavoritesScreen';
 import FavoritesStack from './FavoritesStack';
 import ConfigStack from './ConfigStack';
+import LoginScreen from '../screens/LoginScreen';
 
 const Tab = createBottomTabNavigator();
 const Drawer = createDrawerNavigator();
@@ -130,19 +131,26 @@ const MainTabs = () => (
 
 const AppNavigator = () => (
   <NavigationContainer>
-    <Drawer.Navigator
-      drawerContent={(props) => <ProfileDrawerContent {...props} />}
-      screenOptions={{
-        headerShown: false,
-        drawerStyle: { backgroundColor: '#fff' },
-      }}
-    >
-      <Drawer.Screen name="MainTabs" component={MainTabs} options={{ drawerLabel: 'Inicio', drawerIcon: ({ color, size }) => (<FontAwesome5 name="home" size={size} color={color} />) }} />
-      <Drawer.Screen name="Historial" component={PurchaseHistoryStack} options={{ drawerLabel: 'Historial de Compras', drawerIcon: ({ color, size }) => (<FontAwesome5 name="history" size={size} color={color} />) }} />
-      <Drawer.Screen name="Favoritos" component={FavoritesStack} options={{ drawerLabel: 'Favoritos', drawerIcon: ({ color, size }) => (<FontAwesome5 name="heart" size={size} color={color} />) }} />
-    <Drawer.Screen name="Configuracion" component={ConfigStack} options={{ drawerLabel: 'Configuración', drawerIcon: ({ color, size }) => (<FontAwesome5 name="cog" size={size} color={color} />) }} />
-    </Drawer.Navigator>
+    <Stack.Navigator initialRouteName="Login">
+      <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Main" component={DrawerNavigator} options={{ headerShown: false }} />
+    </Stack.Navigator>
   </NavigationContainer>
+);
+
+const DrawerNavigator = () => (
+  <Drawer.Navigator
+    drawerContent={(props) => <ProfileDrawerContent {...props} />}
+    screenOptions={{
+      headerShown: false,
+      drawerStyle: { backgroundColor: '#fff' },
+    }}
+  >
+    <Drawer.Screen name="MainTabs" component={MainTabs} options={{ drawerLabel: 'Inicio', drawerIcon: ({ color, size }) => (<FontAwesome5 name="home" size={size} color={color} />) }} />
+    <Drawer.Screen name="Historial" component={PurchaseHistoryStack} options={{ drawerLabel: 'Historial de Compras', drawerIcon: ({ color, size }) => (<FontAwesome5 name="history" size={size} color={color} />) }} />
+    <Drawer.Screen name="Favoritos" component={FavoritesStack} options={{ drawerLabel: 'Favoritos', drawerIcon: ({ color, size }) => (<FontAwesome5 name="heart" size={size} color={color} />) }} />
+    <Drawer.Screen name="Configuracion" component={ConfigStack} options={{ drawerLabel: 'Configuración', drawerIcon: ({ color, size }) => (<FontAwesome5 name="cog" size={size} color={color} />) }} />
+  </Drawer.Navigator>
 );
 
 export default AppNavigator;

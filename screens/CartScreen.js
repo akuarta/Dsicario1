@@ -16,6 +16,7 @@ import globalStyles from '../styles/globalStyles';
 import theme from '../theme';
 import { showAlert } from '../utils/showAlert';
 import { showConfirm } from '../utils/showConfirm';
+import { useThemeMode } from '../contexts/ThemeContext';
 
 const { colors, spacing, typography, borders } = theme;
 
@@ -178,8 +179,8 @@ const CartScreen = ({ navigation }) => {
   const ItemSeparator = useCallback(() => <View style={styles.separator} />, []);
 
   return (
-    <SafeAreaView style={globalStyles.container}>
-      <View style={styles.container}>
+    <SafeAreaView style={[globalStyles.container, darkMode && { backgroundColor: '#222' }]}> // Example dark background
+      <View style={[styles.container, darkMode && { backgroundColor: '#222' }]}> // Example dark background
         {/* Header del carrito */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>

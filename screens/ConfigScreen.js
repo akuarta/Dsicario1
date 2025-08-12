@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
 import { useUser } from '../contexts/UserContext';
 import { useThemeMode } from '../contexts/ThemeContext';
-import { View, Text, StyleSheet, SafeAreaView, TextInput, Switch, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, TextInput, Switch, TouchableOpacity, Alert, Platform, Modal } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
+import { getAuth, signOut } from "firebase/auth";
+// import { AuthContext } from '../contexts/AuthContext';
+import { useNavigation } from '@react-navigation/native';
 
 const ConfigScreen = () => {
+  const navigation = useNavigation();
   const { username, setUsername, email, setEmail } = useUser();
   const [localUsername, setLocalUsername] = useState(username);
   const [localEmail, setLocalEmail] = useState(email);
@@ -12,6 +16,8 @@ const ConfigScreen = () => {
   const [newPassword, setNewPassword] = useState('');
   const [notifications, setNotifications] = useState(true);
   const { darkMode, themeMode, setThemeMode } = useThemeMode();
+  // const { logout } = useContext(AuthContext);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   const handleSave = () => {
     setUsername(localUsername);
@@ -38,11 +44,27 @@ const ConfigScreen = () => {
     setNewPassword('');
   };
 
+  const logout = () => {
+    const auth = getAuth();
+    signOut(auth)
+      .then(() => {
+        Alert.alert('Sesión cerrada', 'Has cerrado sesión correctamente.');
+        navigation.replace('Login');
+      })
+      .catch((error) => {
+        Alert.alert('Error', 'No se pudo cerrar la sesión.');
+      });
+  };
+
   const handleLogout = () => {
-    Alert.alert('Cerrar sesión', '¿Estás seguro de que quieres cerrar sesión?', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Cerrar sesión', style: 'destructive', onPress: () => {/* lógica de logout */} },
-    ]);
+    if (Platform.OS === 'web') {
+      setShowLogoutModal(true);
+    } else {
+      Alert.alert('Cerrar sesión', '¿Estás seguro de que quieres cerrar sesión?', [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Cerrar sesión', style: 'destructive', onPress: () => logout() },
+      ]);
+    }
   };
 
   return (
@@ -101,21 +123,25 @@ const ConfigScreen = () => {
               onPress={() => setThemeMode('light')}
             >
               <FontAwesome5 name="sun" size={16} color={themeMode === 'light' ? '#FF6B35' : '#888'} />
-              <Text style={[styles.themeOptionText, themeMode === 'light' && styles.themeOptionTextActive]}>Claro</Text>
+              <Text style={[styles.themeOptionText, themeMode === 'light' && styles.themeOptionTextActive, 
+                { color: darkMode ? '#fff' : '#333' }
+              ]}>
+                Claro
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.themeOption, themeMode === 'dark' && styles.themeOptionActive]}
               onPress={() => setThemeMode('dark')}
             >
               <FontAwesome5 name="moon" size={16} color={themeMode === 'dark' ? '#FF6B35' : '#888'} />
-              <Text style={[styles.themeOptionText, themeMode === 'dark' && styles.themeOptionTextActive]}>Oscuro</Text>
+              <Text style={[styles.themeOptionText, themeMode === 'dark' && styles.themeOptionTextActive, { color: darkMode ? '#fff' : '#888' }]}>Oscuro</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.themeOption, themeMode === 'system' && styles.themeOptionActive]}
               onPress={() => setThemeMode('system')}
             >
               <FontAwesome5 name="mobile-alt" size={16} color={themeMode === 'system' ? '#FF6B35' : '#888'} />
-              <Text style={[styles.themeOptionText, themeMode === 'system' && styles.themeOptionTextActive]}>Auto</Text>
+              <Text style={[styles.themeOptionText, themeMode === 'system' && styles.themeOptionTextActive, { color: darkMode ? '#fff' : '#888' }]}>Auto</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -131,6 +157,28 @@ const ConfigScreen = () => {
       <TouchableOpacity style={[styles.button, styles.logoutButton]} onPress={handleLogout}>
         <Text style={[styles.buttonText, { color: '#fff' }]}>Cerrar sesión</Text>
       </TouchableOpacity>
+      {Platform.OS === 'web' && showLogoutModal && (
+        <Modal
+          transparent
+          animationType="fade"
+          visible={showLogoutModal}
+          onRequestClose={() => setShowLogoutModal(false)}
+        >
+          <View style={{flex:1,justifyContent:'center',alignItems:'center',backgroundColor:'rgba(0,0,0,0.3)'}}>
+            <View style={[styles.modalContent, darkMode && styles.modalContentDark]}>
+              <Text style={[styles.modalTitle, darkMode && styles.modalTitleDark]}>¿Estás seguro de que quieres cerrar sesión?</Text>
+              <View style={{flexDirection:'row',marginTop:16}}>
+                <TouchableOpacity style={[styles.button,styles.cancelButton, darkMode && styles.cancelButtonDark]} onPress={()=>setShowLogoutModal(false)}>
+                  <Text style={[styles.buttonText, darkMode && styles.buttonTextDark]}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.button,styles.logoutConfirmButton]} onPress={()=>{setShowLogoutModal(false);logout();}}>
+                  <Text style={styles.buttonText}>Cerrar sesión</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 };
@@ -174,21 +222,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FF6B35',
   },
-  logoutButton: {
-    backgroundColor: '#f44336',
-  },
   buttonText: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
   },
-  switchRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-themeOption: {
+  themeOption: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
@@ -197,15 +236,49 @@ themeOption: {
     marginHorizontal: 2,
     backgroundColor: '#eee',
   },
-  themeOptionActive: {
-    backgroundColor: '#FF6B35',
-  },
   themeOptionText: {
     marginLeft: 4,
     color: '#888',
     fontWeight: 'bold',
   },
+  themeOptionActive: {
+    backgroundColor: '#FF6B35',
+  },
+  themeOptionText: {
+    marginLeft: 4,
+    color: '#888', // Eliminar la referencia a darkMode
+    fontWeight: 'bold',
+  },
   themeOptionTextActive: {
+    color: '#fff',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    padding: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    minWidth: 300,
+  },
+  modalContentDark: {
+    backgroundColor: '#333',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    color: '#333',
+  },
+  modalTitleDark: {
+    color: '#fff',
+  },
+  cancelButton: {
+    backgroundColor: '#aaa',
+    marginRight: 8,
+  },
+  cancelButtonDark: {
+    backgroundColor: '#666',
+  },
+  buttonTextDark: {
     color: '#fff',
   },
 });

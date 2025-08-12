@@ -60,18 +60,17 @@ const mapProductData = (apiProduct) => {
  * @returns {Promise<Array>} Array of products
  */
 export const fetchProducts = async () => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000); // 20 segundos de timeout
+
   try {
     console.log('Fetching products from Google Apps Script API...');
 
-    const response = await fetchWithTimeout(PRODUCTS_ENDPOINT, {
-      method: 'GET',
-      // ❌ No pongas headers aquí o fallará con CORS
-    });
+    const response = await fetch(PRODUCTS_ENDPOINT, { signal: controller.signal });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
+    clearTimeout(timeout);
+    if (!response.ok) throw new Error('Network response was not ok');
+    
     const rawData = await response.json();
     console.log('Raw API response:', rawData);
 
@@ -90,6 +89,7 @@ export const fetchProducts = async () => {
     return mappedProducts;
 
   } catch (error) {
+    clearTimeout(timeout);
     console.error('Error fetching products:', error);
     throw new Error(`Failed to fetch products: ${error.message}`);
   }

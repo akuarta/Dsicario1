@@ -11,7 +11,6 @@ import {
   ScrollView
 } from 'react-native';
 
-//
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useProducts } from '../contexts/AppContext';
 import ProductItem from '../components/ProductItem';
@@ -22,12 +21,14 @@ import { useSearch } from '../hooks/useSearch';
 import { useResponsive } from '../hooks/useResponsive';
 import { advancedFilters, sortProducts } from '../utils/api';
 import { findClosestProduct } from '../utils/stringUtils';
-import globalStyles from '../styles/globalStyles';
+import { useThemeMode } from '../contexts/ThemeContext';
 import theme from '../theme';
+import { globalStyles } from '../styles/globalStyles';
 
 const { colors, spacing, typography, borders } = theme;
 
 const ProductListScreen = ({ navigation, route, mode }) => {
+  const { darkMode } = useThemeMode();
   const { numColumns } = useResponsive();
   const { products, isLoading, error, refetchProducts, getCategoriesWithCounts, getProductStats } = useProducts();
 
@@ -138,14 +139,16 @@ const ProductListScreen = ({ navigation, route, mode }) => {
   }, [navigation]);
 
   // Render product item
+  const isInicio = mode === 'inicio';
   const renderProductItem = useCallback(({ item }) => (
     <ProductItem 
       product={item}
       onPress={handleProductPress}
       showBadges={true}
       showRating={true}
+      placeholderSource={isInicio ? { uri: 'https://picsum.photos/300/200?random=999' } : undefined}
     />
-  ), [handleProductPress]);
+  ), [handleProductPress, isInicio]);
 
   // Render filter chip
   const renderFilterChip = useCallback((filter) => (
@@ -320,11 +323,11 @@ const ProductListScreen = ({ navigation, route, mode }) => {
 
   // Render loading state
   if (isLoading && !refreshing) {
-    return <ProductPlaceholder />;
+    return <ProductPlaceholder mode={mode} />;
   }
 
   // Agrupación dinámica por secciones solo para la pestaña "Inicio"
-  const isInicio = mode === 'inicio';
+  // const isInicio = mode === 'inicio';
   if (isInicio) {
     // Definir las reglas de secciones dinámicas y su filtro
     const sectionRules = [
@@ -365,7 +368,7 @@ const ProductListScreen = ({ navigation, route, mode }) => {
     const secciones = sectionRules.map(rule => ({
       key: rule.key,
       label: rule.label,
-      productos: products.filter(rule.filter),
+      productos: products.filter(rule.filter).slice(0, 5), // Limitar a 5 productos por sección
       filterKey: rule.filterKey,
     }));
 
@@ -411,6 +414,7 @@ const ProductListScreen = ({ navigation, route, mode }) => {
                       showRating
                       compact
                       style={styles.horizontalProductItem}
+                      placeholderSource={{ uri: 'https://picsum.photos/300/200?random=999' }}
                     />
                   )}
                   contentContainerStyle={styles.horizontalList}
@@ -435,7 +439,7 @@ const ProductListScreen = ({ navigation, route, mode }) => {
 
   // Modo "explorar" u otros: lógica original
   return (
-    <SafeAreaView style={globalStyles.container}>
+    <SafeAreaView style={[globalStyles.container, { backgroundColor: darkMode ? '#222' : colors.background }]}> // Global dark mode background
       <SearchBar
         value={searchTerm}
         onChangeText={setSearchTerm}
@@ -445,7 +449,7 @@ const ProductListScreen = ({ navigation, route, mode }) => {
       {/* Sugerencia "¿Quisiste decir...?" */}
       {searchTerm.trim() && searchResults.length === 0 && closestProduct && (
         <View style={{ marginHorizontal: 24, marginTop: 2, marginBottom: 8 }}>
-          <Text style={{ color: colors.text.secondary, fontSize: 14 }}>
+          <Text style={{ color: darkMode ? colors.text.white : colors.text.secondary, fontSize: 14 }}>
             ¿Quisiste decir: <Text style={{ color: colors.primary, fontWeight: 'bold' }}>{closestProduct.nombre}</Text>?
           </Text>
         </View>
@@ -453,14 +457,14 @@ const ProductListScreen = ({ navigation, route, mode }) => {
       {/* Sugerencias de búsquedas recientes */}
       {recentSearches.length > 0 && searchTerm.trim().length === 0 && (
         <View style={{ marginHorizontal: 24, marginBottom: 8 }}>
-          <Text style={{ color: colors.text.secondary, fontSize: 13, marginBottom: 2 }}>Búsquedas recientes:</Text>
+          <Text style={{ color: darkMode ? colors.text.white : colors.text.secondary, fontSize: 13, marginBottom: 2 }}>Búsquedas recientes:</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
             {recentSearches.map((s, i) => (
               <TouchableOpacity
                 key={s + i}
                 onPress={() => setSearchTerm(s)}
                 style={{
-                  backgroundColor: colors.surface,
+                  backgroundColor: darkMode ? '#333' : colors.surface,
                   borderRadius: 16,
                   paddingHorizontal: 12,
                   paddingVertical: 4,

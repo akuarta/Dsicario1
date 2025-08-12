@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "758740272138",
+    "project_id": "dsicario-cd723",
+    "storage_bucket": "dsicario-cd723.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:758740272138:android:c375b77acc20d7081d8bf3",
+        "android_client_info": {
+          "package_name": "com.akuarta.dsicario"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAaXyPBFqaoplWEJteD4kueXbjGI74Ga4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

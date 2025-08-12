@@ -21,7 +21,8 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "com.hairoman28.snack5baad7fbf0d6462aa632f151b104f565"
     },
     "web": {
       "favicon": "./assets/favicon.png"

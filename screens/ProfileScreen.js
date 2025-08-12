@@ -10,12 +10,14 @@ import {
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useCart } from '../contexts/AppContext';
+import { useThemeMode } from '../contexts/ThemeContext';
 import globalStyles from '../styles/globalStyles';
 import theme from '../theme';
 
 const { colors, spacing, typography, borders } = theme;
 
 const ProfileScreen = ({ navigation }) => {
+  const { darkMode } = useThemeMode();
   const { clearCart, getTotalItems } = useCart();
   const totalItems = getTotalItems();
 
@@ -145,8 +147,8 @@ const ProfileScreen = ({ navigation }) => {
   );
 
   return (
-    <SafeAreaView style={globalStyles.container}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={[globalStyles.container, darkMode && { backgroundColor: '#222' }]}> // Example dark background
+      <ScrollView style={[styles.container, darkMode && { backgroundColor: '#222' }]} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.profileInfo}>

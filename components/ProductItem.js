@@ -26,7 +26,8 @@ const ProductItem = memo(({
   showBadges = true,
   showRating = true,
   imageStyle,
-  compact = false 
+  compact = false,
+  placeholderSource // nuevo prop
 }) => {
   const handlePress = () => {
     if (product.agotado) return; // Don't allow navigation if out of stock
@@ -44,12 +45,14 @@ const ProductItem = memo(({
       <Image 
         source={{ uri: product.imagen }} 
         style={[
-          compact ? styles.compactImage : globalStyles.productImage,
+          compact ? styles.compactImage : styles.gridImage,
           imageStyle,
-          product.agotado && styles.outOfStockImage
+          product.agotado && styles.outOfStockImage,
+          // Ajuste especial para el home: si placeholderSource existe, forzar tamaño grid
+          placeholderSource && styles.gridImage
         ]}
         resizeMode="cover"
-        defaultSource={{ uri: 'https://picsum.photos/300/200?random=999' }} // <-- Cambia aquí
+        defaultSource={placeholderSource || { uri: 'https://picsum.photos/300/200?random=999' }}
       />
       
       {/* Overlay for out of stock */}
@@ -176,21 +179,30 @@ ProductItem.displayName = 'ProductItem';
 
 const styles = StyleSheet.create({
   gridContainer: {
+    flex: 1,
     backgroundColor: colors.background,
     borderRadius: borders.radius.lg,
     padding: spacing.sm,
     margin: spacing.xs,
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
+    minHeight: 220,
+    maxWidth: '48%',
+    width: '100%',
     ...theme.shadows.small,
   },
   
   compactContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
     backgroundColor: colors.background,
-    padding: spacing.md,
+    padding: spacing.sm,
+    marginHorizontal: spacing.xs,
     marginVertical: spacing.xs,
-    borderRadius: borders.radius.md,
+    borderRadius: borders.radius.lg,
+    width: 160,
+    minHeight: 220,
+    maxWidth: 180,
     ...theme.shadows.small,
   },
   
@@ -201,6 +213,15 @@ const styles = StyleSheet.create({
   
   imageContainer: {
     position: 'relative',
+    width: '100%',
+  },
+  
+  gridImage: {
+    width: '100%',
+    height: 140,
+    borderRadius: borders.radius.md,
+    marginBottom: spacing.sm,
+    backgroundColor: '#e0e0e0',
   },
   
   compactImage: {
@@ -259,11 +280,13 @@ const styles = StyleSheet.create({
   
   productInfo: {
     width: '100%',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
   },
   
   compactProductInfo: {
     alignItems: 'flex-start',
+    width: '100%',
   },
   
   categoryText: {
@@ -285,17 +308,18 @@ const styles = StyleSheet.create({
   compactName: {
     textAlign: 'left',
     fontSize: typography.sizes.md,
+    fontWeight: typography.weights.bold,
   },
   
   subcategoryText: {
     fontSize: typography.sizes.xs,
     color: colors.text.light,
-    textAlign: 'center',
+    textAlign: 'left',
     marginBottom: spacing.xs,
   },
   
   priceContainer: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: spacing.xs,
   },
   
@@ -332,6 +356,48 @@ const styles = StyleSheet.create({
   
   badges: {
     marginTop: spacing.xs,
+  },
+  itemContainer: {
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 8,
+  },
+  image: {
+    width: 90,
+    height: 90,
+    borderRadius: 8,
+    marginBottom: 10,
+    backgroundColor: '#e0e0e0',
+  },
+  textContainer: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  name: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 4,
+    color: '#333',
+  },
+  price: {
+    fontSize: 14,
+    color: '#FF6B35',
+    textAlign: 'center',
+    marginBottom: 6,
+    fontWeight: '600',
+  },
+  badgesContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  ratingContainer: {
+    marginTop: 2,
+    alignItems: 'center',
   },
 });
 

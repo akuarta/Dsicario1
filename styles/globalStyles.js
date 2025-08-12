@@ -128,8 +128,8 @@ export const globalStyles = StyleSheet.create({
 
   // Imágenes
   productImage: {
-    width: dimensions.window.width * 0.4,
-    height: dimensions.window.width * 0.3,
+    width: '100%',
+    height: 120,
     borderRadius: borders.radius.md,
     marginBottom: spacing.sm,
   },
