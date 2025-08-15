@@ -13,18 +13,170 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Button } from 'react-native-elements';
 import { useCart } from '../contexts/AppContext';
-import globalStyles from '../styles/globalStyles';
-import theme from '../theme';
+import { useGlobalStyles } from '../hooks/useGlobalStyles';
+import theme from '../theme/theme';
 import { showAlert } from '../utils/showAlert';
+import { getThemeColors } from '../theme/theme';
+import { useThemeMode } from '../contexts/ThemeContext';
 
-const { colors, spacing, typography, borders } = theme;
+const { darkMode } = useThemeMode(); 
+const colors = getThemeColors(darkMode);
+const { spacing, typography, borders } = theme;
 
 const ProductDetailScreen = ({ navigation, route }) => {
+  
   const { product } = route.params;
   const { addToCart } = useCart();
+  const globalStyles = useGlobalStyles(colors);
   
   const [quantity, setQuantity] = useState(1);
   const [subtotal, setSubtotal] = useState(0);
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    
+    imageContainer: {
+      position: 'relative',
+      height: 250,
+      backgroundColor: colors.surface,
+    },
+    
+    productImage: {
+      width: '100%',
+      height: '100%',
+    },
+    
+    imageOverlay: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      height: 80,
+      justifyContent: 'flex-end',
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.md,
+    },
+    
+    priceOverlay: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    
+    quantityOverlay: {
+      fontSize: typography.sizes.sm,
+      fontWeight: typography.weights.medium,
+      color: colors.text.white,
+    },
+    
+    subtotalOverlay: {
+      fontSize: typography.sizes.lg,
+      fontWeight: typography.weights.bold,
+      color: colors.text.white,
+    },
+    
+    contentContainer: {
+      padding: spacing.md,
+    },
+    
+    headerInfo: {
+      marginBottom: spacing.md,
+    },
+    
+    categoryText: {
+      fontSize: typography.sizes.sm,
+      color: colors.text.secondary,
+      marginBottom: spacing.xs,
+    },
+    
+    productTitle: {
+      fontSize: typography.sizes.xl,
+      fontWeight: typography.weights.bold,
+      color: colors.text.primary,
+      marginBottom: spacing.xs,
+    },
+    
+    priceText: {
+      fontSize: typography.sizes.lg,
+      fontWeight: typography.weights.bold,
+      color: colors.primary,
+    },
+    
+    descriptionContainer: {
+      marginBottom: spacing.md,
+    },
+    
+    sectionTitle: {
+      fontSize: typography.sizes.md,
+      fontWeight: typography.weights.bold,
+      color: colors.text.primary,
+      marginBottom: spacing.sm,
+    },
+    
+    descriptionText: {
+      fontSize: typography.sizes.md,
+      color: colors.text.secondary,
+      lineHeight: typography.lineHeights.md,
+    },
+    
+    quantitySection: {
+      marginBottom: spacing.lg,
+    },
+    
+    quantityControls: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.card,
+      borderRadius: borders.radius.md,
+      padding: spacing.xs,
+    },
+    
+    quantityButton: {
+      backgroundColor: colors.primary,
+      padding: spacing.sm,
+      borderRadius: borders.radius.sm,
+      width: 40,
+      height: 40,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    
+    incrementButton: {
+      marginLeft: spacing.xs,
+    },
+    
+    quantityDisplay: {
+      minWidth: 60,
+      alignItems: 'center',
+      marginHorizontal: spacing.sm,
+    },
+    
+    quantityText: {
+      fontSize: typography.sizes.lg,
+      fontWeight: typography.weights.bold,
+      color: colors.text.primary,
+    },
+    
+    addToCartButton: {
+      backgroundColor: colors.accent,
+      paddingVertical: spacing.md,
+      borderRadius: borders.radius.md,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    
+    addToCartText: {
+      fontSize: typography.sizes.lg,
+      fontWeight: typography.weights.bold,
+      color: colors.text.white,
+      marginLeft: spacing.sm,
+    },
+  });
 
   // Calcular subtotal cuando cambie la cantidad
   useEffect(() => {

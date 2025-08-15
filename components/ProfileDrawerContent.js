@@ -1,14 +1,29 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, SafeAreaView } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { useCart } from '../contexts/AppContext';
-import theme from '../theme';
-
-const { colors, spacing, typography, borders } = theme;
-
+import { getThemeColors } from '../theme/theme';
+import { useThemeMode } from '../contexts/ThemeContext';
 const ProfileDrawerContent = ({ navigation }) => {
+  const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
+
+  const styles = StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: { alignItems: 'center', backgroundColor: colors.primary, paddingVertical: 32 },
+    userName: { fontSize: 20, fontWeight: 'bold', color: colors.text.white, marginTop: 8 },
+    userEmail: { fontSize: 14, color: colors.text.white, marginBottom: 8 },
+    menuContainer: { marginTop: 24 },
+    menuItem: { flexDirection: 'row', alignItems: 'center', padding: 16 },
+    menuItemTitle: { fontSize: 16, color: colors.text.primary, flex: 1 },
+    destructiveItem: { backgroundColor: 'rgba(244, 67, 54, 0.05)' },
+    destructiveText: { color: colors.error },
+    badge: { backgroundColor: colors.primary, borderRadius: 12, paddingHorizontal: 8, marginLeft: 8 },
+    badgeText: { color: colors.text.white, fontWeight: 'bold', fontSize: 12 },
+  });
+
   const { clearCart, getTotalItems } = useCart();
   const totalItems = getTotalItems();
+  const { username, email } = useUser();
 
   const showAlert = (title, message) => Alert.alert(title, message);
 
@@ -35,56 +50,19 @@ const ProfileDrawerContent = ({ navigation }) => {
   };
 
   const menuItems = [
-    {
-      id: 1,
-      title: 'Mi Carrito',
-      icon: 'shopping-cart',
-      onPress: () => navigation.navigate('MainTabs', { screen: 'Carrito' }),
-      showBadge: totalItems > 0,
-      badgeCount: totalItems
-    },
-    {
-      id: 2,
-      title: 'Historial de Compras',
-      icon: 'history',
-      onPress: () => navigation.navigate('Historial'),
-    },
-    {
-      id: 3,
-      title: 'Favoritos',
-      icon: 'heart',
-      onPress: () => navigation.navigate('Favoritos'),
-    },
-    {
-      id: 4,
-      title: 'Configuración',
-      icon: 'cog',
-      onPress: () => {
-        console.log('Drawer navega a Configuracion');
-        navigation.navigate('Configuracion');
-      },
-    },
-    {
-      id: 5,
-      title: 'Vaciar Carrito',
-      icon: 'trash',
-      onPress: handleClearCart,
-      isDestructive: true
-    },
-    {
-      id: 6,
-      title: 'Acerca de',
-      icon: 'info-circle',
-      onPress: () => showAlert('DSicario v1.0', 'Aplicación de e-commerce desarrollada con React Native\n\n© 2024 DSicario'),
-    },
+    { id: 1, title: 'Mi Carrito', icon: 'shopping-cart', onPress: () => navigation.navigate('MainTabs', { screen: 'Carrito' }), showBadge: totalItems > 0, badgeCount: totalItems },
+    { id: 2, title: 'Historial de Compras', icon: 'history', onPress: () => navigation.navigate('Historial') },
+    { id: 3, title: 'Favoritos', icon: 'heart', onPress: () => navigation.navigate('Favoritos') },
+    { id: 4, title: 'Configuración', icon: 'cog', onPress: () => navigation.navigate('Configuracion') },
+    { id: 5, title: 'Vaciar Carrito', icon: 'trash', onPress: handleClearCart, isDestructive: true },
+    { id: 6, title: 'Acerca de', icon: 'info-circle', onPress: () => showAlert('DSicario v1.0', 'Aplicación de e-commerce desarrollada con React Native\n\n© 2024 DSicario') },
   ];
 
-  const { username, email } = require('../contexts/UserContext').useUser();
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <FontAwesome5 name="user" size={32} color="#fff" />
+          <FontAwesome5 name="user" size={32} color={colors.text.white} />
           <Text style={styles.userName}>{username}</Text>
           <Text style={styles.userEmail}>{email}</Text>
         </View>
@@ -109,19 +87,5 @@ const ProfileDrawerContent = ({ navigation }) => {
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  header: { alignItems: 'center', backgroundColor: '#FF6B35', paddingVertical: 32 },
-  userName: { fontSize: 20, fontWeight: 'bold', color: '#fff', marginTop: 8 },
-  userEmail: { fontSize: 14, color: '#fff', marginBottom: 8 },
-  menuContainer: { marginTop: 24 },
-  menuItem: { flexDirection: 'row', alignItems: 'center', padding: 16 },
-  menuItemTitle: { fontSize: 16, color: '#333', flex: 1 },
-  destructiveItem: { backgroundColor: 'rgba(244, 67, 54, 0.05)' },
-  destructiveText: { color: colors.error },
-  badge: { backgroundColor: colors.primary, borderRadius: 12, paddingHorizontal: 8, marginLeft: 8 },
-  badgeText: { color: '#fff', fontWeight: 'bold', fontSize: 12 },
-});
 
 export default ProfileDrawerContent;

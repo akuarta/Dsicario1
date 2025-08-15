@@ -2,8 +2,14 @@ import { Dimensions } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 
-// Paleta de colores
-export const colors = {
+export const getThemeColors = (darkMode) => {
+  const colors = darkMode ? darkColors : lightColors;
+  console.log('getThemeColors - darkMode:', darkMode, 'colors:', colors);
+  return colors;
+};
+
+// Paleta de colores - Modo claro
+export const lightColors = {
   primary: '#FF6B35',
   secondary: '#F7931E',
   accent: '#FFD23F',
@@ -21,6 +27,28 @@ export const colors = {
   error: '#F44336',
   info: '#2196F3',
 };
+
+// Paleta de colores - Modo oscuro
+export const darkColors = {
+  primary: '#FF6B35', // Mantener el color primario para reconocimiento de marca
+  secondary: '#F7931E',
+  accent: '#FFD23F',
+  background: '#121212',
+  surface: '#1E1E1E',
+  text: {
+    primary: '#FFFFFF',
+    secondary: '#E0E0E0',
+    light: '#BBBBBB',
+    white: '#FFFFFF',
+  },
+  border: '#333333',
+  success: '#4CAF50',
+  warning: '#FF9800',
+  error: '#F44336',
+  info: '#2196F3',
+};
+
+
 
 // Sistema de espaciado
 export const spacing = {
@@ -111,14 +139,16 @@ export const shadows = {
   },
 };
 
+
+
 // Tema completo
-export const theme = {
-  colors,
+const theme = {
   spacing,
   typography,
   dimensions,
   borders,
   shadows,
+  getThemeColors,
 };
 
 export default theme;

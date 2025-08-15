@@ -1,8 +1,6 @@
 import React, { memo, useCallback, useMemo } from 'react';
 import { FlatList, View, StyleSheet } from 'react-native';
-import theme from '../theme';
-
-const { spacing } = theme;
+// import { useTheme } from 'react-native-elements';
 
 /**
  * Optimized FlatList Component with performance enhancements
@@ -33,6 +31,19 @@ const OptimizedFlatList = memo(({
   updateCellsBatchingPeriod = 50,
   ...otherProps
 }) => {
+  // const { theme: { spacing } } = useTheme();
+  const { darkMode } = useThemeMode();
+  const { spacing } = getThemeColors(darkMode);
+
+  const styles = StyleSheet.create({
+    emptyContainer: {
+      flex: 1,
+    },
+    
+    defaultSeparator: {
+      height: spacing.sm,
+    },
+  });
   // Memoize the key extractor to prevent recreation
   const memoizedKeyExtractor = useCallback((item, index) => {
     if (keyExtractor) {

@@ -1,30 +1,14 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Appearance } from 'react-native';
+import React, { createContext, useState, useContext } from 'react';
 
 const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
-  // mode: 'light' | 'dark' | 'system'
-  const [themeMode, setThemeMode] = useState('system');
-  const [darkMode, setDarkMode] = useState(Appearance.getColorScheme() === 'dark');
+  const [darkMode, setDarkMode] = useState(false);
 
-  useEffect(() => {
-    if (themeMode === 'system') {
-      const listener = ({ colorScheme }) => setDarkMode(colorScheme === 'dark');
-      const subscription = Appearance.addChangeListener(listener);
-      setDarkMode(Appearance.getColorScheme() === 'dark');
-      return () => {
-        if (subscription && typeof subscription.remove === 'function') {
-          subscription.remove();
-        }
-      };
-    } else {
-      setDarkMode(themeMode === 'dark');
-    }
-  }, [themeMode]);
+  const toggleTheme = () => setDarkMode(prev => !prev);
 
   return (
-    <ThemeContext.Provider value={{ darkMode, themeMode, setThemeMode }}>
+    <ThemeContext.Provider value={{ darkMode, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
   );

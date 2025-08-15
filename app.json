@@ -1,7 +1,13 @@
+
 {
   "expo": {
     "name": "dsicario6",
     "slug": "snack-5baad7fb-f0d6-462a-a632-f151b104f565",
+    "web": {
+      "bundler": "metro",
+      "hermes": false,
+      "favicon": "./assets/favicon.png"
+    },
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -11,9 +17,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true
     },
@@ -23,9 +27,6 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.hairoman28.snack5baad7fbf0d6462aa632f151b104f565"
-    },
-    "web": {
-      "favicon": "./assets/favicon.png"
     },
     "owner": "hairoman28",
     "extra": {

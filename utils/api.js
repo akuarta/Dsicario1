@@ -4,14 +4,14 @@ const API_BASE_URL = 'https://script.google.com/macros/s/AKfycbwxwGTHqRU5HUDACsW
 const PRODUCTS_ENDPOINT = `${API_BASE_URL}/exec`;
 
 // API response timeout
-const API_TIMEOUT = 15000; // Increased for Google Apps Script
+const API_TIMEOUT = 30000; // Increased for Google Apps Script
 
 /**
  * Custom fetch with timeout
  */
 const fetchWithTimeout = (url, options = {}, timeout = API_TIMEOUT) => {
   return Promise.race([
-    fetch(url, options),
+    fetch(url, { ...options, mode: 'no-cors' }),
     new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Request timeout')), timeout)
     )
@@ -61,7 +61,7 @@ const mapProductData = (apiProduct) => {
  */
 export const fetchProducts = async () => {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000); // 20 segundos de timeout
+  const timeout = setTimeout(() => controller.abort(), 30000); // 30 segundos de timeout
 
   try {
     console.log('Fetching products from Google Apps Script API...');

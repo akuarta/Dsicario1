@@ -9,8 +9,8 @@ const Stack = createStackNavigator();
 const ProfileStack = () => (
   <Stack.Navigator>
     <Stack.Screen name="Perfil" component={ProfileScreen} options={{ headerShown: false }} />
-    <Stack.Screen name="PurchaseHistory" component={PurchaseHistoryScreen} options={{ title: 'Historial de Compras', headerStyle: { backgroundColor: '#FF6B35' }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: 'bold' } }} />
-    <Stack.Screen name="Favorites" component={FavoritesScreen} options={{ title: 'Favoritos', headerStyle: { backgroundColor: '#FF6B35' }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: 'bold' } }} />
+    <Stack.Screen name="PurchaseHistory" component={PurchaseHistoryScreen} options={{ title: 'Historial de Compras', headerStyle: { backgroundColor: colors.primary }, headerTintColor: colors.text.white, headerTitleStyle: { fontWeight: 'bold' } }} />
+    <Stack.Screen name="Favorites" component={FavoritesScreen} options={{ title: 'Favoritos', headerStyle: { backgroundColor: colors.primary }, headerTintColor: colors.text.white, headerTitleStyle: { fontWeight: 'bold' } }} />
   </Stack.Navigator>
 );
 

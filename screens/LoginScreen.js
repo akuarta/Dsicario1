@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
-import app from '../config/firebaseConfig';
+import React, { useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { FontAwesome5 } from '@expo/vector-icons';
+import {  getThemeColors } from '../theme/theme'; // Ajusta la ruta según tu proyecto
+import { useThemeMode } from '../contexts/ThemeContext';
 
-const auth = getAuth(app);
+const { darkMode } = useThemeMode();
+const colors = getThemeColors(darkMode);
+
 
 const LoginScreen = () => {
   const navigation = useNavigation();
@@ -15,88 +16,108 @@ const LoginScreen = () => {
   const [error, setError] = useState('');
   const [isRegister, setIsRegister] = useState(false);
 
-  const handleLogin = async () => {
-    setError('');
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: colors.background,
+      padding: 24
+    },
+    title: {
+      fontSize: 28,
+      fontWeight: 'bold',
+      color: colors.primary,
+      marginBottom: 24
+    },
+    input: {
+      width: '100%',
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 16,
+      fontSize: 16,
+      backgroundColor: colors.surface
+    },
+    button: {
+      backgroundColor: colors.primary,
+      borderRadius: 8,
+      paddingVertical: 14,
+      alignItems: 'center',
+      width: '100%',
+      marginBottom: 12
+    },
+    buttonText: {
+      color: colors.text.white,
+      fontWeight: 'bold',
+      fontSize: 18
+    },
+    link: {
+      color: colors.primary,
+      fontWeight: 'bold',
+      marginTop: 8,
+      fontSize: 15
+    },
+    error: {
+      color: colors.error,
+      marginBottom: 8,
+      fontWeight: 'bold'
+    }
+  });
+
+  const handleAuth = async () => {
     if (!email || !password) {
-      setError('Por favor ingresa correo y contraseña.');
+      setError('Por favor, completa todos los campos');
       return;
     }
-    setLoading(true);
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-      navigation.replace('Main');
-    } catch (e) {
-      setError('Credenciales inválidas o usuario no registrado.');
-    }
-    setLoading(false);
-  };
-
-  const handleRegister = async () => {
     setError('');
-    if (!email || !password) {
-      setError('Por favor ingresa correo y contraseña.');
-      return;
-    }
     setLoading(true);
-    try {
-      await createUserWithEmailAndPassword(auth, email, password);
+    setTimeout(() => {
+      setLoading(false);
       navigation.replace('Main');
-    } catch (e) {
-      setError('No se pudo registrar. Verifica el correo o si ya existe.');
-    }
-    setLoading(false);
+    }, 1500);
   };
 
-  useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      if (user) {
-        navigation.replace('Main');
-      }
-    });
-    return unsubscribe;
-  }, []);
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>{isRegister ? 'Registro' : 'Iniciar Sesión'}</Text>
+      <Text style={styles.title}>{isRegister ? 'Registrarse' : 'Iniciar Sesión'}</Text>
+
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+
       <TextInput
         style={styles.input}
         placeholder="Correo electrónico"
+        placeholderTextColor={colors.text.placeholder}
         value={email}
         onChangeText={setEmail}
-        keyboardType="email-address"
-        autoCapitalize="none"
       />
+
       <TextInput
         style={styles.input}
         placeholder="Contraseña"
+        placeholderTextColor={colors.text.placeholder}
+        secureTextEntry
         value={password}
         onChangeText={setPassword}
-        secureTextEntry
       />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <TouchableOpacity
-        style={styles.button}
-        onPress={isRegister ? handleRegister : handleLogin}
-        disabled={loading}
-      >
-        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{isRegister ? 'Registrarse' : 'Entrar'}</Text>}
+
+      <TouchableOpacity style={styles.button} onPress={handleAuth} disabled={loading}>
+        {loading ? (
+          <ActivityIndicator color={colors.text.white} />
+        ) : (
+          <Text style={styles.buttonText}>{isRegister ? 'Registrarse' : 'Ingresar'}</Text>
+        )}
       </TouchableOpacity>
+
       <TouchableOpacity onPress={() => setIsRegister(!isRegister)}>
-        <Text style={styles.link}>{isRegister ? '¿Ya tienes cuenta? Inicia sesión' : '¿No tienes cuenta? Regístrate'}</Text>
+        <Text style={styles.link}>
+          {isRegister ? '¿Ya tienes cuenta? Inicia sesión' : '¿No tienes cuenta? Regístrate'}
+        </Text>
       </TouchableOpacity>
-      {/* Aquí puedes agregar Google Sign-In si lo deseas */}
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff', padding: 24 },
-  title: { fontSize: 28, fontWeight: 'bold', color: '#FF6B35', marginBottom: 24 },
-  input: { width: '100%', borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 16, backgroundColor: '#fafafa' },
-  button: { backgroundColor: '#FF6B35', borderRadius: 8, paddingVertical: 14, alignItems: 'center', width: '100%', marginBottom: 12 },
-  buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 18 },
-  link: { color: '#FF6B35', fontWeight: 'bold', marginTop: 8, fontSize: 15 },
-  error: { color: '#f44336', marginBottom: 8, fontWeight: 'bold' },
-});
 
 export default LoginScreen;

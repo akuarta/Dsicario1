@@ -21,20 +21,295 @@ import { useSearch } from '../hooks/useSearch';
 import { useResponsive } from '../hooks/useResponsive';
 import { advancedFilters, sortProducts } from '../utils/api';
 import { findClosestProduct } from '../utils/stringUtils';
+import { getThemeColors } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
-import theme from '../theme';
+import theme from '../theme/theme';
 import { globalStyles } from '../styles/globalStyles';
+const { spacing, typography, borders } = theme;
 
-const { colors, spacing, typography, borders } = theme;
+
 
 const ProductListScreen = ({ navigation, route, mode }) => {
   const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
+  const currentTheme = { colors, dark: darkMode };
+  
   const { numColumns } = useResponsive();
   const { products, isLoading, error, refetchProducts, getCategoriesWithCounts, getProductStats } = useProducts();
 
   const [refreshing, setRefreshing] = useState(false);
   const [selectedSort, setSelectedSort] = useState('popular');
   const [showFilters, setShowFilters] = useState(false);
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: spacing.medium,
+      backgroundColor: colors.primary,
+    },
+    headerTitle: {
+      ...typography.h5,
+      color: colors.text.white,
+    },
+    filterSortContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-around',
+      paddingVertical: spacing.small,
+      backgroundColor: colors.surface,
+      borderBottomWidth: borders.thin,
+      borderBottomColor: colors.border,
+    },
+    filterSortButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: spacing.medium,
+      paddingVertical: spacing.small,
+      borderRadius: borders.radius.small,
+      backgroundColor: colors.card,
+    },
+    filterSortButtonText: {
+      marginLeft: spacing.small,
+      ...typography.body2,
+      color: colors.text.primary,
+    },
+    filterContainer: {
+      padding: spacing.medium,
+      backgroundColor: colors.background,
+    },
+    filterTitle: {
+      ...typography.h6,
+      marginBottom: spacing.small,
+      color: colors.text.primary,
+    },
+    filterChipsContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      marginBottom: spacing.medium,
+    },
+    filterChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.card,
+      borderRadius: borders.radius.small,
+      paddingVertical: spacing.small,
+      paddingHorizontal: spacing.medium,
+      marginRight: spacing.small,
+      marginBottom: spacing.small,
+      borderWidth: borders.thin,
+      borderColor: colors.border,
+    },
+    activeFilterChip: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    filterIcon: {
+      marginRight: spacing.extraSmall,
+    },
+    filterText: {
+      ...typography.body2,
+      color: colors.text.primary,
+    },
+    activeFilterText: {
+      color: colors.text.white,
+    },
+    sortOptionsContainer: {
+      padding: spacing.medium,
+      backgroundColor: colors.background,
+    },
+    sortOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: spacing.small,
+      paddingHorizontal: spacing.medium,
+      marginBottom: spacing.extraSmall,
+      borderRadius: borders.radius.small,
+      backgroundColor: colors.card,
+      borderWidth: borders.thin,
+      borderColor: colors.border,
+    },
+    activeSortOption: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    sortOptionText: {
+      marginLeft: spacing.small,
+      ...typography.body2,
+      color: colors.text.primary,
+    },
+    activeSortOptionText: {
+      color: colors.text.white,
+    },
+    noResultsContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: spacing.large,
+    },
+    noResultsText: {
+      ...typography.body1,
+      color: colors.text.secondary,
+      textAlign: 'center',
+    },
+    closestProductContainer: {
+      marginTop: spacing.medium,
+      padding: spacing.medium,
+      backgroundColor: colors.card,
+      borderRadius: borders.radius.medium,
+      borderWidth: borders.thin,
+      borderColor: colors.border,
+      alignItems: 'center',
+    },
+    closestProductText: {
+      ...typography.body2,
+      color: colors.text.primary,
+      marginBottom: spacing.small,
+      textAlign: 'center',
+    },
+    closestProductButton: {
+      backgroundColor: colors.accent,
+      paddingVertical: spacing.small,
+      paddingHorizontal: spacing.medium,
+      borderRadius: borders.radius.small,
+    },
+    closestProductButtonText: {
+      ...typography.button,
+      color: colors.text.white,
+    },
+    recentSearchesContainer: {
+      padding: spacing.medium,
+      backgroundColor: colors.background,
+      borderBottomWidth: borders.thin,
+      borderBottomColor: colors.border,
+    },
+    recentSearchesTitle: {
+      ...typography.h6,
+      marginBottom: spacing.small,
+      color: colors.text.primary,
+    },
+    recentSearchItem: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: spacing.small,
+      borderBottomWidth: borders.thin,
+    },
+    recentSearchText: {
+      ...typography.body2,
+      color: colors.text.secondary,
+    },
+    clearRecentSearchesButton: {
+      marginTop: spacing.small,
+      alignSelf: 'flex-end',
+    },
+    clearRecentSearchesText: {
+      ...typography.button,
+      color: colors.error,
+    },
+    loadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    errorContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: spacing.large,
+    },
+    errorText: {
+      ...typography.body1,
+      color: colors.error,
+      textAlign: 'center',
+      marginBottom: spacing.medium,
+    },
+    retryButton: {
+      backgroundColor: colors.primary,
+      paddingVertical: spacing.small,
+      paddingHorizontal: spacing.medium,
+      borderRadius: borders.radius.small,
+    },
+    retryButtonText: {
+      ...typography.button,
+      color: colors.text.white,
+    },
+    // Estilos para el modal de filtros y ordenamiento
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    modalContent: {
+      backgroundColor: colors.background,
+      borderRadius: borders.radius.large,
+      width: '90%',
+      maxHeight: '80%',
+      padding: spacing.large,
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: spacing.medium,
+    },
+    modalTitle: {
+      ...typography.h5,
+      color: colors.text.primary,
+    },
+    closeButton: {
+      padding: spacing.small,
+    },
+    closeButtonText: {
+      ...typography.button,
+      color: colors.text.secondary,
+    },
+    modalSectionTitle: {
+      ...typography.h6,
+      marginTop: spacing.medium,
+      marginBottom: spacing.small,
+      color: colors.text.primary,
+    },
+    modalOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: spacing.small,
+      paddingHorizontal: spacing.medium,
+      marginBottom: spacing.extraSmall,
+      borderRadius: borders.radius.small,
+      backgroundColor: colors.card,
+      borderWidth: borders.thin,
+      borderColor: colors.border,
+    },
+    modalActiveOption: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    modalOptionText: {
+      marginLeft: spacing.small,
+      ...typography.body2,
+      color: colors.text.primary,
+    },
+    modalActiveOptionText: {
+      color: colors.text.white,
+    },
+    applyFiltersButton: {
+      backgroundColor: colors.accent,
+      paddingVertical: spacing.medium,
+      borderRadius: borders.radius.medium,
+      alignItems: 'center',
+      marginTop: spacing.large,
+    },
+    applyFiltersButtonText: {
+      ...typography.button,
+      color: colors.text.white,
+    },
+  });
 
   // Sincronizar filtro con navegación
   const [selectedFilter, setSelectedFilter] = useState('all');
@@ -439,7 +714,7 @@ const ProductListScreen = ({ navigation, route, mode }) => {
 
   // Modo "explorar" u otros: lógica original
   return (
-    <SafeAreaView style={[globalStyles.container, { backgroundColor: darkMode ? '#222' : colors.background }]}> // Global dark mode background
+    <SafeAreaView style={[globalStyles.container, { backgroundColor: darkMode ? colors.surface : colors.background }]}> // Global dark mode background
       <SearchBar
         value={searchTerm}
         onChangeText={setSearchTerm}
@@ -464,7 +739,7 @@ const ProductListScreen = ({ navigation, route, mode }) => {
                 key={s + i}
                 onPress={() => setSearchTerm(s)}
                 style={{
-                  backgroundColor: darkMode ? '#333' : colors.surface,
+                  backgroundColor: colors.surface,
                   borderRadius: 16,
                   paddingHorizontal: 12,
                   paddingVertical: 4,
@@ -505,149 +780,155 @@ const ProductListScreen = ({ navigation, route, mode }) => {
 
 const styles = StyleSheet.create({
   listContainer: {
-    paddingBottom: spacing.lg,
-  },
-  
-  header: {
+    flex: 1,
     backgroundColor: colors.background,
-    paddingBottom: spacing.md,
   },
-  
+  headerContainer: {
+    backgroundColor: colors.background,
+    paddingHorizontal: 15,
+    paddingTop: 10,
+    paddingBottom: 5,
+    borderBottomWidth: borders.thin,
+    borderColor: colors.border,
+  },
   statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.sm,
+    marginBottom: 10,
   },
-  
   statsText: {
-    fontSize: typography.sizes.sm,
-    color: colors.text.secondary,
+    fontSize: 16,
+    color: colors.text,
   },
-  
-  offersText: {
-    fontSize: typography.sizes.sm,
-    color: colors.error,
-    fontWeight: typography.weights.medium,
-  },
-  
-  filterToggle: {
+  filterToggleContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.sm,
-    marginHorizontal: spacing.md,
-    borderRadius: borders.radius.md,
-    backgroundColor: colors.surface,
+    justifyContent: 'space-around',
+    marginBottom: 10,
   },
-  
-  filterToggleText: {
-    fontSize: typography.sizes.sm,
-    color: colors.primary,
-    fontWeight: typography.weights.medium,
-    marginLeft: spacing.sm,
+  filterToggleButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 20,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  
-  filtersContainer: {
-    backgroundColor: colors.surface,
-    marginHorizontal: spacing.md,
-    marginTop: spacing.sm,
-    padding: spacing.md,
-    borderRadius: borders.radius.md,
+  filterToggleButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
-  
-  filtersSection: {
-    marginBottom: spacing.md,
+  filterButtonText: {
+    color: colors.text,
+    fontWeight: 'bold',
   },
-  
-  sectionTitle: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.bold,
-    color: colors.text.primary,
-    marginBottom: spacing.sm,
+  filterButtonTextActive: {
+    color: colors.white,
   },
-  
-  chipsContainer: {
+  filterSection: {
+    marginBottom: 10,
+  },
+  filterSectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginBottom: 5,
+  },
+  filterChipsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
   },
-  
   filterChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.background,
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    marginRight: 8,
+    marginBottom: 8,
     borderWidth: 1,
-    borderColor: colors.primary,
-    borderRadius: borders.radius.round,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    marginRight: spacing.sm,
-    marginBottom: spacing.sm,
+    borderColor: colors.border,
   },
-  
-  activeFilterChip: {
+  filterChipActive: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  
-  filterIcon: {
-    marginRight: spacing.xs,
+  filterChipText: {
+    color: colors.text,
   },
-  
-  filterText: {
-    fontSize: typography.sizes.xs,
-    color: colors.primary,
-    fontWeight: typography.weights.medium,
+  filterChipTextActive: {
+    color: colors.white,
   },
-  
-  activeFilterText: {
-    color: colors.text.white,
+  productDisplayToggle: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: 10,
   },
-  sectionContainer: {
-    backgroundColor: colors.surface,
-    borderRadius: borders.radius.lg,
-    marginHorizontal: 12,
-    marginBottom: 24,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    ...theme.shadows.small,
+  productDisplayButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 20,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginHorizontal: 5,
+  },
+  productDisplayButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  productDisplayButtonText: {
+    color: colors.text,
+    fontWeight: 'bold',
+  },
+  productDisplayButtonTextActive: {
+    color: colors.white,
+  },
+  emptyListContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyListText: {
+    color: colors.text,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  searchBarContainer: {
+    padding: 10,
+    backgroundColor: colors.background,
+  },
+  recentSearchesContainer: {
+    paddingHorizontal: 10,
+    marginBottom: 10,
+  },
+  recentSearchesTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginBottom: 5,
+  },
+  recentSearchChip: {
+    backgroundColor: colors.card,
+    borderRadius: 15,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  recentSearchText: {
+    color: colors.text,
   },
   sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingBottom: spacing.xs,
-  },
-  sectionTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: colors.primary,
+    color: colors.text,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    backgroundColor: colors.background,
   },
-  seeMoreButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-  },
-  seeMoreText: {
-    color: colors.text.white,
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  horizontalList: {
-    paddingVertical: spacing.sm,
-  },
-  horizontalProductItem: {
-    marginRight: spacing.md,
-    width: 160,
-  },
-  sectionSeparator: {
-    height: 12,
-    backgroundColor: 'transparent',
+  sectionListContent: {
+    paddingHorizontal: 15,
   },
 });
 

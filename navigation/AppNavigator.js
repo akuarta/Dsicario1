@@ -1,9 +1,12 @@
-import React from 'react';
-import { NavigationContainer, useNavigation } from '@react-navigation/native';
+import { NavigationContainer, useNavigation, DefaultTheme, DarkTheme } from '@react-navigation/native';
+import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createDrawerNavigator } from '@react-navigation/drawer';
-import { createStackNavigator } from '@react-navigation/stack';
+
 import { FontAwesome5 } from '@expo/vector-icons';
+import { getThemeColors } from '../theme/theme';
+import { useThemeMode } from '../contexts/ThemeContext';
+
 import ProductListScreen from '../screens/ProductListScreen';
 import InicioStack from './InicioStack';
 import CartScreen from '../screens/CartScreen';
@@ -20,13 +23,16 @@ const Tab = createBottomTabNavigator();
 const Drawer = createDrawerNavigator();
 const Stack = createStackNavigator();
 
+
 const MenuButton = () => {
   const navigation = useNavigation();
+  const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
   return (
     <FontAwesome5
       name="bars"
       size={22}
-      color="#fff"
+      color={colors.text.white}
       style={{ marginLeft: 16, cursor: 'pointer' }}
       onPress={() => navigation.openDrawer()}
     />
@@ -35,59 +41,71 @@ const MenuButton = () => {
 
 import ProductDetailScreen from '../screens/ProductDetailScreen';
 
-const ProductStack = () => (
+const ProductStack = () => {
+  const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
+
+  return (
   <Stack.Navigator>
     <Stack.Screen
       name="ProductList"
       component={ProductListScreen}
-      options={{
+      options={({ navigation }) => ({
         title: 'DSicario',
-        headerStyle: { backgroundColor: '#FF6B35' },
-        headerTintColor: '#fff',
+        headerStyle: { backgroundColor: colors.primary },
+        headerTintColor: colors.text.white,
         headerTitleStyle: { fontWeight: 'bold' },
         headerLeft: () => <MenuButton />,
-      }}
+      })}
     />
     <Stack.Screen
       name="ProductDetail"
       component={ProductDetailScreen}
-      options={{
+      options={({ navigation }) => ({
         title: 'Detalles del Producto',
-        headerStyle: { backgroundColor: '#FF6B35' },
-        headerTintColor: '#fff',
+        headerStyle: { backgroundColor: colors.primary },
+        headerTintColor: colors.text.white,
         headerTitleStyle: { fontWeight: 'bold' },
-      }}
+      })}
     />
   </Stack.Navigator>
 );
+};
 
-const CartStack = () => (
+const CartStack = () => {
+  const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
+  return (
   <Stack.Navigator>
     <Stack.Screen
       name="Cart"
       component={CartScreen}
-      options={{
+      options={({ navigation }) => ({
         title: 'Carrito',
-        headerStyle: { backgroundColor: '#FF6B35' },
-        headerTintColor: '#fff',
+        headerStyle: { backgroundColor: colors.primary },
+        headerTintColor: colors.text.white,
         headerTitleStyle: { fontWeight: 'bold' },
         headerLeft: () => <MenuButton />,
-      }}
+      })}
     />
   </Stack.Navigator>
 );
+};
 
-const MainTabs = () => (
+const MainTabs = () => {
+  const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
+  return (
   <Tab.Navigator
-    screenOptions={{
-      tabBarActiveTintColor: '#FF6B35',
-      tabBarInactiveTintColor: '#666',
+    screenOptions={({ route }) => ({
+      tabBarActiveTintColor: colors.primary,
+      tabBarInactiveTintColor: colors.text.secondary,
       tabBarStyle: {
-        backgroundColor: '#fff',
+        backgroundColor: colors.background,
         borderTopWidth: 1,
-        borderTopColor: '#e0e0e0',
+        borderTopColor: colors.border,
       },
-    }}
+    })}
   >
     <Tab.Screen
       name="Inicio"
@@ -128,23 +146,56 @@ const MainTabs = () => (
     />
   </Tab.Navigator>
 );
+};
 
-const AppNavigator = () => (
-  <NavigationContainer>
-    <Stack.Navigator initialRouteName="Login">
-      <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="Main" component={DrawerNavigator} options={{ headerShown: false }} />
+const AppNavigator = () => {
+   const { darkMode } = useThemeMode();
+
+  const appColors = getThemeColors(darkMode);
+  const baseTheme = darkMode ? DarkTheme : DefaultTheme;
+
+  const customTheme = {
+      ...baseTheme,
+      colors: {
+        ...baseTheme.colors,
+        primary: appColors.primary,
+        background: appColors.background,
+        card: appColors.surface,
+        text: appColors.text.primary, // Ensure text is a string
+        border: appColors.border,
+        notification: appColors.error,
+      },
+    };
+
+    console.log('[DEBUG] AppNavigator -> darkMode:', darkMode);
+    console.log('[DEBUG] AppNavigator -> colors:', customTheme.colors);
+
+  return (
+  <NavigationContainer theme={customTheme}>
+    <Stack.Navigator 
+      initialRouteName="Main" // Cambiado de "Login" a "Main"
+      screenOptions={{
+        headerStyle: { backgroundColor: customTheme.colors?.background || 'red' },
+        headerTintColor: customTheme.colors?.text || '#fff'
+      }}
+    >
+      {/* <Stack.Screen name="Login" component={LoginScreen} options={({ navigation }) => ({ headerShown: false })} /> */}
+      <Stack.Screen name="Main" component={DrawerNavigator} options={({ navigation }) => ({ headerShown: false })} />
     </Stack.Navigator>
   </NavigationContainer>
 );
+};
 
-const DrawerNavigator = () => (
+const DrawerNavigator = () => {
+  const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
+  return (
   <Drawer.Navigator
     drawerContent={(props) => <ProfileDrawerContent {...props} />}
-    screenOptions={{
+    screenOptions={({ navigation }) => ({
       headerShown: false,
-      drawerStyle: { backgroundColor: '#fff' },
-    }}
+      drawerStyle: { backgroundColor: colors.background },
+    })}
   >
     <Drawer.Screen name="MainTabs" component={MainTabs} options={{ drawerLabel: 'Inicio', drawerIcon: ({ color, size }) => (<FontAwesome5 name="home" size={size} color={color} />) }} />
     <Drawer.Screen name="Historial" component={PurchaseHistoryStack} options={{ drawerLabel: 'Historial de Compras', drawerIcon: ({ color, size }) => (<FontAwesome5 name="history" size={size} color={color} />) }} />
@@ -152,5 +203,6 @@ const DrawerNavigator = () => (
     <Drawer.Screen name="Configuracion" component={ConfigStack} options={{ drawerLabel: 'Configuración', drawerIcon: ({ color, size }) => (<FontAwesome5 name="cog" size={size} color={color} />) }} />
   </Drawer.Navigator>
 );
+};
 
 export default AppNavigator;

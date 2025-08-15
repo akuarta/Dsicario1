@@ -10,14 +10,17 @@ import {
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useCart } from '../contexts/AppContext';
-import { useThemeMode } from '../contexts/ThemeContext';
+// import { useTheme } from 'react-native-elements';
 import globalStyles from '../styles/globalStyles';
-import theme from '../theme';
+import theme from '../theme/theme';
 
-const { colors, spacing, typography, borders } = theme;
+const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
+  const { spacing, typography, borders } = theme;
 
 const ProfileScreen = ({ navigation }) => {
-  const { darkMode } = useThemeMode();
+  // const { theme: { colors, dark: darkMode } } = useTheme();
+  
   const { clearCart, getTotalItems } = useCart();
   const totalItems = getTotalItems();
 
@@ -181,24 +184,24 @@ const ProfileScreen = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  
-  header: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xl,
-  },
-  
-  profileInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  
-  avatarContainer: {
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    
+    header: {
+      backgroundColor: colors.primary,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xl,
+    },
+    
+    profileInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    
+    avatarContainer: {
     width: 64,
     height: 64,
     borderRadius: 32,

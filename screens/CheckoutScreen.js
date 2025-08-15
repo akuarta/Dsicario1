@@ -11,8 +11,15 @@ import {
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useCart } from '../contexts/AppContext';
-import globalStyles from '../styles/globalStyles';
+import { useGlobalStyles } from '../hooks/useGlobalStyles';
 import theme from '../theme';
+import { getThemeColors } from '../theme/theme';
+import { useThemeMode } from '../contexts/ThemeContext';
+
+const { darkMode } = useThemeMode();
+const colors = getThemeColors(darkMode);
+const { spacing, typography, borders } = theme;
+// import { useTheme } from 'react-native-elements';
 
 function showConfirm(title, message, onConfirm) {
   if (typeof window !== 'undefined' && window.confirm) {
@@ -30,11 +37,189 @@ function showConfirm(title, message, onConfirm) {
   }
 }
 
-const { colors, spacing, typography, borders } = theme;
-
 const CheckoutScreen = ({ navigation, route }) => {
+  // const { theme: { colors } } = useTheme();
   const { cart, totalCost, paymentType } = route.params;
   const { clearCart } = useCart();
+  const globalStyles = useGlobalStyles(colors);
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+      padding: spacing.medium,
+    },
+    header: {
+      marginBottom: spacing.large,
+      alignItems: 'center',
+    },
+    headerTitle: {
+      ...typography.h4,
+      fontWeight: 'bold',
+      color: colors.primary,
+      marginBottom: spacing.extraSmall,
+    },
+    headerSubtitle: {
+      ...typography.body2,
+      color: colors.text.secondary,
+    },
+    section: {
+      backgroundColor: colors.card,
+      borderRadius: borders.radius.medium,
+      padding: spacing.medium,
+      marginBottom: spacing.large,
+      borderWidth: borders.thin,
+      borderColor: colors.border,
+    },
+    sectionTitle: {
+      ...typography.h5,
+      fontWeight: 'bold',
+      color: colors.text.primary,
+      marginBottom: spacing.medium,
+    },
+    orderItem: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: spacing.small,
+    },
+    itemName: {
+      ...typography.body2,
+      color: colors.text.primary,
+      flex: 3,
+    },
+    itemQuantity: {
+      ...typography.body2,
+      color: colors.text.secondary,
+      flex: 0.5,
+      textAlign: 'center',
+    },
+    itemTotal: {
+      ...typography.body2,
+      fontWeight: 'bold',
+      color: colors.text.primary,
+      flex: 1.5,
+      textAlign: 'right',
+    },
+    totalRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      borderTopWidth: borders.thin,
+      borderTopColor: colors.border,
+      paddingTop: spacing.medium,
+      marginTop: spacing.medium,
+    },
+    totalLabel: {
+      ...typography.h5,
+      fontWeight: 'bold',
+      color: colors.text.primary,
+    },
+    totalAmount: {
+      ...typography.h5,
+      fontWeight: 'bold',
+      color: colors.primary,
+    },
+    paymentMethod: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+      borderRadius: borders.radius.small,
+      padding: spacing.medium,
+    },
+    paymentText: {
+      ...typography.body1,
+      marginLeft: spacing.small,
+      color: colors.text.primary,
+    },
+    infoRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: spacing.small,
+    },
+    infoText: {
+      ...typography.body2,
+      marginLeft: spacing.small,
+      color: colors.text.primary,
+    },
+    confirmButton: {
+      backgroundColor: colors.accent,
+      padding: spacing.medium,
+      borderRadius: borders.radius.medium,
+      alignItems: 'center',
+      marginTop: spacing.large,
+    },
+    confirmButtonText: {
+      ...typography.button,
+      color: colors.text.white,
+    },
+    processingText: {
+      ...typography.h5,
+      color: colors.text.primary,
+      marginTop: spacing.medium,
+    },
+    processingSubtext: {
+      ...typography.body2,
+      color: colors.text.secondary,
+      marginTop: spacing.small,
+    },
+    successContainer: {
+      alignItems: 'center',
+      padding: spacing.large,
+    },
+    successIcon: {
+      backgroundColor: colors.primary,
+      borderRadius: 60,
+      width: 120,
+      height: 120,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: spacing.large,
+    },
+    successTitle: {
+      ...typography.h4,
+      fontWeight: 'bold',
+      color: colors.primary,
+      marginBottom: spacing.medium,
+      textAlign: 'center',
+    },
+    successMessage: {
+      ...typography.body1,
+      color: colors.text.secondary,
+      marginBottom: spacing.large,
+      textAlign: 'center',
+    },
+    orderDetails: {
+      backgroundColor: colors.surface,
+      borderRadius: borders.radius.medium,
+      padding: spacing.medium,
+      marginBottom: spacing.large,
+      width: '100%',
+      alignItems: 'center',
+    },
+    orderNumber: {
+      ...typography.body1,
+      fontWeight: 'bold',
+      color: colors.text.primary,
+      marginBottom: spacing.small,
+    },
+    orderTotal: {
+      ...typography.h5,
+      fontWeight: 'bold',
+      color: colors.primary,
+    },
+    backButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.primary,
+      paddingVertical: spacing.medium,
+      paddingHorizontal: spacing.large,
+      borderRadius: borders.radius.medium,
+    },
+    backButtonText: {
+      ...typography.button,
+      color: colors.text.white,
+      marginLeft: spacing.small,
+    },
+  });
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [orderCompleted, setOrderCompleted] = useState(false);

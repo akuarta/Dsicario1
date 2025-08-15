@@ -1,26 +1,25 @@
 import React, { memo } from 'react';
-import { 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  Image, 
-  StyleSheet 
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  Image,
+  StyleSheet
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import ProductBadges from './ProductBadges';
-import globalStyles from '../styles/globalStyles';
-import theme from '../theme';
+import { useGlobalStyles } from '../hooks/useGlobalStyles';
 import { formatPrice, calculateDiscountedPrice } from '../utils/api';
+// import { useTheme } from 'react-native-elements';
 
-const { colors, spacing, typography, borders } = theme;
 
 /**
  * Enhanced Product Item Component with new API fields
  * Memoized to prevent unnecessary re-renders
  */
-const ProductItem = memo(({ 
-  product, 
-  onPress, 
+const ProductItem = memo(({
+  product,
+  onPress,
   style,
   showCategory = true,
   showBadges = true,
@@ -29,6 +28,182 @@ const ProductItem = memo(({
   compact = false,
   placeholderSource // nuevo prop
 }) => {
+  // const { theme: { colors, spacing, typography, borders, shadows } } = useTheme();
+  const { darkMode } = useThemeMode();
+  const { colors, spacing, typography, borders, shadows } = getThemeColors(darkMode);
+  const globalStyles = useGlobalStyles(colors);
+
+  const styles = StyleSheet.create({
+    gridContainer: {
+      flex: 1,
+      backgroundColor: colors.background,
+      borderRadius: borders.radius.lg,
+      padding: spacing.sm,
+      margin: spacing.xs,
+      alignItems: 'flex-start',
+      justifyContent: 'flex-start',
+      minHeight: 220,
+      maxWidth: '48%',
+      width: '100%',
+      ...shadows.small,
+    },
+    
+    compactContainer: {
+      flexDirection: 'column',
+      alignItems: 'flex-start',
+      backgroundColor: colors.background,
+      borderRadius: borders.radius.lg,
+      padding: spacing.sm,
+      marginBottom: spacing.md,
+      ...shadows.small,
+    },
+    
+    imageContainer: {
+      position: 'relative',
+      width: '100%',
+      aspectRatio: 1,
+      marginBottom: spacing.sm,
+    },
+    
+    gridImage: {
+      width: '100%',
+      height: 150,
+      borderRadius: borders.radius.md,
+    },
+    
+    compactImage: {
+      width: 80,
+      height: 80,
+      borderRadius: borders.radius.md,
+      marginRight: spacing.sm,
+    },
+    
+    outOfStockImage: {
+      opacity: 0.5,
+    },
+    
+    outOfStockOverlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      borderRadius: borders.radius.md,
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 1,
+    },
+    
+    outOfStockText: {
+      ...typography.bodyMedium,
+      color: colors.text.white,
+      marginTop: spacing.xs,
+    },
+    
+    ratingBadge: {
+      position: 'absolute',
+      top: spacing.xs,
+      right: spacing.xs,
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+      borderRadius: borders.radius.full,
+      paddingHorizontal: spacing.xs,
+      paddingVertical: 4,
+    },
+    
+    ratingText: {
+      ...typography.bodySmall,
+      color: colors.text.primary,
+      marginLeft: 4,
+    },
+    
+    productInfo: {
+      flex: 1,
+      paddingHorizontal: spacing.xs,
+    },
+    
+    compactInfo: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    
+    categoryText: {
+      ...typography.bodySmall,
+      color: colors.text.secondary,
+      marginBottom: 2,
+    },
+    
+    productName: {
+      ...typography.bodyMedium,
+      fontWeight: 'bold',
+      color: colors.text.primary,
+      marginBottom: spacing.xs,
+    },
+    
+    compactName: {
+      ...typography.bodySmall,
+      fontWeight: 'bold',
+      flex: 1,
+      marginRight: spacing.sm,
+    },
+    
+    subcategoryText: {
+      ...typography.bodySmall,
+      color: colors.text.secondary,
+      marginBottom: spacing.xs,
+    },
+    
+    priceContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: spacing.xs,
+    },
+    
+    priceText: {
+      ...typography.bodyLarge,
+      fontWeight: 'bold',
+      color: colors.primary,
+    },
+    
+    compactPrice: {
+      ...typography.bodyMedium,
+      fontWeight: 'bold',
+    },
+    
+    discountPriceContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    
+    originalPrice: {
+      ...typography.bodySmall,
+      color: colors.text.secondary,
+      textDecorationLine: 'line-through',
+      marginRight: spacing.xs,
+    },
+    
+    compactOriginalPrice: {
+      ...typography.bodyXSmall,
+    },
+    
+    discountedPrice: {
+      ...typography.bodyLarge,
+      fontWeight: 'bold',
+      color: colors.error,
+    },
+    
+    badges: {
+      marginTop: spacing.xs,
+    },
+    
+    outOfStockContainer: {
+      opacity: 0.7,
+    },
+  });
   const handlePress = () => {
     if (product.agotado) return; // Don't allow navigation if out of stock
     onPress?.(product);
@@ -221,7 +396,7 @@ const styles = StyleSheet.create({
     height: 140,
     borderRadius: borders.radius.md,
     marginBottom: spacing.sm,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: colors.border,
   },
   
   compactImage: {
@@ -361,7 +536,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-start',
     width: '100%',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderRadius: 10,
     padding: 8,
   },
@@ -370,7 +545,7 @@ const styles = StyleSheet.create({
     height: 90,
     borderRadius: 8,
     marginBottom: 10,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: colors.border,
   },
   textContainer: {
     alignItems: 'center',
@@ -381,11 +556,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 4,
-    color: '#333',
+    color: colors.text.primary,
   },
   price: {
     fontSize: 14,
-    color: '#FF6B35',
+    color: colors.primary,
     textAlign: 'center',
     marginBottom: 6,
     fontWeight: '600',

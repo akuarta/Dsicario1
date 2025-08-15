@@ -2,6 +2,8 @@ import React from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useThemeMode } from '../contexts/ThemeContext';
+import { getThemeColors } from '../theme/theme';
 import ProductListScreen from '../screens/ProductListScreen';
 import ProductDetailScreen from '../screens/ProductDetailScreen';
 import SectionProductsScreen from '../screens/SectionProductsScreen';
@@ -14,21 +16,25 @@ const MenuButton = () => {
     <FontAwesome5
       name="bars"
       size={22}
-      color="#fff"
+      color={colors.text.white}
       style={{ marginLeft: 16, cursor: 'pointer' }}
       onPress={() => navigation.openDrawer()}
     />
   );
 };
 
-const InicioStack = () => (
-  <Stack.Navigator>
+const InicioStack = () => {
+  const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
+
+  return (
+    <Stack.Navigator>
     <Stack.Screen
       name="Inicio"
       options={{
         title: 'DSicario',
-        headerStyle: { backgroundColor: '#FF6B35' },
-        headerTintColor: '#fff',
+        headerStyle: { backgroundColor: colors.primary },
+        headerTintColor: colors.text.white,
         headerTitleStyle: { fontWeight: 'bold' },
         headerLeft: () => <MenuButton />, 
       }}
@@ -40,8 +46,8 @@ const InicioStack = () => (
       component={ProductDetailScreen}
       options={{
         title: 'Detalles del Producto',
-        headerStyle: { backgroundColor: '#FF6B35' },
-        headerTintColor: '#fff',
+        headerStyle: { backgroundColor: colors.primary },
+        headerTintColor: colors.text.white,
         headerTitleStyle: { fontWeight: 'bold' },
       }}
     />
@@ -50,12 +56,13 @@ const InicioStack = () => (
       component={SectionProductsScreen}
       options={({ route }) => ({
         title: route?.params?.sectionName || 'Sección',
-        headerStyle: { backgroundColor: '#FF6B35' },
-        headerTintColor: '#fff',
+        headerStyle: { backgroundColor: colors.primary },
+        headerTintColor: colors.text.white,
         headerTitleStyle: { fontWeight: 'bold' },
       })}
     />
   </Stack.Navigator>
 );
 
+}; // Close InicioStack component
 export default InicioStack;

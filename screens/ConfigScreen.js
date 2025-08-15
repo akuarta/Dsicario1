@@ -1,11 +1,17 @@
 import React, { useState } from 'react';
 import { useUser } from '../contexts/UserContext';
+import { getThemeColors } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
-import { View, Text, StyleSheet, SafeAreaView, TextInput, Switch, TouchableOpacity, Alert, Platform, Modal } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, TextInput, Switch, TouchableOpacity, Alert, Platform, Modal, ScrollView } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { getAuth, signOut } from "firebase/auth";
 // import { AuthContext } from '../contexts/AuthContext';
 import { useNavigation } from '@react-navigation/native';
+import DarkModeExample from '../components/DarkModeExample';
+
+const { darkMode, toggleTheme: setThemeMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
+const { spacing, typography, borders } = theme;
 
 const ConfigScreen = () => {
   const navigation = useNavigation();
@@ -15,9 +21,94 @@ const ConfigScreen = () => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [notifications, setNotifications] = useState(true);
-  const { darkMode, themeMode, setThemeMode } = useThemeMode();
   // const { logout } = useContext(AuthContext);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+  const styles = StyleSheet.create({
+    container: { flex: 1, padding: 24 },
+    title: { fontSize: 22, fontWeight: 'bold', marginBottom: 24, alignSelf: 'center' },
+    section: { marginBottom: 32 },
+    label: { fontSize: 16, marginBottom: 8 },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 16,
+      fontSize: 16,
+    },
+    switchRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    button: {
+      padding: 15,
+      borderRadius: 8,
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    buttonText: {
+      fontSize: 16,
+      fontWeight: 'bold',
+    },
+    saveButton: {
+      backgroundColor: colors.primary,
+    },
+    discardButton: {
+      backgroundColor: colors.background,
+      borderWidth: 1,
+      borderColor: colors.primary,
+    },
+    logoutButton: {
+      backgroundColor: colors.error,
+      marginTop: 24,
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: 'bold',
+      marginBottom: 16,
+    },
+    themeOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginHorizontal: 4,
+    },
+    themeOptionText: {
+      marginLeft: 8,
+      fontWeight: 'bold',
+    },
+    modalContent: {
+      padding: 20,
+      borderRadius: 10,
+      alignItems: 'center',
+      width: '80%',
+      maxWidth: 400,
+    },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: 'bold',
+      marginBottom: 20,
+      textAlign: 'center',
+    },
+    cancelButton: {
+      flex: 1,
+      marginRight: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    logoutConfirmButton: {
+      flex: 1,
+      marginLeft: 8,
+      backgroundColor: colors.error,
+    },
+  });
 
   const handleSave = () => {
     setUsername(localUsername);
@@ -68,94 +159,103 @@ const ConfigScreen = () => {
   };
 
   return (
-    <SafeAreaView style={[styles.container, darkMode && styles.containerDark]}>
-      <Text style={styles.title}>Configuración</Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <Text style={[styles.title, { color: colors.primary }]}>Configuración</Text>
       <View style={styles.section}>
-        <Text style={[styles.label, darkMode && styles.labelDark]}>Nombre de usuario</Text>
+        <Text style={[styles.label, { color: colors.text.primary }]}>Nombre de usuario</Text>
         <TextInput
-          style={[styles.input, darkMode && styles.inputDark]}
+          style={[styles.input, { backgroundColor: colors.surface, color: colors.text.primary, borderColor: colors.border }]}
           value={localUsername}
           onChangeText={setLocalUsername}
           placeholder="Nombre de usuario"
-          placeholderTextColor={darkMode ? '#aaa' : '#888'}
+          placeholderTextColor={colors.text.secondary}
         />
-        <Text style={[styles.label, darkMode && styles.labelDark]}>Correo electrónico</Text>
+        <Text style={[styles.label, { color: colors.text.primary }]}>Correo electrónico</Text>
         <TextInput
-          style={[styles.input, darkMode && styles.inputDark]}
+          style={[styles.input, { backgroundColor: colors.surface, color: colors.text.primary, borderColor: colors.border }]}
           value={localEmail}
           onChangeText={setLocalEmail}
           placeholder="Correo electrónico"
           keyboardType="email-address"
-          placeholderTextColor={darkMode ? '#aaa' : '#888'}
+          placeholderTextColor={colors.text.secondary}
         />
-        <Text style={[styles.label, darkMode && styles.labelDark]}>Contraseña actual</Text>
+        <Text style={[styles.label, { color: colors.text.primary }]}>Contraseña actual</Text>
         <TextInput
-          style={[styles.input, darkMode && styles.inputDark]}
+          style={[styles.input, { backgroundColor: colors.surface, color: colors.text.primary, borderColor: colors.border }]}
           value={currentPassword}
           onChangeText={setCurrentPassword}
           placeholder="Contraseña actual"
           secureTextEntry
-          placeholderTextColor={darkMode ? '#aaa' : '#888'}
+          placeholderTextColor={colors.text.secondary}
         />
-        <Text style={[styles.label, darkMode && styles.labelDark]}>Nueva contraseña</Text>
+        <Text style={[styles.label, { color: colors.text.primary }]}>Nueva contraseña</Text>
         <TextInput
-          style={[styles.input, darkMode && styles.inputDark]}
+          style={[styles.input, { backgroundColor: colors.surface, color: colors.text.primary, borderColor: colors.border }]}
           value={newPassword}
           onChangeText={setNewPassword}
           placeholder="Nueva contraseña"
           secureTextEntry
-          placeholderTextColor={darkMode ? '#aaa' : '#888'}
+          placeholderTextColor={colors.text.secondary}
         />
-        <TouchableOpacity style={styles.button} onPress={handleChangePassword}>
-          <Text style={styles.buttonText}>Cambiar contraseña</Text>
+        <TouchableOpacity style={[styles.button, { backgroundColor: colors.primary }]} onPress={handleChangePassword}>
+          <Text style={[styles.buttonText, { color: colors.text.white }]}>Cambiar contraseña</Text>
         </TouchableOpacity>
       </View>
       <View style={styles.section}>
         <View style={styles.switchRow}>
-          <Text style={[styles.label, darkMode && styles.labelDark]}>Notificaciones</Text>
-          <Switch value={notifications} onValueChange={setNotifications} />
+          <Text style={[styles.label, { color: colors.text.primary }]}>Notificaciones</Text>
+          <Switch 
+            value={notifications} 
+            onValueChange={setNotifications} 
+            trackColor={{ false: colors.border, true: colors.primary }}
+            thumbColor={notifications ? colors.accent : colors.surface}
+          />
         </View>
         <View style={styles.switchRow}>
-          <Text style={[styles.label, darkMode && styles.labelDark]}>Tema</Text>
+          <Text style={[styles.label, { color: colors.text.primary }]}>Tema</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <TouchableOpacity
-              style={[styles.themeOption, themeMode === 'light' && styles.themeOptionActive]}
+              style={[styles.themeOption, themeMode === 'light' && { backgroundColor: colors.primary }]}
               onPress={() => setThemeMode('light')}
             >
-              <FontAwesome5 name="sun" size={16} color={themeMode === 'light' ? '#FF6B35' : '#888'} />
-              <Text style={[styles.themeOptionText, themeMode === 'light' && styles.themeOptionTextActive, 
-                { color: darkMode ? '#fff' : '#333' }
-              ]}>
+              <FontAwesome5 name="sun" size={16} color={themeMode === 'light' ? colors.text.white : colors.text.secondary} />
+              <Text style={[styles.themeOptionText, { color: themeMode === 'light' ? colors.text.white : colors.text.secondary }]}>
                 Claro
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.themeOption, themeMode === 'dark' && styles.themeOptionActive]}
+              style={[styles.themeOption, themeMode === 'dark' && { backgroundColor: colors.primary }]}
               onPress={() => setThemeMode('dark')}
             >
-              <FontAwesome5 name="moon" size={16} color={themeMode === 'dark' ? '#FF6B35' : '#888'} />
-              <Text style={[styles.themeOptionText, themeMode === 'dark' && styles.themeOptionTextActive, { color: darkMode ? '#fff' : '#888' }]}>Oscuro</Text>
+              <FontAwesome5 name="moon" size={16} color={themeMode === 'dark' ? colors.text.white : colors.text.secondary} />
+              <Text style={[styles.themeOptionText, { color: themeMode === 'dark' ? colors.text.white : colors.text.secondary }]}>Oscuro</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.themeOption, themeMode === 'system' && styles.themeOptionActive]}
+              style={[styles.themeOption, themeMode === 'system' && { backgroundColor: colors.primary }]}
               onPress={() => setThemeMode('system')}
             >
-              <FontAwesome5 name="mobile-alt" size={16} color={themeMode === 'system' ? '#FF6B35' : '#888'} />
-              <Text style={[styles.themeOptionText, themeMode === 'system' && styles.themeOptionTextActive, { color: darkMode ? '#fff' : '#888' }]}>Auto</Text>
+              <FontAwesome5 name="mobile-alt" size={16} color={themeMode === 'system' ? colors.text.white : colors.text.secondary} />
+              <Text style={[styles.themeOptionText, { color: themeMode === 'system' ? colors.text.white : colors.text.secondary }]}>Auto</Text>
             </TouchableOpacity>
           </View>
         </View>
       </View>
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Ejemplo de Modo Oscuro</Text>
+        <DarkModeExample />
+      </View>
+
       <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-        <TouchableOpacity style={[styles.button, styles.saveButton, { flex: 1, marginRight: 8 }]} onPress={handleSave}>
-          <Text style={styles.buttonText}>Guardar cambios</Text>
+        <TouchableOpacity style={[styles.button, styles.saveButton, { flex: 1, marginRight: 8, backgroundColor: colors.primary }]} onPress={handleSave}>
+          <Text style={[styles.buttonText, { color: colors.text.white }]}>Guardar cambios</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.button, styles.discardButton, { flex: 1, marginLeft: 8 }]} onPress={handleDiscard}>
-          <Text style={[styles.buttonText, { color: '#FF6B35' }]}>Descartar</Text>
+        <TouchableOpacity style={[styles.button, styles.discardButton, { flex: 1, marginLeft: 8, backgroundColor: colors.background, borderColor: colors.primary }]} onPress={handleDiscard}>
+          <Text style={[styles.buttonText, { color: colors.primary }]}>Descartar</Text>
         </TouchableOpacity>
       </View>
-      <TouchableOpacity style={[styles.button, styles.logoutButton]} onPress={handleLogout}>
-        <Text style={[styles.buttonText, { color: '#fff' }]}>Cerrar sesión</Text>
+      <TouchableOpacity style={[styles.button, styles.logoutButton, { backgroundColor: colors.error }]} onPress={handleLogout}>
+        <Text style={[styles.buttonText, { color: colors.text.white }]}>Cerrar sesión</Text>
       </TouchableOpacity>
       {Platform.OS === 'web' && showLogoutModal && (
         <Modal
@@ -165,48 +265,48 @@ const ConfigScreen = () => {
           onRequestClose={() => setShowLogoutModal(false)}
         >
           <View style={{flex:1,justifyContent:'center',alignItems:'center',backgroundColor:'rgba(0,0,0,0.3)'}}>
-            <View style={[styles.modalContent, darkMode && styles.modalContentDark]}>
-              <Text style={[styles.modalTitle, darkMode && styles.modalTitleDark]}>¿Estás seguro de que quieres cerrar sesión?</Text>
+            <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+              <Text style={[styles.modalTitle, { color: colors.text.primary }]}>¿Estás seguro de que quieres cerrar sesión?</Text>
               <View style={{flexDirection:'row',marginTop:16}}>
-                <TouchableOpacity style={[styles.button,styles.cancelButton, darkMode && styles.cancelButtonDark]} onPress={()=>setShowLogoutModal(false)}>
-                  <Text style={[styles.buttonText, darkMode && styles.buttonTextDark]}>Cancelar</Text>
+                <TouchableOpacity style={[styles.button, styles.cancelButton, { backgroundColor: colors.background, borderColor: colors.border }]} onPress={()=>setShowLogoutModal(false)}>
+                  <Text style={[styles.buttonText, { color: colors.text.primary }]}>Cancelar</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.button,styles.logoutConfirmButton]} onPress={()=>{setShowLogoutModal(false);logout();}}>
-                  <Text style={styles.buttonText}>Cerrar sesión</Text>
+                <TouchableOpacity style={[styles.button, styles.logoutConfirmButton, { backgroundColor: colors.error }]} onPress={()=>{setShowLogoutModal(false);logout();}}>
+                  <Text style={[styles.buttonText, { color: colors.text.white }]}>Cerrar sesión</Text>
                 </TouchableOpacity>
               </View>
             </View>
           </View>
         </Modal>
       )}
+      </ScrollView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', padding: 24 },
-  containerDark: { backgroundColor: '#222' },
-  title: { fontSize: 22, fontWeight: 'bold', color: '#FF6B35', marginBottom: 24, alignSelf: 'center' },
+  container: { flex: 1, padding: 24 },
+  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 24, alignSelf: 'center' },
   section: { marginBottom: 32 },
-  label: { fontSize: 16, color: '#333', marginBottom: 8 },
-  labelDark: { color: '#fff' },
+  sectionTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 16 },
+  label: { fontSize: 16, marginBottom: 8 },
   input: {
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: colors.border,
     borderRadius: 8,
     padding: 10,
     marginBottom: 16,
     fontSize: 16,
-    color: '#333',
+    color: colors.text.primary,
     backgroundColor: '#fafafa',
   },
   inputDark: {
-    backgroundColor: '#333',
-    color: '#fff',
+    backgroundColor: colors.surface,
+    color: colors.text.white,
     borderColor: '#444',
   },
   button: {
-    backgroundColor: '#FF6B35',
+    backgroundColor: colors.primary,
     borderRadius: 8,
     paddingVertical: 12,
     paddingHorizontal: 20,
@@ -214,16 +314,16 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   saveButton: {
-    backgroundColor: '#FF6B35',
+    backgroundColor: colors.primary,
     marginTop: 12,
   },
   discardButton: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: '#FF6B35',
+    borderColor: colors.primary,
   },
   buttonText: {
-    color: '#fff',
+    color: colors.text.white,
     fontWeight: 'bold',
     fontSize: 16,
   },
@@ -238,38 +338,35 @@ const styles = StyleSheet.create({
   },
   themeOptionText: {
     marginLeft: 4,
-    color: '#888',
     fontWeight: 'bold',
   },
   themeOptionActive: {
-    backgroundColor: '#FF6B35',
+    backgroundColor: colors.primary,
   },
-  themeOptionText: {
-    marginLeft: 4,
-    color: '#888', // Eliminar la referencia a darkMode
+  themeOptionBold: {
     fontWeight: 'bold',
   },
   themeOptionTextActive: {
-    color: '#fff',
+    color: colors.text.white,
   },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
     padding: 24,
     borderRadius: 12,
     alignItems: 'center',
     minWidth: 300,
   },
   modalContentDark: {
-    backgroundColor: '#333',
+    backgroundColor: colors.surface,
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 12,
-    color: '#333',
+    color: colors.text.primary,
   },
   modalTitleDark: {
-    color: '#fff',
+    color: colors.text.white,
   },
   cancelButton: {
     backgroundColor: '#aaa',
@@ -279,7 +376,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#666',
   },
   buttonTextDark: {
-    color: '#fff',
+    color: colors.text.white,
   },
 });
 

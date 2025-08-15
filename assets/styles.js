@@ -4,7 +4,7 @@
 // Usar: import theme from '../theme';
 
 import { StyleSheet, Dimensions } from 'react-native';
-import theme from '../theme';
+import theme from '../theme/theme';
 import globalStyles from '../styles/globalStyles';
 
 const { width, height } = Dimensions.get('window');

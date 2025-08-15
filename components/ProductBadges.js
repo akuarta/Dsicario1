@@ -1,21 +1,26 @@
 import React, { memo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import theme from '../theme';
+import { getThemeColors } from '../theme/theme';
+import { useThemeMode } from '../contexts/ThemeContext';
+import theme from '../theme/theme';
 
-const { colors, spacing, typography, borders } = theme;
+const { spacing, typography, borders } = theme;
 
 /**
  * Product Badges Component
  * Shows various product states like "Best Seller", "House Special", etc.
  */
-const ProductBadges = memo(({ 
-  product, 
+const ProductBadges = memo(({
+  product,
   style,
   showAll = true,
   maxBadges = 3,
   size = 'small' // 'small', 'medium', 'large'
 }) => {
+  const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
+
   if (!product) return null;
 
   const badges = [];
@@ -168,30 +173,30 @@ const getBadgeSize = (size) => {
 // Display name for debugging
 ProductBadges.displayName = 'ProductBadges';
 
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-  },
-  
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: borders.radius.round,
-    marginRight: spacing.xs,
-    marginBottom: spacing.xs,
-    ...theme.shadows.small,
-  },
-  
-  icon: {
-    marginRight: spacing.xs / 2,
-  },
-  
-  text: {
-    fontWeight: typography.weights.bold,
-    textTransform: 'uppercase',
-  },
-});
+  const styles = StyleSheet.create({
+    container: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+    },
+    
+    badge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderRadius: borders.radius.round,
+      marginRight: spacing.xs,
+      marginBottom: spacing.xs,
+      ...theme.shadows.small,
+    },
+    
+    icon: {
+      marginRight: spacing.xs / 2,
+    },
+    
+    text: {
+      fontWeight: typography.weights.bold,
+      textTransform: 'uppercase',
+    },
+  });
 
 export default ProductBadges;
