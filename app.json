@@ -23,7 +23,8 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.hairoman28.snack5baad7fbf0d6462aa632f151b104f565",
+      "package": "com.akuarta.dsicario",
+      "googleServicesFile": "./google-services.json",
       "config": {
         "googleMaps": {
           "apiKey": "TU_API_KEY_AQUI"
@@ -32,6 +33,7 @@
     },
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.akuarta.dsicarioapp",
       "config": {
         "googleMapsApiKey": "TU_API_KEY_AQUI"
       }

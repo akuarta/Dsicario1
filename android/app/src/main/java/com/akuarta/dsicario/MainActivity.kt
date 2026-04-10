@@ -1,4 +1,4 @@
-package com.hairoman28.snack5baad7fbf0d6462aa632f151b104f565
+package com.akuarta.dsicario
 
 import android.os.Build
 import android.os.Bundle

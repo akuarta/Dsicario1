@@ -12,12 +12,7 @@
           "package_name": "com.akuarta.dsicario"
         }
       },
-      "oauth_client": [
-        {
-          "client_id": "758740272138-77lhol13d82jds53656573ijqi0u766k.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
+      "oauth_client": [],
       "api_key": [
         {
           "current_key": "AIzaSyAAaXyPBFqaoplWEJteD4kueXbjGI74Ga4"
@@ -25,12 +20,7 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "758740272138-77lhol13d82jds53656573ijqi0u766k.apps.googleusercontent.com",
-              "client_type": 3
-            }
-          ]
+          "other_platform_oauth_client": []
         }
       }
     }
