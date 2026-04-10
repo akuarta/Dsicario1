@@ -6,9 +6,12 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
-  updateProfile
+  updateProfile,
+  GoogleAuthProvider,
+  signInWithCredential
 } from 'firebase/auth';
 import { auth } from '../config/firebaseConfig';
+import { saveUser } from '../utils/api';
 
 const AuthContext = createContext();
 
@@ -153,6 +156,40 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const signInWithGoogle = async (idToken) => {
+    setIsAuthenticating(true);
+    setError(null);
+    try {
+      const credential = GoogleAuthProvider.credential(idToken);
+      const result = await signInWithCredential(auth, credential);
+      const userData = {
+        uid: result.user.uid,
+        email: result.user.email,
+        displayName: result.user.displayName,
+        photoURL: result.user.photoURL,
+        emailVerified: result.user.emailVerified,
+      };
+
+      // Guardar/Actualizar usuario en Google Sheets
+      await saveUser({
+        id: userData.uid,
+        username: userData.displayName,
+        email: userData.email,
+        role: 'Cliente',
+        active: true
+      });
+
+      setUser(userData);
+      await AsyncStorage.setItem('@dsicario_user', JSON.stringify(userData));
+      return userData;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
   const value = {
     user,
     loading,
@@ -161,6 +198,7 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated: !!user,
     signIn,
     signUp,
+    signInWithGoogle,
     signOut,
     clearError: () => setError(null),
   };

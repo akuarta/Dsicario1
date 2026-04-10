@@ -14,6 +14,7 @@ const ProfileDrawerContent = (props) => {
   const totalItems = getTotalItems();
   
   const isAdmin = role && role.toLowerCase() === 'admin';
+  const isCocina = role && role.toLowerCase() === 'cocina';
 
   const showAlert = (title, message) => Alert.alert(title, message);
 
@@ -92,7 +93,7 @@ const ProfileDrawerContent = (props) => {
       title: 'Monitor de Cocina',
       icon: 'utensils',
       onPress: () => props.navigation.navigate('CocinaAdmin'),
-      visible: isAdmin,
+      visible: isAdmin || isCocina,
     },
     {
       id: 8,

@@ -16,7 +16,7 @@ import {
 import { FontAwesome5 } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { useCart, useProducts } from '../contexts/AppContext';
+import { useCart, useProducts, useDataSync } from '../contexts/AppContext';
 import { useNavigation } from '@react-navigation/native';
 import { CustomHeader } from '../components/CustomHeader';
 import { useGlobalStyles } from '../styles/globalStyles';
@@ -24,6 +24,8 @@ import { generatePDFBase64 } from '../utils/pdfGenerator';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { generateInvoice } from '../utils/invoiceService';
+import { useUser } from '../contexts/UserContext';
+import { saveOrder } from '../utils/api';
 
 // Eliminamos el helper externo showOrderConfirm para evitar problemas de scope
 const CheckoutScreen = ({ navigation, route }) => {
@@ -445,16 +447,41 @@ const CheckoutScreen = ({ navigation, route }) => {
     setIsConfirming(true);
   };
 
+  const { syncAllData } = useDataSync();
+  const { user } = useUser();
+
   const executePayment = async () => {
     setIsConfirming(false);
     setIsProcessing(true);
     try {
-      console.log('Procesando pago simulado...');
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      console.log('🚀 Enviando pedido a cocina...');
+      
+      // 1. Preparar datos para Cocina
+      const orderData = {
+        orderId: orderNumber,
+        cliente: 'Invitado', // Podrías expandir esto para pedir el nombre
+        items: cart,
+        total: finalTotal,
+        hora: new Date().toLocaleTimeString(),
+        notas: orderNote || '',
+        whatsapp: 'n/a',
+        direccion: deliveryType === 'delivery' ? 'Domicilio' : 'Retiro en Local',
+        metodo: paymentType === 'cash' ? 'Efectivo' : 'Tarjeta',
+        usuario: user?.email || 'App User'
+      };
+
+      // 2. Guardar en Google Sheets (Cocina)
+      await saveOrder(orderData);
+      
+      // 3. Sincronizar localmente el monitor de cocina
+      await syncAllData();
+
+      // 4. Finalizar flujo original
       setOrderCompleted(true);
       if (clearCart) clearCart();
     } catch (error) {
-      console.error('Error en pago:', error);
+      console.error('❌ Error en proceso de pago/cocina:', error);
+      Alert.alert('Error', 'No se pudo procesar el pedido. Verifica tu conexión.');
     } finally {
       setIsProcessing(false);
     }

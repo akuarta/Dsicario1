@@ -920,6 +920,43 @@ export const saveUser = async (userData) => {
   }
 };
 
+/**
+ * Save order to the COCINA sheet
+ * @param {Object} orderData - The order payload
+ */
+export const saveOrder = async (orderData) => {
+  try {
+    const payload = {
+      action: "updateOrder", 
+      sheet: "cocina",
+      data: {
+        'ID_Orden': orderData.orderId,
+        'Cliente': orderData.cliente || 'Invitado',
+        'Items': JSON.stringify(orderData.items),
+        'Estado': orderData.estado || 'pendiente',
+        'Total': orderData.total,
+        'Hora': orderData.hora || new Date().toLocaleTimeString(),
+        'Notas': orderData.notas || '',
+        'Whatsapp': orderData.whatsapp || '',
+        'Direccion': orderData.direccion || '',
+        'Metodo': orderData.metodo || 'Efectivo',
+        'Usuario': orderData.usuario || ''
+      }
+    };
+
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload),
+    });
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error saving order:', error);
+    throw error;
+  }
+};
+
 export default {
   fetchProducts,
   searchProducts,
@@ -941,6 +978,7 @@ export default {
   updateDelivery,
   fetchKitchenOrders,
   updateOrderStatus,
+  saveOrder,
   saveWaiterCartItem,
   fetchWaiterActiveSessions,
   fetchUserRoleByEmail,

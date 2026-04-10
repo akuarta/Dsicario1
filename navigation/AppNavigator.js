@@ -143,13 +143,16 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="Favoritos" component={FavoritesStack} options={{ drawerLabel: 'Favoritos' }} />
       <Drawer.Screen name="Configuracion" component={ConfigStack} options={{ drawerLabel: 'Configuración' }} />
       
-      {role && role.toLowerCase() === 'admin' && (
+      {(role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'cocina') && (
+        <Drawer.Screen 
+          name="CocinaAdmin" 
+          component={KitchenScreen} 
+          options={{ drawerLabel: 'Monitor de Cocina' }} 
+        />
+      )}
+
+      {role?.toLowerCase() === 'admin' && (
         <>
-          <Drawer.Screen 
-            name="CocinaAdmin" 
-            component={KitchenScreen} 
-            options={{ drawerLabel: 'Monitor de Cocina' }} 
-          />
           <Drawer.Screen 
             name="RiderAdmin" 
             component={RiderScreen} 

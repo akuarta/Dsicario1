@@ -29,7 +29,7 @@ const FloatingCartButton = () => {
   const totalItems = getTotalItems();
 
   // Pantallas donde NO debe aparecer el botón
-  const hiddenScreens = ['Cart', 'Carrito', 'Checkout', 'DeliveryTracking'];
+  const hiddenScreens = ['Cart', 'Carrito', 'Checkout', 'DeliveryTracking', 'CocinaAdmin', 'RiderAdmin', 'AdminStaff', 'CarritoTab'];
   
   // Ajustar posición si hay elementos fijos abajo (como en ProductDetail)
   const isProductDetail = routeName === 'ProductDetail';
