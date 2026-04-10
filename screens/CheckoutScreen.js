@@ -456,22 +456,34 @@ const CheckoutScreen = ({ navigation, route }) => {
     try {
       console.log('🚀 Enviando pedido a cocina...');
       
-      // 1. Preparar datos para Cocina
+      // 1. Preparar datos para Cocina (Simplificados para evitar errores de red)
       const orderData = {
         orderId: orderNumber,
-        cliente: 'Invitado', // Podrías expandir esto para pedir el nombre
-        items: cart,
+        cliente: user?.displayName || user?.email || 'Invitado', 
+        items: cart.map(item => ({
+          nombre: item.nombre,
+          cantidad: item.quantity,
+          precio: item.precio
+        })),
         total: finalTotal,
         hora: new Date().toLocaleTimeString(),
         notas: orderNote || '',
-        whatsapp: 'n/a',
-        direccion: deliveryType === 'delivery' ? 'Domicilio' : 'Retiro en Local',
+        whatsapp: 'Ver en Perfil', // No hay campo de teléfono en Checkout aún
+        direccion: deliveryType === 'delivery' ? 'Domicilio (App)' : 'Retiro en Local',
         metodo: paymentType === 'cash' ? 'Efectivo' : 'Tarjeta',
         usuario: user?.email || 'App User'
       };
 
       // 2. Guardar en Google Sheets (Cocina)
-      await saveOrder(orderData);
+      const result = await saveOrder(orderData);
+      
+      // Flexibilidad: Aceptar success:true o status:'success' o status:'ok' o si devuelve una fila
+      const isSuccess = result && (result.success || result.status === 'success' || result.status === 'ok' || result.row);
+      
+      if (!isSuccess) {
+        const errorDetail = result ? JSON.stringify(result) : 'Sin respuesta';
+        throw new Error(`Respuesta no reconocida: ${errorDetail}`);
+      }
       
       // 3. Sincronizar localmente el monitor de cocina
       await syncAllData();
@@ -481,7 +493,10 @@ const CheckoutScreen = ({ navigation, route }) => {
       if (clearCart) clearCart();
     } catch (error) {
       console.error('❌ Error en proceso de pago/cocina:', error);
-      Alert.alert('Error', 'No se pudo procesar el pedido. Verifica tu conexión.');
+      Alert.alert(
+        'Error de Conexión', 
+        `No pudimos enviar el pedido a la cocina. Detalle: ${error.message}. Verifica tu internet o contacta soporte.`
+      );
     } finally {
       setIsProcessing(false);
     }

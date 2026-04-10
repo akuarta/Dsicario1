@@ -38,8 +38,10 @@ const KitchenScreen = ({ navigation }) => {
 
   const handleUpdateStatus = async (orderId, currentStatus) => {
     const status = (currentStatus || '').toLowerCase();
+    let nextStatus = '';
+    let confirmMsg = '';
     
-    if (status === 'received' || status === 'pending' || status === 'nuevo') {
+    if (status === 'received' || status === 'pending' || status === 'nuevo' || status === 'pendiente') {
       nextStatus = 'preparing';
       confirmMsg = '¿Comenzar a preparar este pedido?';
     } else if (status === 'preparing' || status === 'preparando') {
@@ -74,6 +76,7 @@ const KitchenScreen = ({ navigation }) => {
     switch (status.toLowerCase()) {
       case 'received':
       case 'pending':
+      case 'pendiente':
         return colors.warning || '#FFC107';
       case 'preparing':
         return colors.primary || '#E63946';

@@ -615,51 +615,32 @@ export const generateOrderNumber = () => {
  */
 export const fetchKitchenOrders = async () => {
   try {
-    console.log('Fetching active kitchen orders from COCINA...');
-    const url = `${CONFIG.GAS_API_URL}?sheet=cocina`;
+    console.log('Fetching active kitchen orders from pedidos...');
+    const url = `${CONFIG.GAS_API_URL}?sheet=pedidos`;
     const response = await fetch(url, {
       credentials: 'omit',
       redirect: 'follow'
     });
 
-    if (!response.ok) throw new Error('No se pudo leer la hoja de COCINA');
+    if (!response.ok) throw new Error('No se pudo leer la hoja de pedidos');
     const rawData = await response.json();
-    
-    const orders = resolveSheetData(rawData, 'cocina');
+    const orders = resolveSheetData(rawData, 'pedidos');
     
     return orders
       .filter(order => {
-        const estado = (getRobustProp(order, 'Estado') || getRobustProp(order, 'status') || '').toLowerCase();
-        return estado !== 'delivered' && estado !== 'entregado' && estado !== 'completado' && estado !== 'ready';
+        // En 'pedidos', si no hay 'Salida', el pedido está activo
+        const salida = getRobustProp(order, 'Salida');
+        return !salida || salida === '';
       })
-      .map(order => {
-        // Parsear items de forma segura
-        let itemsArr = [];
-        const rawItems = getRobustProp(order, 'Items') || getRobustProp(order, 'items') || getRobustProp(order, 'Productos');
-        
-        if (rawItems) {
-          if (typeof rawItems === 'string') {
-            try {
-              itemsArr = JSON.parse(rawItems);
-            } catch (e) {
-              console.warn(`⚠️ Error parseando Items para orden ${getRobustProp(order, 'ID_Orden')}:`, e.message);
-              itemsArr = []; // Fallback a lista vacía para no romper la app
-            }
-          } else if (Array.isArray(rawItems)) {
-            itemsArr = rawItems;
-          }
-        }
-
-        return {
-          id: getRobustProp(order, 'ID_Orden') || getRobustProp(order, 'orderId') || Math.random().toString(),
-          cliente: getRobustProp(order, 'Cliente') || getRobustProp(order, 'clientName') || 'Invitado',
-          items: itemsArr,
-          estado: getRobustProp(order, 'Estado') || getRobustProp(order, 'status') || 'pending',
-          hora: getRobustProp(order, 'Hora') || getRobustProp(order, 'time') || '',
-          notas: getRobustProp(order, 'Notas') || getRobustProp(order, 'note') || '',
-          total: parseFloat(getRobustProp(order, 'Total')) || 0,
-        };
-      });
+      .map(order => ({
+        id: getRobustProp(order, 'ID_Pedido') || Math.random().toString(),
+        cliente: getRobustProp(order, 'Cliente') || 'Invitado',
+        items: [], // En esta hoja no hay items, se cargan por ID_Pedido en detalle si es necesario
+        estado: 'pending',
+        hora: getRobustProp(order, 'Entrada') || '',
+        notas: getRobustProp(order, 'Notas') || '',
+        total: parseFloat(getRobustProp(order, 'Total')) || 0,
+      }));
   } catch (error) {
     console.error('Error fetching kitchen orders:', error);
     return [];
@@ -667,30 +648,26 @@ export const fetchKitchenOrders = async () => {
 };
 
 /**
- * Update order status in Google Apps Script targeting COCINA sheet
- * @param {string} orderId - Order ID to update
- * @param {string} newStatus - New status
+ * Update order status in Google Apps Script targeting pedidos sheet
  */
 export const updateOrderStatus = async (orderId, newStatus) => {
   try {
     const payload = {
-      action: "updateOrder",
-      sheet: "cocina",
+      action: "UPDATE",
+      sheet: "pedidos",
       data: {
-        orderId: orderId,
-        status: newStatus
+        'ID_Pedido': orderId,
+        'Salida': (newStatus === 'delivered' || newStatus === 'completado') ? new Date().toLocaleTimeString() : ''
       }
     };
 
     const response = await fetch(CONFIG.GAS_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload),
+      redirect: 'follow'
     });
 
-    const result = await response.json();
-    if (!result.success) throw new Error(result.error || 'Error al actualizar');
-    return result;
+    return await response.json();
   } catch (error) {
     console.error('Error updating order status:', error);
     throw error;
@@ -703,23 +680,24 @@ export const updateOrderStatus = async (orderId, newStatus) => {
  */
 export const fetchRiderOrders = async (riderId) => {
   try {
-    const url = `${CONFIG.GAS_API_URL}?sheet=cocina`;
-    const response = await fetch(url);
+    const url = `${CONFIG.GAS_API_URL}?sheet=pedidos`;
+    const response = await fetch(url, { redirect: 'follow' });
     const rawData = await response.json();
-    const orders = getRobustProp(rawData, 'Cocina') || getRobustProp(rawData, 'data') || [];
+    const orders = resolveSheetData(rawData, 'pedidos');
     
     return orders.filter(o => {
-      const resp = getRobustProp(o, 'Repartidor') || getRobustProp(o, 'repartidor') || '';
-      const status = (getRobustProp(o, 'Estado') || '').toLowerCase();
-      return resp === riderId && status !== 'entregado';
+      const resp = getRobustProp(o, 'Repartidor') || getRobustProp(o, 'Delivery') || '';
+      const salida = getRobustProp(o, 'Salida');
+      // Filtramos por repartidor y que no hayan salido todavía o que coincidan con el rider
+      return (String(resp) === String(riderId)) && (!salida || salida === '');
     }).map(o => ({
-      id: getRobustProp(o, 'ID_Orden') || getRobustProp(o, 'orderId'),
+      id: getRobustProp(o, 'ID_Pedido'),
       cliente: getRobustProp(o, 'Cliente'),
       total: parseFloat(getRobustProp(o, 'Total')) || 0,
-      estado: getRobustProp(o, 'Estado'),
-      items: typeof getRobustProp(o, 'Items') === 'string' ? JSON.parse(getRobustProp(o, 'Items')) : (getRobustProp(o, 'items') || []),
+      estado: getRobustProp(o, 'Salida') ? 'delivered' : 'preparing',
+      items: [], 
       notas: getRobustProp(o, 'Notas') || '',
-      hora: getRobustProp(o, 'Hora') || '',
+      hora: getRobustProp(o, 'Entrada') || '',
       whatsapp: getRobustProp(o, 'Whatsapp') || getRobustProp(o, 'Telefono') || ''
     }));
   } catch (error) {
@@ -790,6 +768,7 @@ export const saveWaiterCartItem = async (itemData) => {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload),
+      redirect: 'follow'
     });
 
     return await response.json();
@@ -911,6 +890,7 @@ export const saveUser = async (userData) => {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload),
+      redirect: 'follow'
     });
 
     return await response.json();
@@ -921,36 +901,34 @@ export const saveUser = async (userData) => {
 };
 
 /**
- * Save order to the COCINA sheet
+ * Save order to the COCINA sheet using a minimal payload for stability
  * @param {Object} orderData - The order payload
  */
 export const saveOrder = async (orderData) => {
   try {
     const payload = {
-      action: "updateOrder", 
-      sheet: "cocina",
+      action: "ADD", 
+      sheet: "pedidos",
       data: {
-        'ID_Orden': orderData.orderId,
+        'ID_Pedido': orderData.orderId,
         'Cliente': orderData.cliente || 'Invitado',
-        'Items': JSON.stringify(orderData.items),
-        'Estado': orderData.estado || 'pendiente',
         'Total': orderData.total,
-        'Hora': orderData.hora || new Date().toLocaleTimeString(),
+        'Entrada': orderData.hora || new Date().toLocaleTimeString(),
+        'fecha': new Date().toLocaleDateString(),
         'Notas': orderData.notas || '',
-        'Whatsapp': orderData.whatsapp || '',
-        'Direccion': orderData.direccion || '',
-        'Metodo': orderData.metodo || 'Efectivo',
-        'Usuario': orderData.usuario || ''
+        'Pagado?': 'NO'
       }
     };
 
-    const response = await fetch(CONFIG.GAS_API_URL, {
+    const url = `${CONFIG.GAS_API_URL}?sheet=pedidos`;
+    const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload),
+      redirect: 'follow'
     });
 
-    return await response.json();
+    const result = await response.json();
+    return result;
   } catch (error) {
     console.error('Error saving order:', error);
     throw error;
