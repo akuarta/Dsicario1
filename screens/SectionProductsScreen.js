@@ -2,19 +2,13 @@ import React from 'react';
 import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, FlatList } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import ProductItem from '../components/ProductItem';
-import theme from '../theme/theme';
-import { useTheme } from 'react-native-elements';
+import { CustomHeader } from '../components/CustomHeader';
+import { getThemeColors, spacing, typography } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
-import { getThemeColors } from '../theme/theme';
-
-
-const { darkMode } = useThemeMode();
-  const colors = getThemeColors(darkMode);
-const { spacing, typography } = theme;
-
 const SectionProductsScreen = ({ route, navigation }) => {
+  const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
   const { sectionName, products } = route.params;
-  // const { theme: { colors } } = useTheme();
 
   const handleProductPress = (product) => {
     navigation.navigate('ProductDetail', { product });
@@ -22,12 +16,7 @@ const SectionProductsScreen = ({ route, navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <FontAwesome5 name="arrow-left" size={20} color={colors.text.white} />
-        </TouchableOpacity>
-        <Text style={styles.title}>{sectionName}</Text>
-      </View>
+      <CustomHeader title={sectionName || 'Sección'} showBack={true} />
       <FlatList
         data={products}
         renderItem={({ item }) => (
@@ -45,7 +34,6 @@ const SectionProductsScreen = ({ route, navigation }) => {
       />
     </SafeAreaView>
   );
-};
 
   const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
@@ -81,5 +69,6 @@ const SectionProductsScreen = ({ route, navigation }) => {
       minHeight: 220, // Altura mínima tipo placeholder
     },
   });
+};
 
 export default SectionProductsScreen;

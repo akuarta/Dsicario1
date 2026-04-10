@@ -7,626 +7,700 @@ import {
   SafeAreaView,
   ScrollView,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  Platform,
+  StatusBar,
+  TextInput,
+  Switch
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { useCart } from '../contexts/AppContext';
-import { useGlobalStyles } from '../hooks/useGlobalStyles';
-import theme from '../theme';
-import { getThemeColors } from '../theme/theme';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import { useCart, useProducts } from '../contexts/AppContext';
+import { useNavigation } from '@react-navigation/native';
+import { CustomHeader } from '../components/CustomHeader';
+import { useGlobalStyles } from '../styles/globalStyles';
+import { generatePDFBase64 } from '../utils/pdfGenerator';
+import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
+import { generateInvoice } from '../utils/invoiceService';
 
-const { darkMode } = useThemeMode();
-const colors = getThemeColors(darkMode);
-const { spacing, typography, borders } = theme;
-// import { useTheme } from 'react-native-elements';
-
-function showConfirm(title, message, onConfirm) {
-  if (typeof window !== 'undefined' && window.confirm) {
-    const confirmed = window.confirm(`${title}\n${message}`);
-    if (confirmed) onConfirm();
-  } else {
-    Alert.alert(
-      title,
-      message,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Confirmar', onPress: onConfirm }
-      ]
-    );
-  }
-}
-
+// Eliminamos el helper externo showOrderConfirm para evitar problemas de scope
 const CheckoutScreen = ({ navigation, route }) => {
-  // const { theme: { colors } } = useTheme();
-  const { cart, totalCost, paymentType } = route.params;
-  const { clearCart } = useCart();
+  const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
+  const { cart = [], totalCost = 0, paymentType = 'cash', orderNote = '' } = route.params || {};
+  const { clearCart, businessInfo } = useCart();
   const globalStyles = useGlobalStyles(colors);
+  
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [orderCompleted, setOrderCompleted] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false); // Nuevo estado para confirmación interna
+  const [deliveryType, setDeliveryType] = useState('pickup'); // 'pickup' or 'delivery'
+  const [orderNumber] = useState(`DS${Date.now().toString().slice(-6)}`);
+  const [includePropina, setIncludePropina] = useState(false);
+  const [amountReceived, setAmountReceived] = useState('');
+  const [showError, setShowError] = useState(false);
+
+  // Cálculos de impuestos y descuentos
+  const totalDiscount = cart.reduce((sum, item) => sum + (parseFloat(item.descuento || 0) * item.quantity), 0);
+  const subtotal = totalCost;
+  const itbis = totalCost * 0.18;
+  const propina = (deliveryType === 'pickup' && includePropina) ? totalCost * 0.10 : 0;
+  const finalTotal = (totalCost - totalDiscount) + itbis + propina;
+  
+  const numericAmountReceived = parseFloat(amountReceived) || 0;
+  const devuelta = paymentType === 'cash' ? Math.max(0, numericAmountReceived - finalTotal) : 0;
+  const isAmountInsufficient = paymentType === 'cash' && numericAmountReceived < finalTotal;
 
   const styles = StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: colors.background,
-      padding: spacing.medium,
-    },
-    header: {
-      marginBottom: spacing.large,
-      alignItems: 'center',
-    },
-    headerTitle: {
-      ...typography.h4,
-      fontWeight: 'bold',
-      color: colors.primary,
-      marginBottom: spacing.extraSmall,
-    },
-    headerSubtitle: {
-      ...typography.body2,
-      color: colors.text.secondary,
     },
     section: {
-      backgroundColor: colors.card,
-      borderRadius: borders.radius.medium,
-      padding: spacing.medium,
-      marginBottom: spacing.large,
-      borderWidth: borders.thin,
-      borderColor: colors.border,
+      backgroundColor: colors.card || colors.surface,
+      margin: spacing.md,
+      padding: spacing.md,
+      borderRadius: borders.radius.lg,
+      ...shadows.small,
     },
     sectionTitle: {
-      ...typography.h5,
-      fontWeight: 'bold',
+      fontSize: typography.sizes.lg,
+      fontWeight: typography.weights.bold,
       color: colors.text.primary,
-      marginBottom: spacing.medium,
+      marginBottom: spacing.md,
     },
     orderItem: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      marginBottom: spacing.small,
+      alignItems: 'center',
+      paddingVertical: spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
     },
     itemName: {
-      ...typography.body2,
+      flex: 1,
+      fontSize: typography.sizes.md,
       color: colors.text.primary,
-      flex: 3,
+      marginRight: spacing.sm,
     },
     itemQuantity: {
-      ...typography.body2,
+      fontSize: typography.sizes.md,
       color: colors.text.secondary,
-      flex: 0.5,
-      textAlign: 'center',
+      marginRight: spacing.md,
     },
     itemTotal: {
-      ...typography.body2,
-      fontWeight: 'bold',
-      color: colors.text.primary,
-      flex: 1.5,
+      fontSize: typography.sizes.md,
+      fontWeight: typography.weights.bold,
+      color: colors.primary,
+    },
+    taxRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginVertical: spacing.xs,
+    },
+    taxLabel: {
+      flex: 1,
+      fontSize: typography.sizes.sm,
+      color: colors.text.secondary,
+    },
+    taxValue: {
+      fontSize: typography.sizes.sm,
+      color: colors.text.secondary,
       textAlign: 'right',
+      minWidth: 100,
     },
     totalRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      borderTopWidth: borders.thin,
-      borderTopColor: colors.border,
-      paddingTop: spacing.medium,
-      marginTop: spacing.medium,
+      alignItems: 'center',
+      paddingTop: spacing.md,
+      marginTop: spacing.sm,
+      borderTopWidth: 2,
+      borderTopColor: colors.primary,
     },
     totalLabel: {
-      ...typography.h5,
-      fontWeight: 'bold',
+      fontSize: typography.sizes.lg,
+      fontWeight: typography.weights.bold,
       color: colors.text.primary,
     },
     totalAmount: {
-      ...typography.h5,
-      fontWeight: 'bold',
+      fontSize: typography.sizes.xl,
+      fontWeight: typography.weights.bold,
       color: colors.primary,
+    },
+    optionContainer: {
+      flexDirection: 'row',
+      backgroundColor: colors.surface,
+      borderRadius: borders.radius.md,
+      padding: spacing.xs,
+      marginBottom: spacing.md,
+    },
+    optionButton: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: spacing.sm,
+      borderRadius: borders.radius.sm,
+    },
+    optionButtonActive: {
+      backgroundColor: colors.primary,
+    },
+    optionText: {
+      fontSize: typography.sizes.sm,
+      fontWeight: typography.weights.bold,
+      color: colors.text.secondary,
+      marginLeft: spacing.xs,
+    },
+    optionTextActive: {
+      color: colors.text.white,
     },
     paymentMethod: {
       flexDirection: 'row',
       alignItems: 'center',
+      padding: spacing.md,
       backgroundColor: colors.surface,
-      borderRadius: borders.radius.small,
-      padding: spacing.medium,
+      borderRadius: borders.radius.md,
     },
     paymentText: {
-      ...typography.body1,
-      marginLeft: spacing.small,
+      fontSize: typography.sizes.md,
+      fontWeight: typography.weights.medium,
       color: colors.text.primary,
+      marginLeft: spacing.md,
     },
-    infoRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginBottom: spacing.small,
-    },
-    infoText: {
-      ...typography.body2,
-      marginLeft: spacing.small,
-      color: colors.text.primary,
+    footer: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.lg,
+      backgroundColor: colors.surface,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      position: 'relative',
+      zIndex: 999, // Super prioridad
+      elevation: 10,
     },
     confirmButton: {
-      backgroundColor: colors.accent,
-      padding: spacing.medium,
-      borderRadius: borders.radius.medium,
+      backgroundColor: colors.success,
+      flexDirection: 'row',
       alignItems: 'center',
-      marginTop: spacing.large,
+      justifyContent: 'center',
+      paddingVertical: spacing.md,
+      borderRadius: borders.radius.lg,
     },
     confirmButtonText: {
-      ...typography.button,
+      fontSize: typography.sizes.lg,
+      fontWeight: typography.weights.bold,
       color: colors.text.white,
+      marginLeft: spacing.sm,
     },
     processingText: {
-      ...typography.h5,
+      fontSize: typography.sizes.lg,
+      fontWeight: typography.weights.bold,
       color: colors.text.primary,
-      marginTop: spacing.medium,
+      marginTop: spacing.lg,
+      marginBottom: spacing.sm,
     },
     processingSubtext: {
-      ...typography.body2,
+      fontSize: typography.sizes.md,
       color: colors.text.secondary,
-      marginTop: spacing.small,
     },
     successContainer: {
       alignItems: 'center',
-      padding: spacing.large,
+      padding: spacing.xl,
     },
     successIcon: {
-      backgroundColor: colors.primary,
-      borderRadius: 60,
-      width: 120,
-      height: 120,
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      backgroundColor: colors.success,
       justifyContent: 'center',
       alignItems: 'center',
-      marginBottom: spacing.large,
+      marginBottom: spacing.lg,
     },
     successTitle: {
-      ...typography.h4,
-      fontWeight: 'bold',
-      color: colors.primary,
-      marginBottom: spacing.medium,
-      textAlign: 'center',
+      fontSize: typography.sizes.xxl,
+      fontWeight: typography.weights.bold,
+      color: colors.text.primary,
+      marginBottom: spacing.md,
     },
     successMessage: {
-      ...typography.body1,
+      fontSize: typography.sizes.md,
       color: colors.text.secondary,
-      marginBottom: spacing.large,
       textAlign: 'center',
+      lineHeight: 22,
+      marginBottom: spacing.lg,
     },
     orderDetails: {
-      backgroundColor: colors.surface,
-      borderRadius: borders.radius.medium,
-      padding: spacing.medium,
-      marginBottom: spacing.large,
-      width: '100%',
       alignItems: 'center',
+      marginBottom: spacing.xl,
     },
-    orderNumber: {
-      ...typography.body1,
-      fontWeight: 'bold',
-      color: colors.text.primary,
-      marginBottom: spacing.small,
+    orderNumberText: {
+      fontSize: typography.sizes.lg,
+      fontWeight: typography.weights.bold,
+      color: colors.primary,
+      marginBottom: spacing.xs,
     },
     orderTotal: {
-      ...typography.h5,
-      fontWeight: 'bold',
-      color: colors.primary,
+      fontSize: typography.sizes.md,
+      color: colors.text.secondary,
     },
     backButton: {
+      backgroundColor: colors.primary,
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: colors.primary,
-      paddingVertical: spacing.medium,
-      paddingHorizontal: spacing.large,
-      borderRadius: borders.radius.medium,
+      paddingHorizontal: spacing.xl,
+      paddingVertical: spacing.md,
+      borderRadius: borders.radius.lg,
+      width: '100%',
+      justifyContent: 'center',
     },
     backButtonText: {
-      ...typography.button,
+      fontSize: typography.sizes.md,
+      fontWeight: typography.weights.bold,
       color: colors.text.white,
-      marginLeft: spacing.small,
+      marginLeft: spacing.sm,
+    },
+    printButton: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      marginBottom: spacing.md,
+    },
+    printButtonText: {
+      color: colors.primary,
+    },
+    // Nuevos Estilos para Efectivo
+    cashInputContainer: {
+      marginTop: spacing.md,
+      padding: spacing.md,
+      backgroundColor: colors.surface,
+      borderRadius: borders.radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    cashInput: {
+      fontSize: typography.sizes.xl,
+      fontWeight: typography.weights.bold,
+      color: colors.primary,
+      paddingVertical: spacing.sm,
+      borderBottomWidth: 2,
+      borderBottomColor: colors.primary,
+      textAlign: 'center',
+    },
+    changeContainer: {
+      marginTop: spacing.md,
+      alignItems: 'center',
+    },
+    changeLabel: {
+      fontSize: typography.sizes.sm,
+      color: colors.text.secondary,
+    },
+    changeValue: {
+      fontSize: typography.sizes.xxl,
+      fontWeight: typography.weights.bold,
+      color: colors.success,
+    },
+    switchContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: spacing.sm,
+      marginVertical: spacing.xs,
     },
   });
-  
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [orderCompleted, setOrderCompleted] = useState(false);
 
-  // Simular procesamiento de pago
+  const generateTicketHTML = useCallback(() => {
+    const date = new Date().toLocaleString();
+    const itemsHTML = cart.map(item => `
+      <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+        <span>${item.nombre} x${item.quantity}</span>
+        <span>RD$${(parseFloat(item.precio) * item.quantity).toFixed(2)}</span>
+      </div>
+    `).join('');
+
+    return `
+      <html>
+        <body style="font-family: 'Helvetica', sans-serif; padding: 20px; color: #333;">
+          <div style="text-align: center; border-bottom: 2px dashed #ccc; padding-bottom: 20px; margin-bottom: 20px;">
+            <h1 style="margin: 0; color: #e63946;">${businessInfo.name}</h1>
+            <p style="margin: 5px 0;">Ticket de Venta Oficial</p>
+            <p style="font-size: 12px; color: #666;">${date}</p>
+          </div>
+          
+          <div style="margin-bottom: 20px;">
+            <p><strong>Orden:</strong> ${orderNumber}</p>
+            <p><strong>Tipo Entrega:</strong> ${deliveryType === 'delivery' ? 'Domicilio' : 'Retiro en Local'}</p>
+            <p><strong>Método Pago:</strong> ${paymentType === 'cash' ? 'Efectivo' : 'Tarjeta'}</p>
+            ${orderNote ? `<p><strong>Nota:</strong> ${orderNote}</p>` : ''}
+          </div>
+
+          <div style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px;">
+            ${itemsHTML}
+          </div>
+
+          <div style="margin-top: 10px; border-top: 2px solid #333; padding-top: 10px;">
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 2px 0;">Subtotal:</td>
+                <td style="text-align: right;">RD$${subtotal.toFixed(2)}</td>
+              </tr>
+              ${totalDiscount > 0 ? `
+              <tr>
+                <td style="padding: 2px 0; color: #d00;">Descuento:</td>
+                <td style="text-align: right; color: #d00;">-RD$${totalDiscount.toFixed(2)}</td>
+              </tr>` : ''}
+              <tr>
+                <td style="padding: 2px 0;">ITBIS (18%):</td>
+                <td style="text-align: right;">RD$${itbis.toFixed(2)}</td>
+              </tr>
+              ${propina > 0 ? `
+              <tr>
+                <td style="padding: 2px 0;">Propina:</td>
+                <td style="text-align: right;">RD$${propina.toFixed(2)}</td>
+              </tr>` : ''}
+              <tr>
+                <td style="padding: 10px 0; font-size: 20px; font-weight: bold;">TOTAL:</td>
+                <td style="text-align: right; font-size: 20px; font-weight: bold; color: #e63946;">RD$${finalTotal.toFixed(2)}</td>
+              </tr>
+              ${paymentType === 'cash' ? `
+              <tr style="border-top: 1px dashed #ccc;">
+                <td style="padding: 5px 0; font-size: 14px; color: #666;">Efectivo:</td>
+                <td style="text-align: right; font-size: 14px; color: #666;">RD$${numericAmountReceived.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td style="padding: 2px 0; font-size: 18px; font-weight: bold;">Devuelta:</td>
+                <td style="text-align: right; font-size: 18px; font-weight: bold; color: #2e7d32;">RD$${devuelta.toFixed(2)}</td>
+              </tr>` : ''}
+            </table>
+          </div>
+
+          <div style="text-align: center; margin-top: 40px; font-size: 12px; color: #999;">
+            <p>¡Gracias por su compra en DSicario!</p>
+            <p>Hecho con amor 🇩🇴</p>
+          </div>
+        </body>
+      </html>
+    `;
+  }, [cart, orderNumber, deliveryType, paymentType, subtotal, itbis, finalTotal]);
+
+  const handleGenerateInvoice = async (tipo = 'factura') => {
+    setIsGeneratingPDF(true);
+    try {
+      const orderData = {
+        tipo,
+        idorden: orderNumber,
+        fecha: new Date().toLocaleDateString(),
+        // Datos del Negocio
+        NombreLocal: businessInfo.name,
+        DireccionLocal: businessInfo.address,
+        EmailLocal: businessInfo.email,
+        TelefonoLocal: businessInfo.phone,
+        logo: businessInfo.logo,
+        // Datos del Cliente
+        NombreUser: 'Invitado', 
+        DireccionUser: deliveryType === 'delivery' ? 'Dirección en proceso' : 'Retiro en Local',
+        EmailUser: 'n/a',
+        TelefonoUser: 'n/a',
+        metodo: paymentType === 'cash' ? 'Efectivo' : 'Tarjeta',
+        items: cart.map(item => ({
+          'Detalle': item.nombre,
+          'Cant': item.quantity,
+          'Precio': item.precio,
+          'Total': (parseFloat(item.precio || 0) * item.quantity).toFixed(2)
+        })),
+        // Totales - Usamos nombres técnicos cortos para evitar sobreancho
+        Subtotal: subtotal.toFixed(2),
+        ITBIS: itbis.toFixed(2),
+        Descuento: totalDiscount.toFixed(2),
+        Propina: propina.toFixed(2),
+        Total: finalTotal.toFixed(2),
+        Pagado: paymentType === 'cash' ? numericAmountReceived.toFixed(2) : "0.00",
+        Devuelta: devuelta.toFixed(2)
+      };
+
+      const success = await generateInvoice(orderData, tipo);
+      if (success) {
+        // Opcional: Feedback de éxito
+      }
+    } catch (error) {
+      console.error('Error in handleGenerateInvoice:', error);
+      Alert.alert('Error', 'No pudimos generar el comprobante en este momento.');
+    } finally {
+      setIsGeneratingPDF(false);
+    }
+  };
+
   const processPayment = useCallback(async () => {
     setIsProcessing(true);
-    
-    // Simular delay de procesamiento
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
     setIsProcessing(false);
     setOrderCompleted(true);
-    
-    // Limpiar carrito después del pago exitoso
     clearCart();
   }, [clearCart]);
 
-  // Manejar confirmación de compra
-  const handleConfirmPurchase = useCallback(() => {
-  showConfirm(
-    'Confirmar compra',
-    `¿Confirmas tu compra por RD$${totalCost.toFixed(2)} con ${paymentType === 'cash' ? 'efectivo' : 'tarjeta'}?`,
-    processPayment
-  );
-}, [totalCost, paymentType, processPayment]);
+  const handleConfirmPurchase = () => {
+    console.log('Solicitando confirmación interna...');
+    setIsConfirming(true);
+  };
 
+  const executePayment = async () => {
+    setIsConfirming(false);
+    setIsProcessing(true);
+    try {
+      console.log('Procesando pago simulado...');
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      setOrderCompleted(true);
+      if (clearCart) clearCart();
+    } catch (error) {
+      console.error('Error en pago:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
-  // Volver al inicio
   const handleBackToHome = useCallback(() => {
     navigation.reset({
       index: 0,
-      routes: [{ name: 'Inicio' }],
+      routes: [{ name: 'MainTabs' }],
     });
   }, [navigation]);
 
-  // Renderizar resumen del pedido
-  const renderOrderSummary = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Resumen del Pedido</Text>
-      {cart.map((item, index) => (
-        <View key={index} style={styles.orderItem}>
-          <Text style={styles.itemName} numberOfLines={1}>
-            {item.nombre}
-          </Text>
-          <Text style={styles.itemQuantity}>
-            x{item.quantity}
-          </Text>
-          <Text style={styles.itemTotal}>
-            RD${(parseFloat(item.precio || 0) * item.quantity).toFixed(2)}
-          </Text>
-        </View>
-      ))}
-      
-      <View style={styles.totalRow}>
-        <Text style={styles.totalLabel}>Total:</Text>
-        <Text style={styles.totalAmount}>
-          RD${totalCost.toFixed(2)}
-        </Text>
-      </View>
-    </View>
-  );
-
-  // Renderizar información de pago
-  const renderPaymentInfo = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Método de Pago</Text>
-      <View style={styles.paymentMethod}>
-        <FontAwesome5 
-          name={paymentType === 'cash' ? 'money-bill-wave' : 'credit-card'} 
-          size={24} 
-          color={colors.primary} 
-        />
-        <Text style={styles.paymentText}>
-          {paymentType === 'cash' ? 'Pago en Efectivo' : 'Pago con Tarjeta'}
-        </Text>
-      </View>
-    </View>
-  );
-
-  // Renderizar pantalla de procesamiento
   if (isProcessing) {
     return (
-      <SafeAreaView style={globalStyles.centerContainer}>
+      <View style={[globalStyles.centerContainer, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.processingText}>
-          Procesando tu compra...
-        </Text>
-        <Text style={styles.processingSubtext}>
-          Por favor espera un momento
-        </Text>
-      </SafeAreaView>
+        <Text style={styles.processingText}>Enviando orden...</Text>
+        <Text style={styles.processingSubtext}>Tu pedido está llegando a la cocina</Text>
+      </View>
     );
   }
 
-  // Renderizar pantalla de éxito
   if (orderCompleted) {
     return (
-      <SafeAreaView style={globalStyles.centerContainer}>
+      <View style={[globalStyles.centerContainer, { backgroundColor: colors.background }]}>
         <View style={styles.successContainer}>
           <View style={styles.successIcon}>
             <FontAwesome5 name="check" size={48} color={colors.text.white} />
           </View>
-          
-          <Text style={styles.successTitle}>
-            ¡Compra Exitosa!
-          </Text>
-          
-          <Text style={styles.successMessage}>
-            Tu pedido ha sido procesado correctamente.
-            Recibirás una confirmación por email.
-          </Text>
+          <Text style={styles.successTitle}>¡Pedido Exitoso!</Text>
+          <Text style={styles.successMessage}>Tu orden ya está siendo preparada.</Text>
           
           <View style={styles.orderDetails}>
-            <Text style={styles.orderNumber}>
-              Orden #DS{Date.now().toString().slice(-6)}
-            </Text>
-            <Text style={styles.orderTotal}>
-              Total: RD${totalCost.toFixed(2)}
-            </Text>
+            <Text style={styles.orderNumberText}>Orden {orderNumber}</Text>
+            <Text style={styles.orderTotal}>Total: RD$${finalTotal.toFixed(2)}</Text>
           </View>
-          
+
+          <View style={{ width: '100%', gap: spacing.md, marginVertical: spacing.md }}>
+            {deliveryType === 'delivery' && (
+              <TouchableOpacity 
+                style={[styles.backButton, { backgroundColor: colors.primary }]} 
+                onPress={() => navigation.navigate('DeliveryTracking', { orderId: orderNumber, total: finalTotal })}
+              >
+                <FontAwesome5 name="map-marker-alt" size={18} color={colors.text.white} />
+                <Text style={styles.backButtonText}>Rastrear Pedido</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity 
+              style={[
+                styles.backButton, 
+                styles.printButton,
+                { opacity: isGeneratingPDF ? 0.7 : 1 }
+              ]} 
+              onPress={() => handleGenerateInvoice('ticket')}
+              disabled={isGeneratingPDF}
+            >
+              {isGeneratingPDF ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <>
+                  <FontAwesome5 name="receipt" size={18} color={colors.primary} />
+                  <Text style={[styles.backButtonText, styles.printButtonText]}>Descargar Ticket</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[
+                styles.backButton, 
+                { 
+                  backgroundColor: colors.surface, 
+                  borderWidth: 1, 
+                  borderColor: colors.success,
+                  opacity: isGeneratingPDF ? 0.7 : 1 
+                }
+              ]} 
+              onPress={() => handleGenerateInvoice('factura')}
+              disabled={isGeneratingPDF}
+            >
+              {isGeneratingPDF ? (
+                <ActivityIndicator size="small" color={colors.success} />
+              ) : (
+                <>
+                  <FontAwesome5 name="file-invoice" size={18} color={colors.success} />
+                  <Text style={[styles.backButtonText, { color: colors.success }]}>Factura Formal</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+
           <TouchableOpacity 
-            style={styles.backButton}
+            style={[styles.backButton, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }]} 
             onPress={handleBackToHome}
-            activeOpacity={0.8}
           >
-            <FontAwesome5 name="home" size={18} color={colors.text.white} />
-            <Text style={styles.backButtonText}>
-              Volver al Inicio
-            </Text>
+            <Text style={[styles.backButtonText, { color: colors.text.primary }]}>Volver al Inicio</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
-  // Renderizar pantalla de checkout
   return (
-    <SafeAreaView style={globalStyles.container}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Finalizar Compra</Text>
-          <Text style={styles.headerSubtitle}>
-            Revisa tu pedido antes de confirmar
-          </Text>
+    <SafeAreaView style={[globalStyles.container, { backgroundColor: colors.background, flex: 1 }]}>
+      <CustomHeader title="Finalizar Orden" showBack={true} />
+      <ScrollView 
+        style={{ flex: 1 }} 
+        contentContainerStyle={{ paddingBottom: 150 }}
+        bounces={false} 
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Tipo de Entrega</Text>
+          <View style={styles.optionContainer}>
+            <TouchableOpacity 
+              style={[styles.optionButton, deliveryType === 'pickup' && styles.optionButtonActive]}
+              onPress={() => setDeliveryType('pickup')}
+            >
+              <FontAwesome5 name="store" size={16} color={deliveryType === 'pickup' ? colors.text.white : colors.text.secondary} />
+              <Text style={[styles.optionText, deliveryType === 'pickup' && styles.optionTextActive]}>Retiro</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.optionButton, deliveryType === 'delivery' && styles.optionButtonActive]}
+              onPress={() => setDeliveryType('delivery')}
+            >
+              <FontAwesome5 name="motorcycle" size={16} color={deliveryType === 'delivery' ? colors.text.white : colors.text.secondary} />
+              <Text style={[styles.optionText, deliveryType === 'delivery' && styles.optionTextActive]}>Delivery</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.sectionTitle}>Resumen</Text>
+          {cart.map((item, index) => (
+            <View key={index} style={styles.orderItem}>
+              <Text style={styles.itemName} numberOfLines={1}>{item.nombre}</Text>
+              <Text style={styles.itemQuantity}>x${item.quantity}</Text>
+              <Text style={styles.itemTotal}>RD$${(parseFloat(item.precio || 0) * item.quantity).toFixed(2)}</Text>
+            </View>
+          ))}
+          
+          <View style={{ marginTop: spacing.md }}>
+            <View style={styles.taxRow}>
+              <Text style={styles.taxLabel}>Subtotal</Text>
+              <Text style={styles.taxValue}>RD$${subtotal.toFixed(2)}</Text>
+            </View>
+            {totalDiscount > 0 && (
+              <View style={styles.taxRow}>
+                <Text style={[styles.taxLabel, { color: colors.error }]}>Descuento</Text>
+                <Text style={[styles.taxValue, { color: colors.error }]}>-RD$${totalDiscount.toFixed(2)}</Text>
+              </View>
+            )}
+            {propina > 0 && (
+              <View style={styles.taxRow}>
+                <Text style={styles.taxLabel}>Propina Legal (10%)</Text>
+                <Text style={styles.taxValue}>RD$${propina.toFixed(2)}</Text>
+              </View>
+            )}
+            
+            {deliveryType === 'pickup' && (
+              <View style={styles.switchContainer}>
+                <View>
+                  <Text style={[styles.taxLabel, { color: colors.text.primary, fontWeight: 'bold' }]}>¿Aplicar Propina Legal?</Text>
+                  <Text style={{ fontSize: 10, color: colors.text.secondary }}>10% obligatorio por ley para local</Text>
+                </View>
+                <Switch 
+                  value={includePropina}
+                  onValueChange={setIncludePropina}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor={includePropina ? colors.text.white : '#f4f3f4'}
+                />
+              </View>
+            )}
+
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Total Final:</Text>
+              <Text style={styles.totalAmount}>RD$${finalTotal.toFixed(2)}</Text>
+            </View>
+          </View>
         </View>
 
-        {/* Resumen del pedido */}
-        {renderOrderSummary()}
-
-        {/* Información de pago */}
-        {renderPaymentInfo()}
-
-        {/* Información adicional */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Información de Entrega</Text>
-          <View style={styles.infoRow}>
-            <FontAwesome5 name="clock" size={16} color={colors.text.light} />
-            <Text style={styles.infoText}>
-              Tiempo estimado: 30-45 minutos
-            </Text>
+          <Text style={styles.sectionTitle}>Forma de Pago</Text>
+          <View style={styles.paymentMethod}>
+            <FontAwesome5 name={paymentType === 'cash' ? 'money-bill-wave' : 'credit-card'} size={24} color={colors.primary} />
+            <Text style={styles.paymentText}>{paymentType === 'cash' ? 'Efectivo' : 'Tarjeta'}</Text>
           </View>
-          <View style={styles.infoRow}>
-            <FontAwesome5 name="map-marker-alt" size={16} color={colors.text.light} />
-            <Text style={styles.infoText}>
-              Entrega a domicilio disponible
-            </Text>
-          </View>
+
+          {paymentType === 'cash' && (
+            <View style={styles.cashInputContainer}>
+              <Text style={styles.sectionTitle}>Monto Recibido</Text>
+              <TextInput
+                style={styles.cashInput}
+                placeholder="0.00"
+                keyboardType="numeric"
+                value={amountReceived}
+                onChangeText={setAmountReceived}
+                placeholderTextColor={colors.text.secondary}
+              />
+              {numericAmountReceived > 0 && (
+                <View style={styles.changeContainer}>
+                  <Text style={styles.changeLabel}>Su Devuelta es:</Text>
+                  <Text style={styles.changeValue}>RD$${devuelta.toFixed(2)}</Text>
+                  {isAmountInsufficient && (
+                    <Text style={{ color: colors.error, fontSize: 12, marginTop: 5 }}>Monto insuficiente</Text>
+                  )}
+                </View>
+              )}
+            </View>
+          )}
         </View>
       </ScrollView>
-
-      {/* Footer con botón de confirmación */}
+      
       <View style={styles.footer}>
-        <TouchableOpacity 
-          style={styles.confirmButton}
-          onPress={handleConfirmPurchase}
-          activeOpacity={0.8}
-        >
-          <FontAwesome5 name="credit-card" size={20} color={colors.text.white} />
-          <Text style={styles.confirmButtonText}>
-            Confirmar Compra - RD${totalCost.toFixed(2)}
-          </Text>
-        </TouchableOpacity>
+        {isConfirming ? (
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            <TouchableOpacity 
+              style={[styles.confirmButton, { flex: 1, backgroundColor: colors.border }]} 
+              onPress={() => setIsConfirming(false)}
+            >
+              <Text style={[styles.confirmButtonText, { color: colors.text.primary }]}>No</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.confirmButton, { flex: 2 }]} 
+              onPress={executePayment}
+            >
+              <FontAwesome5 name="check" size={18} color={colors.text.white} />
+              <Text style={styles.confirmButtonText}>¡Sí, Ordenar!</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity 
+            style={[
+              styles.confirmButton,
+              isAmountInsufficient && { backgroundColor: colors.border, opacity: 0.6 }
+            ]} 
+            onPress={handleConfirmPurchase}
+            activeOpacity={0.8}
+            disabled={isAmountInsufficient}
+          >
+            <Text style={styles.confirmButtonText}>
+              {isAmountInsufficient ? 'Monto Insuficiente' : `Confirmar - RD$${finalTotal.toFixed(2)}`}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  
-  header: {
-    padding: spacing.md,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  
-  headerTitle: {
-    fontSize: typography.sizes.xl,
-    fontWeight: typography.weights.bold,
-    color: colors.text.primary,
-    marginBottom: spacing.xs,
-  },
-  
-  headerSubtitle: {
-    fontSize: typography.sizes.md,
-    color: colors.text.secondary,
-  },
-  
-  section: {
-    backgroundColor: colors.background,
-    margin: spacing.md,
-    padding: spacing.md,
-    borderRadius: borders.radius.lg,
-    ...theme.shadows.small,
-  },
-  
-  sectionTitle: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
-    color: colors.text.primary,
-    marginBottom: spacing.md,
-  },
-  
-  orderItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  
-  itemName: {
-    flex: 1,
-    fontSize: typography.sizes.md,
-    color: colors.text.primary,
-    marginRight: spacing.sm,
-  },
-  
-  itemQuantity: {
-    fontSize: typography.sizes.md,
-    color: colors.text.secondary,
-    marginRight: spacing.md,
-  },
-  
-  itemTotal: {
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
-  },
-  
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: spacing.md,
-    marginTop: spacing.sm,
-    borderTopWidth: 2,
-    borderTopColor: colors.primary,
-  },
-  
-  totalLabel: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
-    color: colors.text.primary,
-  },
-  
-  totalAmount: {
-    fontSize: typography.sizes.xl,
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
-  },
-  
-  paymentMethod: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
-    backgroundColor: colors.surface,
-    borderRadius: borders.radius.md,
-  },
-  
-  paymentText: {
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.medium,
-    color: colors.text.primary,
-    marginLeft: spacing.md,
-  },
-  
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  
-  infoText: {
-    fontSize: typography.sizes.md,
-    color: colors.text.secondary,
-    marginLeft: spacing.sm,
-  },
-  
-  footer: {
-    padding: spacing.md,
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  
-  confirmButton: {
-    backgroundColor: colors.success,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.md,
-    borderRadius: borders.radius.lg,
-    ...theme.shadows.medium,
-  },
-  
-  confirmButtonText: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
-    color: colors.text.white,
-    marginLeft: spacing.sm,
-  },
-  
-  processingText: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
-    color: colors.text.primary,
-    marginTop: spacing.lg,
-    marginBottom: spacing.sm,
-  },
-  
-  processingSubtext: {
-    fontSize: typography.sizes.md,
-    color: colors.text.secondary,
-  },
-  
-  successContainer: {
-    alignItems: 'center',
-    padding: spacing.xl,
-  },
-  
-  successIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: colors.success,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  
-  successTitle: {
-    fontSize: typography.sizes.xxl,
-    fontWeight: typography.weights.bold,
-    color: colors.text.primary,
-    marginBottom: spacing.md,
-  },
-  
-  successMessage: {
-    fontSize: typography.sizes.md,
-    color: colors.text.secondary,
-    textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: spacing.lg,
-  },
-  
-  orderDetails: {
-    alignItems: 'center',
-    marginBottom: spacing.xl,
-  },
-  
-  orderNumber: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
-    marginBottom: spacing.xs,
-  },
-  
-  orderTotal: {
-    fontSize: typography.sizes.md,
-    color: colors.text.secondary,
-  },
-  
-  backButton: {
-    backgroundColor: colors.primary,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderRadius: borders.radius.lg,
-    ...theme.shadows.medium,
-  },
-  
-  backButtonText: {
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.bold,
-    color: colors.text.white,
-    marginLeft: spacing.sm,
-  },
-});
 
 export default CheckoutScreen;

@@ -1,208 +1,214 @@
-import { NavigationContainer, useNavigation, DefaultTheme, DarkTheme } from '@react-navigation/native';
+import React, { useEffect, useState } from 'react';
+import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createDrawerNavigator } from '@react-navigation/drawer';
+import { Home, Compass, ShoppingCart, User, ClipboardList } from 'lucide-react-native';
 
-import { FontAwesome5 } from '@expo/vector-icons';
-import { getThemeColors } from '../theme/theme';
-import { useThemeMode } from '../contexts/ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useUser } from '../contexts/UserContext';
+import { useProducts } from '../contexts/AppContext';
 
-import ProductListScreen from '../screens/ProductListScreen';
 import InicioStack from './InicioStack';
-import CartScreen from '../screens/CartScreen';
+import CartStack from './CartStack';
 import ProfileStack from './ProfileStack';
-import ProfileDrawerContent from '../components/ProfileDrawerContent';
-import PurchaseHistoryScreen from '../screens/PurchaseHistoryScreen';
 import PurchaseHistoryStack from './PurchaseHistoryStack';
-import FavoritesScreen from '../screens/FavoritesScreen';
 import FavoritesStack from './FavoritesStack';
 import ConfigStack from './ConfigStack';
+import ProfileDrawerContent from '../components/ProfileDrawerContent';
+import DeliveryTrackingScreen from '../screens/DeliveryTrackingScreen';
+import ProductDetailScreen from '../screens/ProductDetailScreen';
+import CheckoutScreen from '../screens/CheckoutScreen';
+import FullLoadingScreen from '../components/FullLoadingScreen';
+import { CustomTabBar } from '../components/CustomTabBar';
+import FloatingCartButton from '../components/FloatingCartButton';
 import LoginScreen from '../screens/LoginScreen';
+import RegisterScreen from '../screens/RegisterScreen';
+import KitchenScreen from '../screens/KitchenScreen';
+import RiderScreen from '../screens/RiderScreen';
+import AdminStaffScreen from '../screens/AdminStaffScreen';
+import ProductListScreen from '../screens/ProductListScreen';
+import OrderCenterScreen from '../screens/OrderCenterScreen';
 
 const Tab = createBottomTabNavigator();
 const Drawer = createDrawerNavigator();
 const Stack = createStackNavigator();
 
-
-const MenuButton = () => {
-  const navigation = useNavigation();
-  const { darkMode } = useThemeMode();
-  const colors = getThemeColors(darkMode);
+const ExplorarStack = () => {
+  const { colors } = useTheme();
   return (
-    <FontAwesome5
-      name="bars"
-      size={22}
-      color={colors.text.white}
-      style={{ marginLeft: 16, cursor: 'pointer' }}
-      onPress={() => navigation.openDrawer()}
-    />
+    <Stack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.primary },
+        headerTintColor: '#FFFFFF',
+        headerTitleStyle: { fontWeight: 'bold' },
+      }}
+    >
+      <Stack.Screen 
+        name="ProductList" 
+        component={ProductListScreen} 
+        options={{ title: 'Explorar Menú' }}
+        initialParams={{ mode: 'explorar' }}
+      />
+      <Stack.Screen 
+        name="ProductDetail" 
+        component={ProductDetailScreen} 
+        options={{ headerShown: false }}
+      />
+    </Stack.Navigator>
   );
 };
 
-import ProductDetailScreen from '../screens/ProductDetailScreen';
-
-const ProductStack = () => {
-  const { darkMode } = useThemeMode();
-  const colors = getThemeColors(darkMode);
-
-  return (
-  <Stack.Navigator>
-    <Stack.Screen
-      name="ProductList"
-      component={ProductListScreen}
-      options={({ navigation }) => ({
-        title: 'DSicario',
-        headerStyle: { backgroundColor: colors.primary },
-        headerTintColor: colors.text.white,
-        headerTitleStyle: { fontWeight: 'bold' },
-        headerLeft: () => <MenuButton />,
-      })}
-    />
-    <Stack.Screen
-      name="ProductDetail"
-      component={ProductDetailScreen}
-      options={({ navigation }) => ({
-        title: 'Detalles del Producto',
-        headerStyle: { backgroundColor: colors.primary },
-        headerTintColor: colors.text.white,
-        headerTitleStyle: { fontWeight: 'bold' },
-      })}
-    />
-  </Stack.Navigator>
-);
-};
-
-const CartStack = () => {
-  const { darkMode } = useThemeMode();
-  const colors = getThemeColors(darkMode);
-  return (
-  <Stack.Navigator>
-    <Stack.Screen
-      name="Cart"
-      component={CartScreen}
-      options={({ navigation }) => ({
-        title: 'Carrito',
-        headerStyle: { backgroundColor: colors.primary },
-        headerTintColor: colors.text.white,
-        headerTitleStyle: { fontWeight: 'bold' },
-        headerLeft: () => <MenuButton />,
-      })}
-    />
-  </Stack.Navigator>
-);
-};
-
 const MainTabs = () => {
-  const { darkMode } = useThemeMode();
-  const colors = getThemeColors(darkMode);
-  return (
-  <Tab.Navigator
-    screenOptions={({ route }) => ({
-      tabBarActiveTintColor: colors.primary,
-      tabBarInactiveTintColor: colors.text.secondary,
-      tabBarStyle: {
-        backgroundColor: colors.background,
-        borderTopWidth: 1,
-        borderTopColor: colors.border,
-      },
-    })}
-  >
-    <Tab.Screen
-      name="Inicio"
-      component={InicioStack}
-      options={{
-        tabBarIcon: ({ color, size }) => (
-          <FontAwesome5 name="home" size={size} color={color} />
-        ),
-      }}
-    />
-    <Tab.Screen
-      name="Explorar"
-      component={ProductStack}
-      options={{
-        tabBarIcon: ({ color, size }) => (
-          <FontAwesome5 name="compass" size={size} color={color} />
-        ),
-      }}
-    />
-    <Tab.Screen
-      name="Carrito"
-      component={CartStack}
-      options={{
-        tabBarIcon: ({ color, size }) => (
-          <FontAwesome5 name="shopping-cart" size={size} color={color} />
-        ),
-      }}
-    />
-    <Tab.Screen
-      name="Perfil"
-      component={ProfileStack}
-      options={{
-        tabBarButton: () => null,
-        tabBarIcon: ({ color, size }) => (
-          <FontAwesome5 name="user-alt" size={size} color={color} />
-        ),
-      }}
-    />
-  </Tab.Navigator>
-);
-};
-
-const AppNavigator = () => {
-   const { darkMode } = useThemeMode();
-
-  const appColors = getThemeColors(darkMode);
-  const baseTheme = darkMode ? DarkTheme : DefaultTheme;
-
-  const customTheme = {
-      ...baseTheme,
-      colors: {
-        ...baseTheme.colors,
-        primary: appColors.primary,
-        background: appColors.background,
-        card: appColors.surface,
-        text: appColors.text.primary, // Ensure text is a string
-        border: appColors.border,
-        notification: appColors.error,
-      },
-    };
-
-    console.log('[DEBUG] AppNavigator -> darkMode:', darkMode);
-    console.log('[DEBUG] AppNavigator -> colors:', customTheme.colors);
+  const { colors } = useTheme();
+  const { role } = useUser();
+  
+  const isCocina = role === 'Cocina' || role === 'Cosina';
+  const isDelivery = role === 'Delivery';
+  
+  const isRestricted = isCocina || isDelivery;
 
   return (
-  <NavigationContainer theme={customTheme}>
-    <Stack.Navigator 
-      initialRouteName="Main" // Cambiado de "Login" a "Main"
+    <Tab.Navigator
+      tabBar={(props) => <CustomTabBar {...props} />}
       screenOptions={{
-        headerStyle: { backgroundColor: customTheme.colors?.background || 'red' },
-        headerTintColor: customTheme.colors?.text || '#fff'
+        headerShown: false,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textSecondary,
       }}
     >
-      {/* <Stack.Screen name="Login" component={LoginScreen} options={({ navigation }) => ({ headerShown: false })} /> */}
-      <Stack.Screen name="Main" component={DrawerNavigator} options={({ navigation }) => ({ headerShown: false })} />
-    </Stack.Navigator>
-  </NavigationContainer>
-);
+      <Tab.Screen
+        name="InicioTab"
+        component={isCocina ? KitchenScreen : (isDelivery ? RiderScreen : InicioStack)}
+        options={{
+          tabBarLabel: isCocina ? 'MONITOR' : (isDelivery ? 'ENTREGAS' : 'INICIO'),
+          tabBarIcon: ({ color }) => <Home color={color} size={24} />,
+        }}
+      />
+      
+      {!isRestricted && (
+        <Tab.Screen
+          name="ExplorarTab"
+          component={ExplorarStack}
+          options={{
+            tabBarLabel: 'EXPLORAR',
+            tabBarIcon: ({ color }) => <Compass color={color} size={24} />,
+          }}
+        />
+      )}
+
+      {!isRestricted && (
+        <Tab.Screen
+          name="CarritoTab"
+          component={CartStack}
+          options={{
+            tabBarLabel: 'CARRITO',
+            tabBarIcon: ({ color }) => <ShoppingCart color={color} size={24} />,
+          }}
+        />
+      )}
+
+      {!isRestricted && (
+        <Tab.Screen
+          name="PedidosTab"
+          component={OrderCenterScreen}
+          options={{
+            tabBarLabel: 'PEDIDOS',
+            tabBarIcon: ({ color }) => <ClipboardList color={color} size={24} />,
+          }}
+        />
+      )}
+
+    </Tab.Navigator>
+  );
 };
 
 const DrawerNavigator = () => {
-  const { darkMode } = useThemeMode();
-  const colors = getThemeColors(darkMode);
+  const { colors } = useTheme();
+  const { role } = useUser();
+
   return (
-  <Drawer.Navigator
-    drawerContent={(props) => <ProfileDrawerContent {...props} />}
-    screenOptions={({ navigation }) => ({
-      headerShown: false,
-      drawerStyle: { backgroundColor: colors.background },
-    })}
-  >
-    <Drawer.Screen name="MainTabs" component={MainTabs} options={{ drawerLabel: 'Inicio', drawerIcon: ({ color, size }) => (<FontAwesome5 name="home" size={size} color={color} />) }} />
-    <Drawer.Screen name="Historial" component={PurchaseHistoryStack} options={{ drawerLabel: 'Historial de Compras', drawerIcon: ({ color, size }) => (<FontAwesome5 name="history" size={size} color={color} />) }} />
-    <Drawer.Screen name="Favoritos" component={FavoritesStack} options={{ drawerLabel: 'Favoritos', drawerIcon: ({ color, size }) => (<FontAwesome5 name="heart" size={size} color={color} />) }} />
-    <Drawer.Screen name="Configuracion" component={ConfigStack} options={{ drawerLabel: 'Configuración', drawerIcon: ({ color, size }) => (<FontAwesome5 name="cog" size={size} color={color} />) }} />
-  </Drawer.Navigator>
-);
+    <Drawer.Navigator
+      drawerContent={(props) => <ProfileDrawerContent {...props} />}
+      screenOptions={{
+        headerShown: false,
+        drawerActiveTintColor: colors.primary,
+        drawerStyle: { backgroundColor: colors.background, width: 300 },
+      }}
+    >
+      <Drawer.Screen name="MainTabs" component={MainTabs} options={{ drawerLabel: 'Inicio' }} />
+      <Drawer.Screen name="OrderCenter" component={OrderCenterScreen} options={{ drawerLabel: 'Rastreo de Pedidos' }} />
+      <Drawer.Screen name="Historial" component={PurchaseHistoryStack} options={{ drawerLabel: 'Historial de Compras' }} />
+      <Drawer.Screen name="Favoritos" component={FavoritesStack} options={{ drawerLabel: 'Favoritos' }} />
+      <Drawer.Screen name="Configuracion" component={ConfigStack} options={{ drawerLabel: 'Configuración' }} />
+      
+      {role && role.toLowerCase() === 'admin' && (
+        <>
+          <Drawer.Screen 
+            name="CocinaAdmin" 
+            component={KitchenScreen} 
+            options={{ drawerLabel: 'Monitor de Cocina' }} 
+          />
+          <Drawer.Screen 
+            name="RiderAdmin" 
+            component={RiderScreen} 
+            options={{ drawerLabel: 'Panel de Repartidores' }} 
+          />
+          <Drawer.Screen 
+            name="AdminStaff" 
+            component={AdminStaffScreen} 
+            options={{ drawerLabel: 'Gestión de Personal' }} 
+          />
+        </>
+      )}
+    </Drawer.Navigator>
+  );
+};
+
+const AppNavigator = () => {
+  const { darkMode } = useTheme();
+  const { isAuthenticated, user, loading: authLoading } = useAuth();
+  const { syncUserRole } = useUser();
+  const { isLoading: productsLoading } = useProducts();
+  const [roleReady, setRoleReady] = useState(false);
+
+  // Espera el rol sin timeout agresivo para asegurar que el Admin vea lo que corresponde
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isAuthenticated) {
+      setRoleReady(true);
+      return;
+    }
+    
+    // Solo sincronizar si el rol aún no está definido o es el 'Invitado' por defecto
+    syncUserRole(user?.email).finally(() => {
+      setRoleReady(true);
+    });
+  }, [authLoading, isAuthenticated, user?.email]);
+
+  // Espera real: Firebase auth + rol de usuario + productos si está autenticado
+  const isLoading = authLoading || !roleReady || (isAuthenticated && productsLoading);
+
+  if (isLoading) {
+    return <FullLoadingScreen />;
+  }
+
+  return (
+    <NavigationContainer theme={darkMode ? DarkTheme : DefaultTheme}>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        {!isAuthenticated ? (
+          <>
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+          </>
+        ) : (
+          <Stack.Screen name="Main" component={DrawerNavigator} />
+        )}
+      </Stack.Navigator>
+      {isAuthenticated && <FloatingCartButton />}
+    </NavigationContainer>
+  );
 };
 
 export default AppNavigator;

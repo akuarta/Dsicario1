@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { fetchProducts } from '../utils/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Alert } from 'react-native';
+import { fetchProducts, fetchBusinessInfo, saveWaiterCartItem, fetchAllUsers, fetchDeliveries, fetchKitchenOrders } from '../utils/api';
+import { useUser } from './UserContext';
 
 // Context para productos
 export const ProductsContext = createContext();
@@ -7,7 +10,9 @@ export const ProductsContext = createContext();
 // Context para carrito
 export const CartContext = createContext();
 
-// Provider para productos
+// 🌐 CONTEXTO DE SINCRONIZACIÓN GLOBAL
+export const DataSyncContext = createContext();
+
 export const ProductsProvider = ({ children }) => {
   const [products, setProducts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -19,18 +24,13 @@ export const ProductsProvider = ({ children }) => {
       setIsLoading(true);
       setError(null);
       
-      console.log('Fetching products from Google Apps Script API...');
       const data = await fetchProducts();
       
       setProducts(data);
       setLastFetch(new Date().toISOString());
-      console.log(`Successfully loaded ${data.length} products`);
       
     } catch (err) {
-      console.error('Error fetching products:', err);
       setError(err.message);
-      
-      // Fallback to empty array on error
       setProducts([]);
     } finally {
       setIsLoading(false);
@@ -117,7 +117,7 @@ export const ProductsProvider = ({ children }) => {
     };
   };
 
-  const value = {
+  const value = React.useMemo(() => ({
     products,
     isLoading,
     error,
@@ -132,7 +132,7 @@ export const ProductsProvider = ({ children }) => {
     getAvailableProducts,
     getCategoriesWithCounts,
     getProductStats,
-  };
+  }), [products, isLoading, error, lastFetch]);
 
   return (
     <ProductsContext.Provider value={value}>
@@ -143,34 +143,130 @@ export const ProductsProvider = ({ children }) => {
 
 // Provider para carrito
 export const CartProvider = ({ children }) => {
+  const { role, username } = useUser();
   const [cart, setCart] = useState([]);
   const [paymentType, setPaymentType] = useState('cash');
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Estado para la sesión activa del mesero (Mesa/Cliente)
+  const [waiterActiveSession, setWaiterActiveSession] = useState(null);
+  
+  // Información del Negocio — cargada dinámicamente desde la hoja USUARIOS
+  const [businessInfo, setBusinessInfo] = useState({
+    name: 'DSicarioApp',
+    phone: '809-000-0000',
+    email: 'ventas@dsicario.com',
+    address: 'República Dominicana',
+    logo: null,
+    appLink: null,
+    closed: false,
+  });
 
-  const addToCart = (product) => {
+  // Cargar info del negocio al montar
+  useEffect(() => {
+    fetchBusinessInfo()
+      .then(info => {
+        setBusinessInfo(info);
+        console.log('Negocio cargado:', info.name);
+      })
+      .catch(err => console.warn('Info negocio no disponible:', err.message));
+  }, []);
+
+  // Load cart from storage
+  useEffect(() => {
+    const loadCart = async () => {
+      try {
+        const savedCart = await AsyncStorage.getItem('@dsicario_cart');
+        if (savedCart) {
+          setCart(JSON.parse(savedCart));
+        }
+      } catch (err) {
+        console.error('Error loading cart:', err);
+      } finally {
+        setIsLoaded(true);
+      }
+    };
+    loadCart();
+  }, []);
+
+  // Save cart to storage
+  useEffect(() => {
+    if (isLoaded) {
+      AsyncStorage.setItem('@dsicario_cart', JSON.stringify(cart)).catch(err => 
+        console.error('Error saving cart:', err)
+      );
+    }
+  }, [cart, isLoaded]);
+
+  const addToCart = async (product) => {
+    // 🤵 LÓGICA DE MESERO (EN LA NUBE)
+    const isForcedWaiterMode = role === 'Mesero' || (role === 'Admin' && waiterActiveSession);
+    
+    // Obtener campos de forma robusta
+    const prodId = product.id || product.ID_Producto || product.id_producto;
+    const prodNombre = product.nombre || product.Nombre;
+    const prodPrecio = parseFloat(product.precio || product.Precio) || 0;
+
+    if (isForcedWaiterMode) {
+      if (!waiterActiveSession) {
+        Alert.alert('⚠️ Sin Sesión', 'Debes abrir una mesa/sesión en el POS antes de agregar productos.');
+        return;
+      }
+
+      setIsSubmitting(true);
+      try {
+        const result = await saveWaiterCartItem({
+          id_carrito: waiterActiveSession.id_carrito,
+          id_producto: prodId,
+          nombre: prodNombre,
+          precio: prodPrecio,
+          cantidad: product.quantity || 1,
+          total_producto: (prodPrecio * (product.quantity || 1)),
+          cliente: waiterActiveSession.cliente,
+          usuario: username,
+          orderNote: product.orderNote || '',
+          rating: product.rating || 0,
+          fecha: new Date().toISOString()
+        });
+
+        if (result.success) {
+          Alert.alert('✅ Agregado', `${prodNombre} añadido a la orden de ${waiterActiveSession.cliente}.`);
+        } else {
+          throw new Error(result.error || 'Error al guardar en el servidor');
+        }
+      } catch (error) {
+        console.error('Add to cloud cart fail:', error);
+        Alert.alert('❌ Error', 'No se pudo sincronizar el pedido. Revisa tu conexión.');
+      } finally {
+        setIsSubmitting(false);
+      }
+      return; 
+    }
+
+    // 👤 LÓGICA DE CLIENTE (LOCAL)
     setCart((prevCart) => {
-      const existingProduct = prevCart.find(item => item.id === product.id);
+      // Diferenciación inteligente: Mismos productos con NOTAS distintas son items diferentes
+      const note = (product.orderNote || '').trim();
+      const existingItem = prevCart.find(item => 
+        String(item.id) === String(prodId) && 
+        (item.orderNote || '').trim() === note
+      );
       
-      if (existingProduct) {
+      if (existingItem) {
         return prevCart.map(item =>
-          item.id === product.id
+          (String(item.id) === String(prodId) && (item.orderNote || '').trim() === note)
             ? { ...item, quantity: item.quantity + (product.quantity || 1) }
             : item
         );
       } else {
-        return [...prevCart, { ...product, quantity: product.quantity || 1 }];
+        return [...prevCart, { ...product, quantity: product.quantity || 1, id: prodId }];
       }
     });
   };
 
   const removeFromCart = (productId) => {
-    console.log('Intentando borrar producto del carrito con id:', productId, 'tipo:', typeof productId);
-    console.log('Carrito antes de borrar:', cart);
-    console.log('IDs en el carrito:', cart.map(item => ({ id: item.id, tipo: typeof item.id })));
-    setCart((prevCart) => {
-      const nuevoCarrito = prevCart.filter((item) => String(item.id) !== String(productId));
-      console.log('Carrito después de borrar:', nuevoCarrito);
-      return nuevoCarrito;
-    });
+    setCart((prevCart) => prevCart.filter((item) => String(item.id) !== String(productId)));
   };
 
   const updateCartItemQuantity = (productId, quantity) => {
@@ -250,7 +346,7 @@ export const CartProvider = ({ children }) => {
     return item ? item.quantity : 0;
   };
 
-  const value = {
+  const cartValue = React.useMemo(() => ({
     cart,
     addToCart,
     removeFromCart,
@@ -263,15 +359,17 @@ export const CartProvider = ({ children }) => {
     isInCart,
     getProductQuantity,
     paymentType,
-    setPaymentType
-  };
+    setPaymentType,
+    businessInfo,
+    waiterActiveSession,
+    setWaiterActiveSession,
+    isSubmitting
+  }), [cart, paymentType, businessInfo, waiterActiveSession, isSubmitting]);
 
-  React.useEffect(() => {
-    console.log('CartProvider montado. Carrito actual:', cart);
-  }, [cart]);
+
 
   return (
-    <CartContext.Provider value={value}>
+    <CartContext.Provider value={cartValue}>
       {children}
     </CartContext.Provider>
   );
@@ -290,6 +388,68 @@ export const useCart = () => {
   const context = useContext(CartContext);
   if (!context) {
     throw new Error('useCart must be used within a CartProvider');
+  }
+  return context;
+};
+
+// --- DATA SYNC PROVIDER ---
+export const DataSyncProvider = ({ children }) => {
+  const [users, setUsers] = useState([]);
+  const [deliveries, setDeliveries] = useState([]);
+  const [kitchenOrders, setKitchenOrders] = useState([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState(null);
+
+  const syncAllData = async () => {
+    setIsSyncing(true);
+    console.log('🔄 Iniciando Sincronización Global de Datos...');
+    try {
+      // Cargamos todo en paralelo para máxima velocidad
+      const [usersData, deliveriesData, kitchenData] = await Promise.all([
+        fetchAllUsers().catch(e => { console.warn('Sync Users Fail:', e); return []; }),
+        fetchDeliveries().catch(e => { console.warn('Sync Deliveries Fail:', e); return []; }),
+        fetchKitchenOrders().catch(e => { console.warn('Sync Kitchen Fail:', e); return []; })
+      ]);
+
+      setUsers(usersData);
+      setDeliveries(deliveriesData);
+      setKitchenOrders(kitchenData);
+      setLastSync(new Date().toISOString());
+      console.log('✅ Sincronización Global Completada');
+    } catch (error) {
+      console.error('❌ Error en Sincronización Global:', error);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    syncAllData();
+  }, []);
+
+  const value = React.useMemo(() => ({
+    users,
+    deliveries,
+    kitchenOrders,
+    isSyncing,
+    lastSync,
+    syncAllData,
+    setUsers, // Permitir actualizaciones locales tras edición
+    setDeliveries,
+    setKitchenOrders
+  }), [users, deliveries, kitchenOrders, isSyncing, lastSync]);
+
+  return (
+    <DataSyncContext.Provider value={value}>
+      {children}
+    </DataSyncContext.Provider>
+  );
+};
+
+export const useDataSync = () => {
+  const context = useContext(DataSyncContext);
+  if (!context) {
+    throw new Error('useDataSync must be used within a DataSyncProvider');
   }
   return context;
 };

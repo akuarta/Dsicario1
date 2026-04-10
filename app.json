@@ -1,11 +1,9 @@
-
 {
   "expo": {
-    "name": "dsicario6",
+    "name": "DSicarioApp",
     "slug": "snack-5baad7fb-f0d6-462a-a632-f151b104f565",
     "web": {
       "bundler": "metro",
-      "hermes": false,
       "favicon": "./assets/favicon.png"
     },
     "version": "1.0.0",
@@ -17,22 +15,35 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": ["**/*"],
-    "ios": {
-      "supportsTablet": true
-    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.hairoman28.snack5baad7fbf0d6462aa632f151b104f565"
+      "package": "com.hairoman28.snack5baad7fbf0d6462aa632f151b104f565",
+      "config": {
+        "googleMaps": {
+          "apiKey": "TU_API_KEY_AQUI"
+        }
+      }
+    },
+    "ios": {
+      "supportsTablet": true,
+      "config": {
+        "googleMapsApiKey": "TU_API_KEY_AQUI"
+      }
     },
     "owner": "hairoman28",
     "extra": {
       "eas": {
         "projectId": "507789ed-0452-493b-b330-159ad9f448db"
       }
-    }
+    },
+    "plugins": [
+      "expo-font"
+    ]
   }
 }

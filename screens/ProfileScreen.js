@@ -11,15 +11,15 @@ import {
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useCart } from '../contexts/AppContext';
 // import { useTheme } from 'react-native-elements';
-import globalStyles from '../styles/globalStyles';
-import theme from '../theme/theme';
-
-const { darkMode } = useThemeMode();
-  const colors = getThemeColors(darkMode);
-  const { spacing, typography, borders } = theme;
+import { useGlobalStyles } from '../styles/globalStyles';
+import { getThemeColors, spacing, typography, borders } from '../theme/theme';
+import { useThemeMode } from '../contexts/ThemeContext';
+import { showAlert } from '../utils/showAlert';
 
 const ProfileScreen = ({ navigation }) => {
-  // const { theme: { colors, dark: darkMode } } = useTheme();
+  const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
+  const globalStyles = useGlobalStyles(colors);
   
   const { clearCart, getTotalItems } = useCart();
   const totalItems = getTotalItems();
@@ -49,6 +49,15 @@ const ProfileScreen = ({ navigation }) => {
 
   const menuItems = [
     {
+      id: 7,
+      title: 'Centro de Pedidos',
+      subtitle: 'Seguimiento en vivo y rastreo',
+      icon: 'map-marked-alt',
+      onPress: () => navigation.navigate('OrderCenter'),
+      showBadge: true, // Siempre visible o condicional
+      badgeCount: 0 
+    },
+    {
       id: 1,
       title: 'Mi Carrito',
       subtitle: `${totalItems} productos`,
@@ -76,7 +85,7 @@ const ProfileScreen = ({ navigation }) => {
       title: 'Configuración',
       subtitle: 'Ajustes de la aplicación',
       icon: 'cog',
-      onPress: () => showAlert('Próximamente', 'Esta función estará disponible pronto')
+      onPress: () => navigation.navigate('Configuracion')
     },
     {
       id: 5,
@@ -148,41 +157,6 @@ const ProfileScreen = ({ navigation }) => {
       </View>
     </TouchableOpacity>
   );
-
-  return (
-    <SafeAreaView style={[globalStyles.container, darkMode && { backgroundColor: '#222' }]}> // Example dark background
-      <ScrollView style={[styles.container, darkMode && { backgroundColor: '#222' }]} showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.profileInfo}>
-            <View style={styles.avatarContainer}>
-              <FontAwesome5 name="user" size={32} color={colors.text.white} />
-            </View>
-            <View style={styles.userInfo}>
-              <Text style={styles.userName}>Usuario</Text>
-              <Text style={styles.userEmail}>usuario@dsicario.com</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Menu Items */}
-        <View style={styles.menuContainer}>
-          {menuItems.map(renderMenuItem)}
-        </View>
-
-        {/* Footer */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            DSicario v1.0
-          </Text>
-          <Text style={styles.footerSubtext}>
-            Hecho con ❤️ en República Dominicana
-          </Text>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
-};
 
   const styles = StyleSheet.create({
     container: {
@@ -327,5 +301,41 @@ const ProfileScreen = ({ navigation }) => {
     textAlign: 'center',
   },
 });
+
+  return (
+    <SafeAreaView style={[globalStyles.container, darkMode && { backgroundColor: colors.background }]}>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.profileInfo}>
+            <View style={styles.avatarContainer}>
+              <FontAwesome5 name="user" size={32} color={colors.text.white} />
+            </View>
+            <View style={styles.userInfo}>
+              <Text style={styles.userName}>Usuario</Text>
+              <Text style={styles.userEmail}>usuario@dsicario.com</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Menu Items */}
+        <View style={styles.menuContainer}>
+          {menuItems.map(renderMenuItem)}
+        </View>
+
+        {/* Footer */}
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>
+            DSicario v1.0
+          </Text>
+          <Text style={styles.footerSubtext}>
+            Hecho con ❤️ en República Dominicana
+          </Text>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+
+};
 
 export default ProfileScreen;

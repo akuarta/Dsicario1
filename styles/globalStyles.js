@@ -206,3 +206,7 @@ export const useGlobalStyles = () => {
   const { darkMode } = useThemeMode();
   return createGlobalStyles(darkMode);
 };
+
+// Export estático antiguo (por defecto para componentes que no usan el hook)
+const globalStyles = createGlobalStyles(false);
+export default globalStyles;

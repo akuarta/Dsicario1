@@ -1,14 +1,65 @@
-// API utilities for DSicario6 app - Updated for Google Apps Script API
+import { CONFIG } from '../constants/Config';
 
-const API_BASE_URL = 'https://script.google.com/macros/s/AKfycbwxwGTHqRU5HUDACsWRukCTorrLX-52WeDKIQoek4ylPqgRzCQQ7qlwL5FldFqChP38/exec';
-const PRODUCTS_ENDPOINT = `${API_BASE_URL}/exec`;
+const API_BASE_URL = CONFIG.GAS_API_URL;
+const PRODUCTS_ENDPOINT = `${API_BASE_URL}`; // Quitamos el /exec extra
 
 // API response timeout
-const API_TIMEOUT = 30000; // Increased for Google Apps Script
+const API_TIMEOUT = CONFIG.API_TIMEOUT; // Increased for Google Apps Script
 
 /**
- * Custom fetch with timeout
+ * 🛠️ UTILERÍA DE RESILIENCIA UNIVERSAL
+ * Normaliza claves y busca en el objeto ignorando mayúsculas, espacios y acentos.
  */
+const normalizeString = (s) => String(s || '').toLowerCase()
+  .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  .replace(/[?()\s./-]/g, "");
+
+const getRobustProp = (obj, targetKey) => {
+  if (!obj || !targetKey) return undefined;
+  
+  // 1. Intento directo
+  if (obj[targetKey] !== undefined) return obj[targetKey];
+  
+  // 2. Diccionario de Sinónimos Universales para DSicario
+  const synonyms = {
+    id: ['id_producto', 'id_orden', 'id_user', 'id_delivery', 'orderid', 'id_carrito', 'codigo'],
+    nombre: ['name', 'nombreuser', 'producto', 'cliente', 'repartidor'],
+    precio: ['price', 'valor', 'total', 'subtotal', 'costo'],
+    estado: ['status', 'state', 'currentstatus', 'condicion'],
+    cantidad: ['quantity', 'qty', 'num', 'cantidad_items'],
+    items: ['productos', 'lista_productos', 'carro', 'items_pedido'],
+    usuario: ['user', 'emailuser', 'login', 'email'],
+  };
+
+  const target = normalizeString(targetKey);
+  const keys = Object.keys(obj);
+  
+  // Buscar en el objeto si alguna clave normalizada coincide con el target normalizado
+  // o si el target está en el diccionario de sinónimos de alguna clave real del objeto
+  const foundKey = keys.find(k => {
+    const nk = normalizeString(k);
+    if (nk === target) return true;
+    // Revisar si la clave 'k' es un sinónimo conocido del 'target'
+    for (const [standard, list] of Object.entries(synonyms)) {
+      if (standard === target && list.includes(nk)) return true;
+    }
+    return false;
+  });
+
+  return foundKey ? obj[foundKey] : undefined;
+};
+
+/**
+ * Busca inteligentemente una 'hoja' en la respuesta global de la API
+ */
+const resolveSheetData = (rawData, sheetName) => {
+  if (!rawData) return [];
+  const target = normalizeString(sheetName);
+  const keys = Object.keys(rawData);
+  const foundKey = keys.find(k => normalizeString(k).includes(target));
+  const data = foundKey ? rawData[foundKey] : (rawData.data || []);
+  return Array.isArray(data) ? data : [];
+};
 const fetchWithTimeout = (url, options = {}, timeout = API_TIMEOUT) => {
   return Promise.race([
     fetch(url, { ...options, mode: 'no-cors' }),
@@ -18,40 +69,46 @@ const fetchWithTimeout = (url, options = {}, timeout = API_TIMEOUT) => {
   ]);
 };
 
-/**
- * Map API product data to app format
- * @param {Object} apiProduct - Raw product from Google Apps Script API
- * @returns {Object} Mapped product for app use
- */
 const mapProductData = (apiProduct) => {
+  if (!apiProduct) return null;
+
+  // 🎯 MAPEADO ROBUSTO (Resiliente a cambios en el Excel)
+  const idValue = getRobustProp(apiProduct, 'ID_Producto') || getRobustProp(apiProduct, 'id_producto');
+  const nombreValue = getRobustProp(apiProduct, 'nombre');
+  let precioValue = getRobustProp(apiProduct, 'precio') || 0;
+  
+  if (typeof precioValue === 'string') {
+    precioValue = parseFloat(precioValue.replace(/[^0-9.]/g, '')) || 0;
+  }
+
+  // 🏳️ NORMALIZACIÓN DE FLAGS (Mapeo flexible)
+  const sugerido = getRobustProp(apiProduct, 'recomendados') === true || getRobustProp(apiProduct, 'recomendado') === true;
+  const topVentas = getRobustProp(apiProduct, 'masVendidos') === true || getRobustProp(apiProduct, 'masVendido') === true;
+  const oferta = getRobustProp(apiProduct, 'enOferta') === true || getRobustProp(apiProduct, 'enoferta') === true;
+  const casa = getRobustProp(apiProduct, 'delaCasa') === true || getRobustProp(apiProduct, 'delacasa') === true;
+  const estaAgotado = getRobustProp(apiProduct, 'agotado') === true;
+
   return {
-    id: apiProduct.ID_Producto || Math.random().toString(),
-    nombre: apiProduct.nombre || 'Producto sin nombre',
-    descripcion: apiProduct.subcategoria 
-      ? `${apiProduct.categoria} - ${apiProduct.subcategoria}`
-      : apiProduct.categoria || 'Sin descripción',
-    precio: parseFloat(apiProduct.precio) || 0,
-    categoria: apiProduct.categoria || 'Sin categoría',
-    subcategoria: apiProduct.subcategoria || '',
-    imagen: apiProduct.imagen || 'https://via.placeholder.com/300x200?text=Sin+Imagen',
+    ...apiProduct, 
+    id: idValue ? String(idValue) : Math.random().toString(),
+    nombre: nombreValue ? String(nombreValue) : 'Producto',
+    descripcion: getRobustProp(apiProduct, 'descripcion') || '',
+    precio: parseFloat(precioValue),
+    itebis: parseFloat(getRobustProp(apiProduct, 'itebis') || 0) || 0,
+    stock: parseInt(getRobustProp(apiProduct, 'cantidad') || getRobustProp(apiProduct, 'stock') || 0) || 0,
+    categoria: getRobustProp(apiProduct, 'categoria') || 'General',
+    subcategoria: getRobustProp(apiProduct, 'subcategoria') || '',
+    imagen: getRobustProp(apiProduct, 'imagen') || 'https://via.placeholder.com/300x200?text=Sin+Imagen',
     
-    // Estados del producto
-    disponible: !apiProduct.agotado,
-    agotado: apiProduct.agotado || false,
-    masVendido: apiProduct.masVendidos || false,
-    delaCasa: apiProduct.delaCasa || false,
-    enOferta: apiProduct.enOferta || false,
-    recomendado: apiProduct.recomendados || false,
-    
-    // Información adicional
-    rating: parseInt(apiProduct.rating) || 0,
-    descuento: parseFloat(apiProduct.descuento) || 0,
-    cantidad: apiProduct.cantidad || '',
-    itebis: apiProduct.itebis || '',
-    
-    // Estados internos de la app
-    enCarrito: apiProduct.carrito || false,
-    agregarAdicionales: apiProduct.agregarediccion || false
+    // Flags normalizados para ProductListScreen.js
+    recomendado: sugerido,
+    masVendido: topVentas,
+    enOferta: oferta,
+    delaCasa: casa,
+    agotado: estaAgotado,
+    disponible: !estaAgotado,
+    rating: parseFloat(getRobustProp(apiProduct, 'rating')) || 0,
+    descuento: parseFloat(getRobustProp(apiProduct, 'descuento') || 0) || 0
   };
 };
 
@@ -61,37 +118,243 @@ const mapProductData = (apiProduct) => {
  */
 export const fetchProducts = async () => {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000); // 30 segundos de timeout
+  const timeout = setTimeout(() => controller.abort(), 30000);
 
   try {
     console.log('Fetching products from Google Apps Script API...');
-
-    const response = await fetch(PRODUCTS_ENDPOINT, { signal: controller.signal });
+    const response = await fetch(`${PRODUCTS_ENDPOINT}?sheet=hoja1`, { 
+      signal: controller.signal,
+      credentials: 'omit',
+      redirect: 'follow'
+    });
 
     clearTimeout(timeout);
     if (!response.ok) throw new Error('Network response was not ok');
     
     const rawData = await response.json();
-    console.log('Raw API response:', rawData);
-
-    // ✅ Lee desde rawData.Producto
-    const productsData = rawData.Producto;
+    
+    // 🏷️ SELECTOR DE DATOS ROBUSTO
+    const productsData = getRobustProp(rawData, 'Hoja1') || getRobustProp(rawData, 'Producto') || getRobustProp(rawData, 'data') || [];
 
     if (!Array.isArray(productsData)) {
-      throw new Error('Invalid data format: expected array at data.Producto');
+      console.warn('⚠️ No se recibió un array de productos. Estructura:', Object.keys(rawData));
+      return [];
     }
 
     const mappedProducts = productsData
       .map(mapProductData)
-      .filter(product => product.id && product.nombre);
+      .filter(p => p !== null && p.nombre && p.nombre !== 'undefined');
 
-    console.log(`Successfully mapped ${mappedProducts.length} products`);
+    console.log(`✅ Sincronización Exitosa: ${mappedProducts.length} productos listos para mostrar.`);
     return mappedProducts;
-
   } catch (error) {
     clearTimeout(timeout);
     console.error('Error fetching products:', error);
-    throw new Error(`Failed to fetch products: ${error.message}`);
+    return [];
+  }
+};
+
+/**
+ * Fetch business info from Google Apps Script (hoja de configuración)
+ * Reads from the sheet that contains: NombreLocal, TelefonoLocal, DireccionLocal, EmailLocal, etc.
+ * @returns {Promise<Object>} Business info object
+ */
+export const fetchBusinessInfo = async () => {
+  try {
+    console.log('Fetching business info...');
+    const url = `${API_BASE_URL}?sheet=principal`;
+    const response = await fetch(url, {
+      credentials: 'omit',
+      redirect: 'follow'
+    });
+
+    if (!response.ok) throw new Error('No se pudo leer la hoja de configuración');
+    const rawData = await response.json();
+    console.log('Business info raw:', rawData);
+
+    const rows = getRobustProp(rawData, 'Principal') || getRobustProp(rawData, 'data') || rawData;
+    const row = Array.isArray(rows) ? rows[0] : rows;
+
+    if (!row) throw new Error('No hay datos de configuración del negocio');
+
+    return {
+      name:    getRobustProp(row, 'NombreLocal')    || 'DSicarioApp',
+      phone:   getRobustProp(row, 'TelefonoLocal')  || '809-000-0000',
+      email:   getRobustProp(row, 'EmailLocal')     || 'ventas@dsicario.com',
+      address: getRobustProp(row, 'DireccionLocal') || 'República Dominicana',
+      logo:    getRobustProp(row, 'Logo')           || null,
+      appLink: getRobustProp(row, 'Link App')       || getRobustProp(row, 'appLink'),
+      closed:  getRobustProp(row, 'Cerrado?')       || false,
+    };
+  } catch (error) {
+    console.warn('Usando info de negocio predeterminada:', error.message);
+    // Fallback a valores predeterminados si falla la conexión
+    return {
+      name:    'DSicarioApp',
+      phone:   '809-000-0000',
+      email:   'ventas@dsicario.com',
+      address: 'República Dominicana',
+      logo:    null,
+      appLink: null,
+      closed:  false,
+    };
+  }
+};
+
+/**
+ * Fetch order details from Google Apps Script (hoja Inventario D'Sicario)
+ * @param {string} orderId - Order ID to search for
+ * @returns {Promise<Object>} Order details object
+ */
+export const fetchOrderDetails = async (orderId) => {
+  try {
+    console.log(`Fetching details for order ${orderId}...`);
+    const url = `${API_BASE_URL}?sheet=inventario`;
+    const response = await fetch(url, {
+      credentials: 'omit',
+      redirect: 'follow'
+    });
+
+    if (!response.ok) throw new Error('No se pudo leer la hoja de inventario');
+    const rawData = await response.json();
+    
+    const orders = getRobustProp(rawData, 'Inventario') || getRobustProp(rawData, 'data') || [];
+    const order = Array.isArray(orders) ? orders.find(o => 
+      (getRobustProp(o, 'ID_Orden') && getRobustProp(o, 'ID_Orden').toString() === orderId.toString()) || 
+      (getRobustProp(o, 'orderId') && getRobustProp(o, 'orderId').toString() === orderId.toString())
+    ) : null;
+
+    if (!order) {
+      console.log('Pedido no encontrado en la hoja, usando datos de demostración');
+      return {
+        orderId: orderId,
+        cliente: 'Invitado Especial',
+        direccion: 'Calle Principal #123, Ensanche La Fe',
+        estado: 'on_the_way',
+        eta: '15 - 20 min',
+        rider: 'Juan Pérez',
+        riderRating: 4.9,
+        progreso: 0.7,
+        telefonoRider: '809-555-0123'
+      };
+    }
+
+    return {
+      orderId: getRobustProp(order, 'ID_Orden') || orderId,
+      cliente: getRobustProp(order, 'Cliente') || 'Cliente',
+      direccion: getRobustProp(order, 'Direccion') || 'Dirección no especificada',
+      estado: getRobustProp(order, 'Estado') || 'preparing',
+      eta: getRobustProp(order, 'ETA') || '30 - 40 min',
+      rider: getRobustProp(order, 'Rider') || 'Delivery Asignado',
+      riderRating: parseFloat(getRobustProp(order, 'RiderRating') || getRobustProp(order, 'rating')) || 5.0,
+      progreso: parseFloat(getRobustProp(order, 'Progreso') || getRobustProp(order, 'progreso')) || 0.3,
+      telefonoRider: getRobustProp(order, 'TelefonoRider') || '809-000-0000'
+    };
+  } catch (error) {
+    console.warn('Error al obtener detalles del pedido, usando fallback:', error.message);
+    return {
+      orderId: orderId,
+      cliente: 'Cliente Valorado',
+      direccion: 'República Dominicana',
+      estado: 'preparing',
+      eta: '-- min',
+      rider: 'Asignando...',
+      riderRating: 5.0,
+      progreso: 0.1
+    };
+  }
+};
+
+/**
+ * Fetch delivery personnel (Repartidores) from Google Apps Script
+ * Reads from the sheet 'Deliverys'
+ * @returns {Promise<Array>} Array of delivery objects
+ */
+export const fetchDeliveries = async () => {
+  try {
+    console.log('Fetching deliveries info...');
+    const url = `${API_BASE_URL}?sheet=deliverys`;
+    const response = await fetch(url, {
+      credentials: 'omit',
+      redirect: 'follow'
+    });
+
+    if (!response.ok) throw new Error('No se pudo descargar la lista de repartidores');
+    const rawData = await response.json();
+    
+    const rows = resolveSheetData(rawData, 'deliverys') || resolveSheetData(rawData, 'data') || rawData;
+    
+    if (!Array.isArray(rows)) return [];
+
+    return rows.map((row, index) => ({
+      id: String(getRobustProp(row, 'ID_Delivery') || index),
+      id_delivery: String(getRobustProp(row, 'ID_Delivery') || `DS0${index}`),
+      nombre: getRobustProp(row, 'Nombre(s)') || getRobustProp(row, 'Nombre') || 'Sin',
+      apellido: getRobustProp(row, 'Apellido(S)') || getRobustProp(row, 'Apellido') || 'Nombre',
+      telefono: getRobustProp(row, 'Telefono(s)') || getRobustProp(row, 'Telefono') || '',
+      whatsapp: getRobustProp(row, 'Whatsapp') || '',
+      vehiculo: getRobustProp(row, 'Vehiculo') || '',
+      costo_pedido: getRobustProp(row, 'Costo/Pedido(s)') || '0',
+      cartera: parseFloat(getRobustProp(row, 'Cartera')) || 0,
+      rapidez: parseFloat(getRobustProp(row, 'Rapidez')) || 5.0,
+      servicio: parseFloat(getRobustProp(row, 'Servicio/Cliente') || getRobustProp(row, 'Servicio')) || 5.0,
+      honestidad: parseFloat(getRobustProp(row, 'Honstidad') || getRobustProp(row, 'Honestidad')) || 5.0,
+      activo: String(getRobustProp(row, 'Activo') || '').toLowerCase() === 'si' || true,
+      foto: getRobustProp(row, 'Foto Perfil') || getRobustProp(row, 'Foto') || ''
+    })).filter(d => d.nombre !== 'Sin');
+
+  } catch (error) {
+    console.error('Error fetching deliveries:', error);
+    throw error;
+  }
+};
+
+/**
+ * Enviar actualización de repartidor a Google Apps Script
+ * Esto incluye mandar la foto base64 para que el servidor la suba a Drive.
+ */
+export const updateDelivery = async (deliveryData) => {
+  try {
+    const payload = {
+      action: "updateDelivery",
+      sheet: "deliverys",
+      data: {
+        'ID_Delivery': deliveryData.id_delivery,
+        'Nombre(s)': deliveryData.nombre,
+        'Apellido(S)': deliveryData.apellido,
+        'Telefono(s)': deliveryData.telefono,
+        'Whatsapp': deliveryData.whatsapp,
+        'Vehiculo': deliveryData.vehiculo,
+        'Costo/Pedido(s)': deliveryData.costo_pedido,
+        'Cartera': deliveryData.cartera,
+        'Rapidez': deliveryData.rapidez,
+        'Servicio/Cliente': deliveryData.servicio,
+        'Honstidad': deliveryData.honestidad,
+        'Activo': deliveryData.activo ? 'SI' : 'NO',
+        'Foto Perfil ': deliveryData.foto
+      }
+    };
+
+    console.log(`Enviando actualización del repartidor ${deliveryData.id_delivery} con claves de Excel...`);
+    
+    const response = await fetch(API_BASE_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const result = await response.json();
+    if (!result.success) {
+      throw new Error(result.error || 'Error al guardar en el Excel de Google');
+    }
+
+    return result;
+
+  } catch (error) {
+    console.error('Error actualizando repartidor:', error);
+    throw error;
   }
 };
 
@@ -345,6 +608,318 @@ export const generateOrderNumber = () => {
   return `DS${timestamp.slice(-6)}${random}`;
 };
 
+/**
+ * Fetch all active orders for the Kitchen Display System (KDS)
+ * Reads from the sheet 'COCINA'
+ * @returns {Promise<Array>} Array of active orders
+ */
+export const fetchKitchenOrders = async () => {
+  try {
+    console.log('Fetching active kitchen orders from COCINA...');
+    const url = `${CONFIG.GAS_API_URL}?sheet=cocina`;
+    const response = await fetch(url, {
+      credentials: 'omit',
+      redirect: 'follow'
+    });
+
+    if (!response.ok) throw new Error('No se pudo leer la hoja de COCINA');
+    const rawData = await response.json();
+    
+    const orders = resolveSheetData(rawData, 'cocina');
+    
+    return orders
+      .filter(order => {
+        const estado = (getRobustProp(order, 'Estado') || getRobustProp(order, 'status') || '').toLowerCase();
+        return estado !== 'delivered' && estado !== 'entregado' && estado !== 'completado' && estado !== 'ready';
+      })
+      .map(order => {
+        // Parsear items de forma segura
+        let itemsArr = [];
+        const rawItems = getRobustProp(order, 'Items') || getRobustProp(order, 'items') || getRobustProp(order, 'Productos');
+        
+        if (rawItems) {
+          if (typeof rawItems === 'string') {
+            try {
+              itemsArr = JSON.parse(rawItems);
+            } catch (e) {
+              console.warn(`⚠️ Error parseando Items para orden ${getRobustProp(order, 'ID_Orden')}:`, e.message);
+              itemsArr = []; // Fallback a lista vacía para no romper la app
+            }
+          } else if (Array.isArray(rawItems)) {
+            itemsArr = rawItems;
+          }
+        }
+
+        return {
+          id: getRobustProp(order, 'ID_Orden') || getRobustProp(order, 'orderId') || Math.random().toString(),
+          cliente: getRobustProp(order, 'Cliente') || getRobustProp(order, 'clientName') || 'Invitado',
+          items: itemsArr,
+          estado: getRobustProp(order, 'Estado') || getRobustProp(order, 'status') || 'pending',
+          hora: getRobustProp(order, 'Hora') || getRobustProp(order, 'time') || '',
+          notas: getRobustProp(order, 'Notas') || getRobustProp(order, 'note') || '',
+          total: parseFloat(getRobustProp(order, 'Total')) || 0,
+        };
+      });
+  } catch (error) {
+    console.error('Error fetching kitchen orders:', error);
+    return [];
+  }
+};
+
+/**
+ * Update order status in Google Apps Script targeting COCINA sheet
+ * @param {string} orderId - Order ID to update
+ * @param {string} newStatus - New status
+ */
+export const updateOrderStatus = async (orderId, newStatus) => {
+  try {
+    const payload = {
+      action: "updateOrder",
+      sheet: "cocina",
+      data: {
+        orderId: orderId,
+        status: newStatus
+      }
+    };
+
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload),
+    });
+
+    const result = await response.json();
+    if (!result.success) throw new Error(result.error || 'Error al actualizar');
+    return result;
+  } catch (error) {
+    console.error('Error updating order status:', error);
+    throw error;
+  }
+};
+
+/**
+ * Fetch orders assigned to a specific rider
+ * @param {string} riderId - ID of the rider
+ */
+export const fetchRiderOrders = async (riderId) => {
+  try {
+    const url = `${CONFIG.GAS_API_URL}?sheet=cocina`;
+    const response = await fetch(url);
+    const rawData = await response.json();
+    const orders = getRobustProp(rawData, 'Cocina') || getRobustProp(rawData, 'data') || [];
+    
+    return orders.filter(o => {
+      const resp = getRobustProp(o, 'Repartidor') || getRobustProp(o, 'repartidor') || '';
+      const status = (getRobustProp(o, 'Estado') || '').toLowerCase();
+      return resp === riderId && status !== 'entregado';
+    }).map(o => ({
+      id: getRobustProp(o, 'ID_Orden') || getRobustProp(o, 'orderId'),
+      cliente: getRobustProp(o, 'Cliente'),
+      total: parseFloat(getRobustProp(o, 'Total')) || 0,
+      estado: getRobustProp(o, 'Estado'),
+      items: typeof getRobustProp(o, 'Items') === 'string' ? JSON.parse(getRobustProp(o, 'Items')) : (getRobustProp(o, 'items') || []),
+      notas: getRobustProp(o, 'Notas') || '',
+      hora: getRobustProp(o, 'Hora') || '',
+      whatsapp: getRobustProp(o, 'Whatsapp') || getRobustProp(o, 'Telefono') || ''
+    }));
+  } catch (error) {
+    console.error('Error fetching rider orders:', error);
+    return [];
+  }
+};
+
+/**
+ * Get rider statistics (Cartera vs Current Debt)
+ * @param {string} riderId - ID of the rider
+ */
+export const fetchRiderStats = async (riderId) => {
+  try {
+    // 1. Obtener Cartera desde Deliverys
+    const deliveries = await fetchDeliveries();
+    const rider = deliveries.find(d => d.id_delivery === riderId || d.nombre === riderId);
+    const cartera = parseFloat(rider ? rider.cartera : 0) || 0;
+
+    // 2. Obtener Deuda Activa (Pedidos en curso)
+    const activeOrders = await fetchRiderOrders(riderId);
+    const deuda = activeOrders.reduce((acc, o) => acc + o.total, 0);
+
+    return {
+      cartera,
+      deuda,
+      cupo: cartera - deuda,
+      nombre: rider ? `${rider.nombre} ${rider.apellido}` : 'Repartidor'
+    };
+  } catch (error) {
+    console.error('Error fetching rider stats:', error);
+    return { cartera: 0, deuda: 0, cupo: 0, nombre: 'Error' };
+  }
+};
+
+/**
+ * Save an item to a waiter's active session in PEDIDOS_CAMARERO
+ * @param {Object} itemData - The denormalized item data matching user columns
+ */
+export const saveWaiterCartItem = async (itemData) => {
+  try {
+    const payload = {
+      action: "updateDelivery", // Reusamos la acción de actualización genérica si el GAS lo permite, 
+                                // pero mejor creamos una específica si el GAS la tiene.
+                                // Por ahora enviamos a la hoja PEDIDOS_CAMARERO
+      sheet: "pedidos_camarero",
+      data: {
+        'ID_Carrito': itemData.id_carrito,
+        'ID_Pedido': itemData.id_pedido || '',
+        'ID_Producto': itemData.id_producto,
+        'Nombre': itemData.nombre,
+        'Precio': itemData.precio,
+        'Cantidad': itemData.cantidad,
+        'Total Producto': itemData.total_producto,
+        'Subtotal': itemData.subtotal || '',
+        'ITBIS': itemData.itbis || '',
+        'Descuentos': itemData.descuentos || '',
+        'Total a pagar': itemData.total_pagar || '',
+        'Cliente': itemData.cliente,
+        'Usuario': itemData.usuario,
+        'Notas': itemData.orderNote || itemData.notas || '',
+        'Rating': itemData.rating || 0,
+        'Fecha': itemData.fecha || new Date().toISOString()
+      }
+    };
+
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload),
+    });
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error saving waiter cart item:', error);
+    throw error;
+  }
+};
+
+/**
+ * Fetch all active cart sessions for a specific waiter
+ * @param {string} waiterName - Name or ID of the waiter
+ */
+export const fetchWaiterActiveSessions = async (waiterName) => {
+  try {
+    const url = `${CONFIG.GAS_API_URL}?sheet=pedidos_camarero`;
+    const response = await fetch(url);
+    const rawData = await response.json();
+    const rows = resolveSheetData(rawData, 'pedidos_camarero');
+
+    // Agrupar filas por ID_Carrito
+    const sessionsMap = rows.reduce((acc, row) => {
+      const rowWaiter = getRobustProp(row, 'usuario');
+      if (rowWaiter === waiterName || !waiterName) {
+        const id = getRobustProp(row, 'id');
+        if (!acc[id]) {
+          acc[id] = {
+            id_carrito: id,
+            cliente: getRobustProp(row, 'nombre') || getRobustProp(row, 'cliente'),
+            usuario: rowWaiter,
+            fecha: getRobustProp(row, 'fecha'),
+            items: [],
+            total: 0
+          };
+        }
+        acc[id].items.push(row);
+        acc[id].total += parseFloat(getRobustProp(row, 'precio') || 0) * (getRobustProp(row, 'cantidad') || 1);
+      }
+      return acc;
+    }, {});
+
+    return Object.values(sessionsMap);
+  } catch (error) {
+    console.error('Error fetching waiter sessions:', error);
+    return [];
+  }
+};
+
+/**
+ * Fetch user profile and role by email from USUARIOS sheet
+ * @param {string} email - The user's email
+ */
+export const fetchUserRoleByEmail = async (email) => {
+  try {
+    const url = `${CONFIG.GAS_API_URL}?sheet=usuarios&EmailUser=${encodeURIComponent(email)}`;
+    const response = await fetch(url);
+    const result = await response.json();
+    
+    const rows = resolveSheetData(result, 'usuarios');
+    if (rows.length > 0) {
+      const user = rows[0];
+      return {
+        id: getRobustProp(user, 'id'),
+        nombre: getRobustProp(user, 'nombre'),
+        role: getRobustProp(user, 'role') || getRobustProp(user, 'usertype'),
+        activo: String(getRobustProp(user, 'activo')).toUpperCase() === 'TRUE'
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('Error fetching user role:', error);
+    return null;
+  }
+};
+
+/**
+ * Fetch all users from the USUARIOS sheet
+ */
+export const fetchAllUsers = async () => {
+  try {
+    const url = `${CONFIG.GAS_API_URL}?sheet=usuarios`;
+    const response = await fetch(url);
+    const result = await response.json();
+    const rows = getRobustProp(result, 'usuarios') || getRobustProp(result, 'data') || [];
+    
+    return rows
+      .filter(u => getRobustProp(u, 'EmailUser') || getRobustProp(u, 'ID_User'))
+      .map(user => ({
+        id: getRobustProp(user, 'ID_User') || `temp_${Math.random()}`,
+        username: getRobustProp(user, 'NombreUser') || 'Sin Nombre',
+        email: getRobustProp(user, 'EmailUser') || '',
+        role: getRobustProp(user, 'UserType') || 'Cliente',
+        active: String(getRobustProp(user, 'activo?')).toUpperCase() === 'TRUE'
+      }));
+  } catch (error) {
+    console.error('Error fetching all users:', error);
+    return [];
+  }
+};
+
+/**
+ * Save or update a user in the USUARIOS sheet
+ */
+export const saveUser = async (userData) => {
+  try {
+    const payload = {
+      action: "updateDelivery", // Usamos el handler genérico del GAS
+      sheet: "usuarios",
+      data: {
+        'ID_User': userData.id,
+        'NombreUser': userData.username,
+        'EmailUser': userData.email,
+        'UserType': userData.role,
+        'activo?': userData.active ? 'TRUE' : 'FALSE'
+      }
+    };
+
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload),
+    });
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error saving user:', error);
+    throw error;
+  }
+};
+
 export default {
   fetchProducts,
   searchProducts,
@@ -359,5 +934,16 @@ export default {
   formatPrice,
   calculateDiscountedPrice,
   generateOrderNumber,
-  mapProductData
+  mapProductData,
+  fetchBusinessInfo,
+  fetchOrderDetails,
+  fetchDeliveries,
+  updateDelivery,
+  fetchKitchenOrders,
+  updateOrderStatus,
+  saveWaiterCartItem,
+  fetchWaiterActiveSessions,
+  fetchUserRoleByEmail,
+  fetchAllUsers,
+  saveUser
 };

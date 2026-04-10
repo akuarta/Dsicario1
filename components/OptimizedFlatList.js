@@ -1,6 +1,7 @@
 import React, { memo, useCallback, useMemo } from 'react';
 import { FlatList, View, StyleSheet } from 'react-native';
-// import { useTheme } from 'react-native-elements';
+import { useThemeMode } from '../contexts/ThemeContext';
+import { getThemeColors, spacing } from '../theme/theme';
 
 /**
  * Optimized FlatList Component with performance enhancements
@@ -33,7 +34,7 @@ const OptimizedFlatList = memo(({
 }) => {
   // const { theme: { spacing } } = useTheme();
   const { darkMode } = useThemeMode();
-  const { spacing } = getThemeColors(darkMode);
+  const colors = getThemeColors(darkMode);
 
   const styles = StyleSheet.create({
     emptyContainer: {
@@ -65,23 +66,10 @@ const OptimizedFlatList = memo(({
     return <View style={styles.defaultSeparator} />;
   }, [ItemSeparatorComponent]);
 
-  // Calculate item layout for better performance (if items have fixed height)
+  // Calculate item layout for better performance (only if explicitly provided)
   const memoizedGetItemLayout = useMemo(() => {
-    if (getItemLayout) {
-      return getItemLayout;
-    }
-    
-    // Default layout calculation for grid items
-    if (numColumns > 1) {
-      return (data, index) => ({
-        length: 200, // Estimated item height
-        offset: 200 * Math.floor(index / numColumns),
-        index,
-      });
-    }
-    
-    return undefined;
-  }, [getItemLayout, numColumns]);
+    return getItemLayout;
+  }, [getItemLayout]);
 
   // Performance optimization props
   const performanceProps = useMemo(() => ({
@@ -108,6 +96,7 @@ const OptimizedFlatList = memo(({
       numColumns={numColumns}
       key={numColumns} // Force re-render when columns change
       horizontal={horizontal}
+      extraData={[data, darkMode, otherProps.extraData]} // Crucial for Fast Refresh and state updates
       showsVerticalScrollIndicator={showsVerticalScrollIndicator}
       showsHorizontalScrollIndicator={showsHorizontalScrollIndicator}
       contentContainerStyle={[
@@ -124,21 +113,12 @@ const OptimizedFlatList = memo(({
       ItemSeparatorComponent={numColumns === 1 ? memoizedSeparator : null}
       {...performanceProps}
       {...otherProps}
+      removeClippedSubviews={false} // Force false to prevent disappearing items
     />
   );
 });
 
 // Display name for debugging
 OptimizedFlatList.displayName = 'OptimizedFlatList';
-
-const styles = StyleSheet.create({
-  emptyContainer: {
-    flex: 1,
-  },
-  
-  defaultSeparator: {
-    height: spacing.sm,
-  },
-});
 
 export default OptimizedFlatList;

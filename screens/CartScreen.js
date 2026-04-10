@@ -7,23 +7,22 @@ import {
   StyleSheet, 
   FlatList,
   SafeAreaView,
-  Alert
+  Alert,
+  TextInput
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import SegmentedControl from '@react-native-segmented-control/segmented-control';
 import { useCart } from '../contexts/AppContext';
-import globalStyles from '../styles/globalStyles';
-import theme from '../theme/theme';
+import { useGlobalStyles } from '../styles/globalStyles';
+import theme from '../theme';
 import { showAlert } from '../utils/showAlert';
 import { showConfirm } from '../utils/showConfirm';
-import { getThemeColors } from '../theme/theme';
-import { useThemeMode } from '../contexts/ThemeContext';
+import { CustomHeader } from '../components/CustomHeader';
 
-const { darkMode } = useThemeMode();
-const colors = getThemeColors(darkMode);
-const { spacing, typography, borders } = theme;
+const { colors, spacing, typography, borders } = theme;
 
 const CartScreen = ({ navigation }) => {
+  const globalStyles = useGlobalStyles();
   const { 
     cart, 
     removeFromCart, 
@@ -35,153 +34,8 @@ const CartScreen = ({ navigation }) => {
     setPaymentType 
   } = useCart();
 
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    header: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: spacing.medium,
-      backgroundColor: colors.primary,
-    },
-    headerTitle: {
-      ...typography.h5,
-      color: colors.text.white,
-    },
-    clearText: {
-      ...typography.body2,
-      color: colors.text.white,
-    },
-    cartItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      padding: spacing.medium,
-      backgroundColor: colors.card,
-      borderBottomWidth: borders.thin,
-      borderBottomColor: colors.border,
-    },
-    itemImage: {
-      width: 80,
-      height: 80,
-      borderRadius: borders.radius.small,
-      marginRight: spacing.medium,
-    },
-    itemInfo: {
-      flex: 1,
-    },
-    itemName: {
-      ...typography.body1,
-      fontWeight: 'bold',
-      color: colors.text.primary,
-    },
-    itemCategory: {
-      ...typography.body2,
-      color: colors.text.secondary,
-      marginBottom: spacing.extraSmall,
-    },
-    itemPrice: {
-      ...typography.body2,
-      color: colors.text.primary,
-    },
-    quantityControls: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginLeft: spacing.medium,
-    },
-    quantityButton: {
-      backgroundColor: colors.primary,
-      padding: spacing.small,
-      borderRadius: borders.radius.small,
-    },
-    incrementButton: {
-      marginLeft: spacing.extraSmall,
-    },
-    quantityText: {
-      ...typography.body1,
-      marginHorizontal: spacing.small,
-      color: colors.text.primary,
-    },
-    itemActions: {
-      marginLeft: spacing.medium,
-      alignItems: 'flex-end',
-    },
-    subtotalText: {
-      ...typography.body1,
-      fontWeight: 'bold',
-      color: colors.text.primary,
-      marginBottom: spacing.small,
-    },
-    removeButton: {
-      padding: spacing.small,
-    },
-    summaryContainer: {
-      padding: spacing.medium,
-      backgroundColor: colors.card,
-      borderTopWidth: borders.thin,
-      borderTopColor: colors.border,
-    },
-    summaryRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      marginBottom: spacing.small,
-    },
-    summaryLabel: {
-      ...typography.body1,
-      color: colors.text.primary,
-    },
-    summaryValue: {
-      ...typography.body1,
-      fontWeight: 'bold',
-      color: colors.text.primary,
-    },
-    totalRow: {
-      borderTopWidth: borders.thin,
-      borderTopColor: colors.border,
-      paddingTop: spacing.small,
-      marginTop: spacing.small,
-    },
-    totalLabel: {
-      ...typography.h6,
-      color: colors.text.primary,
-    },
-    totalValue: {
-      ...typography.h6,
-      fontWeight: 'bold',
-      color: colors.primary,
-    },
-    checkoutButton: {
-      backgroundColor: colors.accent,
-      padding: spacing.medium,
-      borderRadius: borders.radius.medium,
-      alignItems: 'center',
-      marginTop: spacing.medium,
-    },
-    checkoutButtonText: {
-      ...typography.button,
-      color: colors.text.white,
-    },
-    paymentTypeContainer: {
-      marginVertical: spacing.medium,
-    },
-    paymentTypeLabel: {
-      ...typography.body1,
-      color: colors.text.primary,
-      marginBottom: spacing.small,
-    },
-    segmentedControl: {
-      height: 40,
-    },
-    separator: {
-      height: 1,
-      backgroundColor: colors.border,
-      marginHorizontal: spacing.medium,
-    },
-  });
-
   const [selectedProductId, setSelectedProductId] = useState(null);
+  const [orderNote, setOrderNote] = useState('');
 
   const totalCost = useMemo(() => getTotalCost(), [cart, getTotalCost]);
   const totalItems = useMemo(() => getTotalItems(), [cart, getTotalItems]);
@@ -245,9 +99,10 @@ const CartScreen = ({ navigation }) => {
     navigation.navigate('Checkout', {
       cart,
       totalCost,
-      paymentType
+      paymentType,
+      orderNote
     });
-  }, [cart, totalCost, paymentType, navigation]);
+  }, [cart, totalCost, paymentType, orderNote, navigation]);
 
   // Renderizar item del carrito
   function renderCartItem({ item }) {
@@ -328,20 +183,13 @@ const CartScreen = ({ navigation }) => {
   const ItemSeparator = useCallback(() => <View style={styles.separator} />, []);
 
   return (
-    <SafeAreaView style={[globalStyles.container, darkMode && { backgroundColor: '#222' }]}>
-      <View style={[styles.container, darkMode && { backgroundColor: '#222' }]}>
-        {/* Header del carrito */}
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>
-            Mi Carrito ({totalItems} {totalItems === 1 ? 'producto' : 'productos'})
-          </Text>
-          {cart.length > 0 && (
-            <TouchableOpacity onPress={handleClearCart}>
-              <Text style={styles.clearText}>Vaciar</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
+    <SafeAreaView style={globalStyles.container}>
+      <CustomHeader 
+        title="Mi Carrito" 
+        rightIcon={<Text style={{ color: colors.error, fontWeight: 'bold' }}>Vaciar</Text>}
+        rightAction={cart.length > 0 ? handleClearCart : null}
+      />
+      <View style={styles.container}>
         {/* Lista del carrito */}
         <FlatList
           data={cart}
@@ -356,6 +204,20 @@ const CartScreen = ({ navigation }) => {
         {/* Footer con total y checkout */}
         {cart.length > 0 && (
           <View style={styles.footer}>
+            {/* Caja de comentarios / Notas de la orden */}
+            <View style={styles.noteSection}>
+              <Text style={styles.paymentLabel}>Comentario u Observación:</Text>
+              <TextInput
+                style={globalStyles.textInput}
+                placeholder="Ej. Sin cebolla, extra salsa..."
+                placeholderTextColor={colors.text.light}
+                value={orderNote}
+                onChangeText={setOrderNote}
+                multiline
+                numberOfLines={2}
+              />
+            </View>
+
             {/* Selector de tipo de pago */}
             <View style={styles.paymentSection}>
               <Text style={styles.paymentLabel}>Método de pago:</Text>
@@ -400,137 +262,187 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  emptyCartContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
-  emptyCartText: {
-    fontSize: 18,
-    color: colors.text.secondary,
-    textAlign: 'center',
-    marginBottom: 20,
+  
+  headerTitle: {
+    fontSize: typography.sizes.lg,
+    fontWeight: typography.weights.bold,
+    color: colors.text.primary,
   },
-  emptyCartButton: {
-    backgroundColor: colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 25,
-    borderRadius: 25,
+  
+  clearText: {
+    fontSize: typography.sizes.md,
+    color: colors.error,
+    fontWeight: typography.weights.medium,
   },
-  emptyCartButtonText: {
-    color: colors.text.white,
-    fontSize: 16,
-    fontWeight: 'bold',
+  
+  listContainer: {
+    paddingVertical: spacing.sm,
   },
+  
+  emptyList: {
+    flex: 1,
+  },
+  
   cartItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 10,
-    marginHorizontal: 15,
-    marginTop: 10,
-    padding: 10,
-    shadowColor: colors.text.primary,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1.41,
-    elevation: 2,
+    backgroundColor: colors.background,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
+  
   itemImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-    marginRight: 10,
+    width: 60,
+    height: 60,
+    borderRadius: borders.radius.sm,
+    marginRight: spacing.sm,
   },
-  itemDetails: {
+  
+  itemInfo: {
     flex: 1,
+    marginRight: spacing.sm,
   },
+  
   itemName: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.medium,
     color: colors.text.primary,
+    marginBottom: spacing.xs,
   },
+  
+  itemCategory: {
+    fontSize: typography.sizes.sm,
+    color: colors.text.light,
+    marginBottom: spacing.xs,
+  },
+  
   itemPrice: {
-    fontSize: 14,
+    fontSize: typography.sizes.sm,
     color: colors.text.secondary,
-    marginTop: 5,
   },
-  itemQuantityContainer: {
+  
+  quantityControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 5,
+    marginRight: spacing.sm,
   },
+  
   quantityButton: {
-    backgroundColor: colors.border,
-    padding: 5,
-    borderRadius: 5,
-  },
-  quantityButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.text.primary,
-  },
-  itemQuantity: {
-    fontSize: 14,
-    marginHorizontal: 10,
-    color: colors.text.primary,
-  },
-  removeButton: {
-    padding: 5,
-  },
-  summaryContainer: {
-    backgroundColor: colors.surface,
-    padding: 20,
-    marginTop: 10,
-    marginHorizontal: 15,
-    borderRadius: 10,
-    shadowColor: colors.text.primary,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1.41,
-    elevation: 2,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  summaryText: {
-    fontSize: 16,
-    color: colors.text.primary,
-  },
-  summaryTotalText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.text.primary,
-  },
-  checkoutButton: {
-    backgroundColor: colors.primary,
-    paddingVertical: 15,
-    borderRadius: 25,
+    backgroundColor: colors.error,
+    width: 28,
+    height: 28,
+    borderRadius: borders.radius.sm,
+    justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
   },
-  checkoutButtonText: {
-    color: colors.text.white,
-    fontSize: 18,
-    fontWeight: 'bold',
+  
+  incrementButton: {
+    backgroundColor: colors.primary,
   },
-  paymentTypeContainer: {
-    marginHorizontal: 15,
-    marginTop: 10,
-    marginBottom: 20,
-  },
-  paymentTypeLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 10,
+  
+  quantityText: {
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.bold,
     color: colors.text.primary,
+    marginHorizontal: spacing.sm,
+    minWidth: 20,
+    textAlign: 'center',
   },
-  // Estilos para el SegmentedControl
+  
+  itemActions: {
+    alignItems: 'flex-end',
+  },
+  
+  subtotalText: {
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.bold,
+    color: colors.primary,
+    marginBottom: spacing.xs,
+  },
+  
+  removeButton: {
+    padding: spacing.xs,
+  },
+  
+  separator: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginHorizontal: spacing.md,
+  },
+  
+  footer: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  
+  noteSection: {
+    marginBottom: spacing.sm,
+  },
+  
+  paymentSection: {
+    marginBottom: spacing.md,
+  },
+  
+  paymentLabel: {
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.medium,
+    color: colors.text.primary,
+    marginBottom: spacing.sm,
+  },
+  
   segmentedControl: {
     height: 40,
+  },
+  
+  checkoutSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  
+  totalContainer: {
+    flex: 1,
+  },
+  
+  totalLabel: {
+    fontSize: typography.sizes.md,
+    color: colors.text.secondary,
+  },
+  
+  totalAmount: {
+    fontSize: typography.sizes.xl,
+    fontWeight: typography.weights.bold,
+    color: colors.text.primary,
+  },
+  
+  checkoutButton: {
+    backgroundColor: colors.success,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: borders.radius.lg,
+    ...theme.shadows.medium,
+  },
+  
+  checkoutButtonText: {
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.bold,
+    color: colors.text.white,
+    marginLeft: spacing.sm,
   },
 });
 

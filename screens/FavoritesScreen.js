@@ -1,24 +1,153 @@
-import React from 'react';
-import { View, Text, StyleSheet, SafeAreaView } from 'react-native';
-import { getThemeColors } from '../theme/theme';
+import React, { useCallback } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  SafeAreaView, 
+  FlatList,
+  TouchableOpacity,
+  Alert
+} from 'react-native';
+import { FontAwesome5 } from '@expo/vector-icons';
+import ProductItem from '../components/ProductItem';
+import { useFavorites } from '../contexts/FavoritesContext';
+import { useGlobalStyles } from '../styles/globalStyles';
+import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
+import { showConfirm } from '../utils/showConfirm';
 
-const { darkMode } = useThemeMode();
-const colors = getThemeColors(darkMode);
+const FavoritesScreen = ({ navigation }) => {
+  const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
+  const globalStyles = useGlobalStyles(colors);
+  const { favorites, removeFromFavorites, clearFavorites } = useFavorites();
 
-const FavoritesScreen = () => {
-  
-  
+  const handleProductPress = useCallback((product) => {
+    navigation.navigate('ProductDetail', { product });
+  }, [navigation]);
+
+  const handleRemoveFavorite = useCallback((product) => {
+    showConfirm(
+      'Quitar de favoritos',
+      `¿Quieres quitar "${product.nombre}" de tus favoritos?`,
+      () => removeFromFavorites(product.id)
+    );
+  }, [removeFromFavorites]);
+
+  const handleClearAll = useCallback(() => {
+    showConfirm(
+      'Vaciar favoritos',
+      '¿Estás seguro de que quieres quitar todos los favoritos?',
+      clearFavorites
+    );
+  }, [clearFavorites]);
+
+  const renderFavoriteItem = useCallback(({ item }) => (
+    <View style={styles.itemContainer}>
+      <ProductItem 
+        product={item} 
+        onPress={handleProductPress} 
+        showBadges 
+        showRating 
+      />
+      <TouchableOpacity 
+        style={styles.removeButton}
+        onPress={() => handleRemoveFavorite(item)}
+      >
+        <FontAwesome5 name="heart-broken" size={18} color={colors.error} />
+      </TouchableOpacity>
+    </View>
+  ), [handleProductPress, handleRemoveFavorite]);
+
+  const renderEmptyFavorites = useCallback(() => (
+    <View style={globalStyles.emptyContainer}>
+      <FontAwesome5 name="heart" size={64} color={colors.text.light} />
+      <Text style={globalStyles.emptyTitle}>Sin favoritos aún</Text>
+      <Text style={globalStyles.emptyText}>
+        Explora nuestros productos y marca tus favoritos para acceder rápidamente
+      </Text>
+      <TouchableOpacity 
+        style={globalStyles.primaryButton}
+        onPress={() => navigation.navigate('Explorar')}
+      >
+        <Text style={globalStyles.primaryButtonText}>Explorar Productos</Text>
+      </TouchableOpacity>
+    </View>
+  ), [navigation]);
+
   const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' },
-    title: { fontSize: 22, fontWeight: 'bold', color: colors.primary, marginBottom: 12 },
-    text: { fontSize: 16, color: colors.text.primary },
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: spacing.md,
+      backgroundColor: colors.primary,
+    },
+    headerTitle: {
+      ...typography.h5,
+      color: colors.text.white,
+    },
+    clearButton: {
+      padding: spacing.sm,
+    },
+    clearButtonText: {
+      color: colors.text.white,
+      fontSize: typography.sizes.sm,
+    },
+    listContainer: {
+      padding: spacing.sm,
+      paddingBottom: spacing.xxl + 20,
+    },
+    itemContainer: {
+      position: 'relative',
+    },
+    removeButton: {
+      position: 'absolute',
+      top: spacing.sm,
+      right: spacing.sm + 4,
+      backgroundColor: colors.surface,
+      padding: spacing.sm,
+      borderRadius: borders.radius.round,
+      zIndex: 10,
+      ...shadows.small,
+    },
   });
+
+  if (favorites.length > 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>
+            {favorites.length} {favorites.length === 1 ? 'Producto' : 'Productos'} Favoritos
+          </Text>
+          <TouchableOpacity 
+            style={styles.clearButton}
+            onPress={handleClearAll}
+          >
+            <Text style={styles.clearButtonText}>Limpiar todo</Text>
+          </TouchableOpacity>
+        </View>
+
+        <FlatList
+          data={favorites}
+          renderItem={renderFavoriteItem}
+          keyExtractor={item => item.id?.toString() || Math.random().toString()}
+          numColumns={2}
+          contentContainerStyle={styles.listContainer}
+          columnWrapperStyle={{ justifyContent: 'space-between' }}
+          showsVerticalScrollIndicator={false}
+        />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Favoritos</Text>
-      <Text style={styles.text}>Aquí se mostrarán los productos guardados como favoritos.</Text>
+      {renderEmptyFavorites()}
     </SafeAreaView>
   );
 };
