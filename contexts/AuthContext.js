@@ -34,12 +34,8 @@ export const AuthProvider = ({ children }) => {
         setUser(userData);
         await AsyncStorage.setItem('@dsicario_user', JSON.stringify(userData));
       } else {
-        const savedUser = await AsyncStorage.getItem('@dsicario_user');
-        if (savedUser) {
-          setUser(JSON.parse(savedUser));
-        } else {
-          setUser(null);
-        }
+        setUser(null);
+        await AsyncStorage.removeItem('@dsicario_user');
       }
       setLoading(false);
     });
@@ -56,7 +52,9 @@ export const AuthProvider = ({ children }) => {
     setError(null);
 
     try {
+      console.log('Firebase: Iniciando signInWithEmailAndPassword...');
       const result = await signInWithEmailAndPassword(auth, email, password);
+      console.log('Firebase: Login exitoso para UID:', result.user.uid);
       const userData = {
         uid: result.user.uid,
         email: result.user.email,
@@ -68,6 +66,8 @@ export const AuthProvider = ({ children }) => {
       await AsyncStorage.setItem('@dsicario_user', JSON.stringify(userData));
       return userData;
     } catch (err) {
+      console.error('Firebase Error Code:', err.code);
+      console.error('Firebase Error Message:', err.message);
       let errorMessage = 'Error al iniciar sesión';
       switch (err.code) {
         case 'auth/user-not-found':
@@ -146,10 +146,12 @@ export const AuthProvider = ({ children }) => {
   };
 
   const signOut = async () => {
+    console.log('Cerrando sesión...');
     try {
       await firebaseSignOut(auth);
       setUser(null);
       await AsyncStorage.removeItem('@dsicario_user');
+      console.log('Sesión cerrada exitosamente');
     } catch (err) {
       console.error('Error al cerrar sesión:', err);
       throw err;

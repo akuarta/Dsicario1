@@ -66,6 +66,7 @@ const MainTabs = () => {
   
   const isCocina = role === 'Cocina' || role === 'Cosina';
   const isDelivery = role === 'Delivery';
+  const isAdmin = role?.toLowerCase() === 'admin';
   
   const isRestricted = isCocina || isDelivery;
 
@@ -120,13 +121,29 @@ const MainTabs = () => {
         />
       )}
 
+      {/* Hidden tabs for Drawer Screens so Bottom Tabs don't disappear */}
+      <Tab.Screen name="OrderCenter" component={OrderCenterScreen} options={{ tabBarButton: () => null }} />
+      <Tab.Screen name="Historial" component={PurchaseHistoryStack} options={{ tabBarButton: () => null }} />
+      <Tab.Screen name="Favoritos" component={FavoritesStack} options={{ tabBarButton: () => null }} />
+      <Tab.Screen name="Configuracion" component={ConfigStack} options={{ tabBarButton: () => null }} />
+      
+      {(isAdmin || isCocina) && (
+        <Tab.Screen name="CocinaAdmin" component={KitchenScreen} options={{ tabBarButton: () => null }} />
+      )}
+
+      {isAdmin && (
+        <>
+          <Tab.Screen name="RiderAdmin" component={RiderScreen} options={{ tabBarButton: () => null }} />
+          <Tab.Screen name="AdminStaff" component={AdminStaffScreen} options={{ tabBarButton: () => null }} />
+        </>
+      )}
+
     </Tab.Navigator>
   );
 };
 
 const DrawerNavigator = () => {
   const { colors } = useTheme();
-  const { role } = useUser();
 
   return (
     <Drawer.Navigator
@@ -138,33 +155,6 @@ const DrawerNavigator = () => {
       }}
     >
       <Drawer.Screen name="MainTabs" component={MainTabs} options={{ drawerLabel: 'Inicio' }} />
-      <Drawer.Screen name="OrderCenter" component={OrderCenterScreen} options={{ drawerLabel: 'Rastreo de Pedidos' }} />
-      <Drawer.Screen name="Historial" component={PurchaseHistoryStack} options={{ drawerLabel: 'Historial de Compras' }} />
-      <Drawer.Screen name="Favoritos" component={FavoritesStack} options={{ drawerLabel: 'Favoritos' }} />
-      <Drawer.Screen name="Configuracion" component={ConfigStack} options={{ drawerLabel: 'Configuración' }} />
-      
-      {(role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'cocina') && (
-        <Drawer.Screen 
-          name="CocinaAdmin" 
-          component={KitchenScreen} 
-          options={{ drawerLabel: 'Monitor de Cocina' }} 
-        />
-      )}
-
-      {role?.toLowerCase() === 'admin' && (
-        <>
-          <Drawer.Screen 
-            name="RiderAdmin" 
-            component={RiderScreen} 
-            options={{ drawerLabel: 'Panel de Repartidores' }} 
-          />
-          <Drawer.Screen 
-            name="AdminStaff" 
-            component={AdminStaffScreen} 
-            options={{ drawerLabel: 'Gestión de Personal' }} 
-          />
-        </>
-      )}
     </Drawer.Navigator>
   );
 };

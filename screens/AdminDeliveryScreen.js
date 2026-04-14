@@ -599,7 +599,12 @@ const AdminDeliveryScreen = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>📋 Administrar Repartidores</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ paddingRight: 15, paddingVertical: 5 }}>
+            <FontAwesome5 name="arrow-left" size={20} color={colors.text.white} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>📋 Administrar</Text>
+        </View>
         <TouchableOpacity style={styles.addBtn} onPress={() => {
           setEditDelivery(null);
           setForm({

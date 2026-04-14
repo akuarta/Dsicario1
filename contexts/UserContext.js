@@ -48,12 +48,8 @@ export const UserProvider = ({ children }) => {
     }
   };
 
-  useEffect(() => {
-    // Recuperar rol guardado al iniciar
-    AsyncStorage.getItem('@dsicario_role').then(savedRole => {
-      if (savedRole) setRole(savedRole);
-    });
-  }, []);
+  // El rol ahora se gestiona exclusivamente a través de syncUserRole 
+  // para mayor seguridad, evitando que roles antiguos se queden pegados.
 
   const value = React.useMemo(() => ({ 
     username, setUsername, 

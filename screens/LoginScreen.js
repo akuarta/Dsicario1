@@ -19,6 +19,7 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
 
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
@@ -38,6 +39,11 @@ const LoginScreen = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
+  // Generamos el redirectUri directamente
+  const redirectUri = AuthSession.makeRedirectUri({
+    scheme: 'dsicario',
+  });
+
   // Configuración de Google Auth (Envuelto en try-catch por si falla en Web)
   let googleRequest = null;
   let googleResponse = null;
@@ -45,8 +51,12 @@ const LoginScreen = () => {
 
   try {
     const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
-      clientId: '758740272138-0u5m6r5q6m6r5q6m6r5q6m6r5q6m6r5q.apps.googleusercontent.com',
+      clientId: '758740272138-77lhol13d82jds53656573ijqi0u766k.apps.googleusercontent.com',
+      webClientId: '758740272138-77lhol13d82jds53656573ijqi0u766k.apps.googleusercontent.com',
+      androidClientId: '758740272138-dasbir8hjp2ffvs50nmm0t9mldo992i8.apps.googleusercontent.com',
+      redirectUri: redirectUri,
     });
+    
     googleRequest = request;
     googleResponse = response;
     googlePromptAsync = promptAsync;
@@ -67,9 +77,13 @@ const LoginScreen = () => {
        return;
     }
     try {
-      await signIn(email, password);
+      console.log('--- INTENTO DE LOGIN ---');
+      console.log('Email:', email);
+      const result = await signIn(email, password);
+      console.log('Login exitoso en Interfaz para:', result.email);
     } catch (err) {
-      console.log('Login error:', err.message);
+      console.log('--- ERROR DE LOGIN EN INTERFAZ ---');
+      console.log('Mensaje:', err.message);
     }
   };
 
@@ -238,6 +252,15 @@ const LoginScreen = () => {
               ¿No tienes cuenta? <Text style={{color: colors.primary, fontWeight: 'bold'}}>Regístrate aquí</Text>
             </Text>
           </TouchableOpacity>
+
+          <View style={{marginTop: 40, padding: 10, backgroundColor: '#f0f0f0', borderRadius: 8}}>
+            <Text style={{fontSize: 12, color: 'red', fontWeight: 'bold', textAlign: 'center'}}>
+              AÑADE ESTA URL EN GOOGLE CLOUD:
+            </Text>
+            <Text style={{fontSize: 10, color: '#333', textAlign: 'center', marginTop: 4}} selectable={true}>
+              {redirectUri}
+            </Text>
+          </View>
 
         </ScrollView>
       </KeyboardAvoidingView>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, Alert, Platform } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -28,11 +28,12 @@ const ProfileDrawerContent = (props) => {
       '¿Estás seguro de que quieres vaciar todo el carrito?',
       [
         { text: 'Cancelar', style: 'cancel' },
-        { 
-          text: 'Sí, Vaciar', 
+        {
+          text: 'Vaciar',
+          style: 'destructive',
           onPress: () => {
             clearCart();
-            showAlert('Éxito', 'Carrito vaciado correctamente');
+            showAlert('Carrito vaciado', 'Se han removido todos los productos del carrito');
           }
         }
       ]
@@ -41,177 +42,146 @@ const ProfileDrawerContent = (props) => {
 
   const menuItems = [
     {
-      title: 'Mi Perfil',
-      icon: 'user-circle',
-      onPress: () => props.navigation.navigate('Profile'),
-      visible: true,
+      id: 1,
+      title: 'Mi Carrito',
+      icon: 'shopping-cart',
+      onPress: () => props.navigation.navigate('MainTabs', { screen: 'Carrito' }),
+      showBadge: totalItems > 0,
+      badgeCount: totalItems
     },
     {
-      title: 'Mis Pedidos',
+      id: 10,
+      title: 'Centro de Pedidos',
+      icon: 'map-marked-alt',
+      onPress: () => props.navigation.navigate('OrderCenter'),
+    },
+    {
+      id: 2,
+      title: 'Historial de Compras',
       icon: 'history',
-      onPress: () => props.navigation.navigate('Orders'),
-      visible: true,
+      onPress: () => props.navigation.navigate('Historial'),
     },
     {
-      title: 'Panel Admin',
+      id: 3,
+      title: 'Favoritos',
+      icon: 'heart',
+      onPress: () => props.navigation.navigate('Favoritos'),
+    },
+    {
+      id: 4,
+      title: 'Configuración',
       icon: 'cog',
-      onPress: () => props.navigation.navigate('Admin'),
-      visible: isAdmin,
+      onPress: () => {
+        props.navigation.navigate('Configuracion');
+      },
     },
     {
-      title: 'Monitor Cocina',
+      id: 5,
+      title: 'Vaciar Carrito',
+      icon: 'trash',
+      onPress: handleClearCart,
+      isDestructive: true
+    },
+    {
+      id: 6,
+      title: 'Acerca de',
+      icon: 'info-circle',
+      onPress: () => showAlert('DSicario v1.0', 'Aplicación de e-commerce desarrollada con React Native\n\n© 2024 DSicario'),
+    },
+    {
+      id: 7,
+      title: 'Monitor de Cocina',
       icon: 'utensils',
-      onPress: () => props.navigation.navigate('Kitchen'),
+      onPress: () => props.navigation.navigate('CocinaAdmin'),
       visible: isAdmin || isCocina,
     },
     {
-      title: 'Vaciar Carrito',
-      icon: 'trash-alt',
-      onPress: handleClearCart,
-      visible: true,
-      color: '#ff4444',
+      id: 8,
+      title: 'Panel de Repartidores',
+      icon: 'motorcycle',
+      onPress: () => props.navigation.navigate('RiderAdmin'),
+      visible: isAdmin,
+    },
+    {
+      id: 9,
+      title: 'Gestión de Personal',
+      icon: 'users-cog',
+      onPress: () => props.navigation.navigate('AdminStaff'),
+      visible: isAdmin,
     },
   ];
 
+  const styles = StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background || '#fff' },
+    header: { alignItems: 'center', backgroundColor: colors.primary || '#FF6B35', paddingVertical: 32 },
+    userName: { fontSize: 20, fontWeight: 'bold', color: '#fff', marginTop: 8 },
+    userEmail: { fontSize: 14, color: '#fff', marginBottom: 8 },
+    menuContainer: { marginTop: 24 },
+    menuItem: { flexDirection: 'row', alignItems: 'center', padding: 16 },
+    menuItemTitle: { fontSize: 16, color: colors.text?.primary || '#333', flex: 1 },
+    destructiveItem: { backgroundColor: 'rgba(244, 67, 54, 0.05)' },
+    destructiveText: { color: colors.error || '#f44336' },
+    badge: { backgroundColor: colors.primary || '#FF6B35', borderRadius: 12, paddingHorizontal: 8, marginLeft: 8 },
+    badgeText: { color: '#fff', fontWeight: 'bold', fontSize: 12 },
+  });
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { backgroundColor: colors.primary }]}>
-        <View style={styles.avatarContainer}>
-          <FontAwesome5 name="user-alt" size={40} color="#fff" />
+    <SafeAreaView style={styles.container}>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={styles.header}>
+          <FontAwesome5 name="user" size={32} color="#fff" />
+          <Text style={styles.userName}>{username}</Text>
+          <Text style={styles.userEmail}>{email}</Text>
         </View>
-        <Text style={styles.usernameText}>{username || 'Usuario'}</Text>
-        <Text style={styles.emailText}>{email || ''}</Text>
-        <View style={styles.roleBadge}>
-          <Text style={styles.roleText}>{(role || 'CLIENTE').toUpperCase()}</Text>
+        <View style={styles.menuContainer}>
+          {menuItems.filter(item => item.visible !== false).map(item => (
+            <TouchableOpacity
+              key={item.id}
+              style={[styles.menuItem, item.isDestructive && styles.destructiveItem]}
+              onPress={item.onPress}
+            >
+              <FontAwesome5 
+                name={item.icon} 
+                size={20} 
+                color={item.isDestructive ? (colors.error || '#f44336') : (colors.primary || '#FF6B35')} 
+                style={{ marginRight: 16 }} 
+              />
+              <Text style={[styles.menuItemTitle, item.isDestructive && styles.destructiveText]}>{item.title}</Text>
+              {item.showBadge && item.badgeCount > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{item.badgeCount > 99 ? '99+' : item.badgeCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
         </View>
-      </View>
-
-      <ScrollView style={styles.menuContainer}>
-        {menuItems.filter(item => item.visible).map((item, index) => (
-          <TouchableOpacity
-            key={index}
-            style={styles.menuItem}
-            onPress={item.onPress}
-          >
-            <FontAwesome5 
-              name={item.icon} 
-              size={20} 
-              color={item.color || colors.text.secondary} 
-              style={styles.menuIcon} 
-            />
-            <Text style={[
-              styles.menuText, 
-              { color: item.color || colors.text.primary }
-            ]}>
-              {item.title}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={[styles.logoutButton, { borderColor: colors.border }]}
+        
+        <TouchableOpacity 
+          style={[styles.menuItem, { marginTop: 20, borderTopWidth: 1, borderTopColor: colors.border || '#eee' }]}
           onPress={() => {
-            Alert.alert(
-              'Cerrar Sesión',
-              '¿Estás seguro de que quieres salir?',
-              [
-                { text: 'Cancelar', style: 'cancel' },
-                { text: 'Salir', onPress: () => signOut() },
-              ]
-            );
+            if (Platform.OS === 'web') {
+              const confirm = window.confirm('¿Estás seguro de que quieres salir?');
+              if (confirm) {
+                signOut();
+              }
+            } else {
+              Alert.alert(
+                "Cerrar Sesión",
+                "¿Estás seguro de que quieres salir?",
+                [
+                  { text: "Cancelar", style: "cancel" },
+                  { text: "Salir", onPress: signOut, style: "destructive" }
+                ]
+              );
+            }
           }}
         >
-          <FontAwesome5 name="sign-out-alt" size={18} color="#ff4444" />
-          <Text style={styles.logoutText}>Cerrar Sesión</Text>
+          <FontAwesome5 name="sign-out-alt" size={20} color="#666" style={{ marginRight: 16 }} />
+          <Text style={[styles.menuItemTitle, { color: '#666' }]}>Cerrar Sesión</Text>
         </TouchableOpacity>
-        <Text style={styles.versionText}>v1.0.0</Text>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    padding: 20,
-    paddingTop: 40,
-    alignItems: 'center',
-  },
-  avatarContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  usernameText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  emailText: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.8)',
-    marginBottom: 10,
-  },
-  roleBadge: {
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  roleText: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  menuContainer: {
-    flex: 1,
-    paddingTop: 10,
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-  },
-  menuIcon: {
-    width: 30,
-    marginRight: 15,
-    textAlign: 'center',
-  },
-  menuText: {
-    fontSize: 16,
-  },
-  footer: {
-    padding: 20,
-    borderTopWidth: 1,
-  },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    borderWidth: 1,
-    borderRadius: 10,
-    marginBottom: 10,
-  },
-  logoutText: {
-    marginLeft: 10,
-    color: '#ff4444',
-    fontWeight: 'bold',
-  },
-  versionText: {
-    textAlign: 'center',
-    fontSize: 12,
-    color: '#999',
-  },
-});
 
 export default ProfileDrawerContent;

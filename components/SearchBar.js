@@ -4,7 +4,9 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Animated
+  Animated,
+  StatusBar,
+  Platform
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import theme, { getThemeColors } from '../theme/theme';

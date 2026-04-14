@@ -12,6 +12,7 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 // import ProductBadges from './ProductBadges'; // Eliminado por limpieza de componentes huérfanos
 import { useGlobalStyles } from '../hooks/useGlobalStyles';
+import { useCart } from '../contexts/AppContext';
 import { formatPrice, calculateDiscountedPrice } from '../utils/api';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
@@ -32,6 +33,7 @@ const ProductItem = memo(({
 }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
+  const { cart, addToCart, updateCartItemQuantity } = useCart();
   
   const originalPrice = parseFloat(product.precio) || 0;
   const finalPrice = product.descuento > 0 
@@ -224,10 +226,39 @@ const ProductItem = memo(({
         </View>
       )}
       <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.gradient}>
-        <Text style={[styles.productName, product.agotado && styles.outOfStockText]} numberOfLines={2}>
+        <Text style={[styles.productName, product.agotado && styles.outOfStockText, { paddingRight: 35 }]} numberOfLines={2}>
           {product.nombre}
         </Text>
       </LinearGradient>
+      {!product.agotado && (
+        <TouchableOpacity 
+          style={{
+            position: 'absolute',
+            bottom: 8,
+            right: 8,
+            backgroundColor: colors.primary,
+            width: 32,
+            height: 32,
+            borderRadius: 16,
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 20,
+            ...shadows.medium,
+          }}
+          onPress={(e) => {
+            if (e && e.stopPropagation) e.stopPropagation();
+            const cartItem = cart?.find(item => item.id === product.id);
+            if (cartItem) {
+              updateCartItemQuantity(product.id, cartItem.quantity + 1);
+            } else {
+              addToCart(product);
+            }
+          }}
+          activeOpacity={0.8}
+        >
+          <FontAwesome5 name="plus" size={14} color="#FFF" />
+        </TouchableOpacity>
+      )}
     </>
   );
 

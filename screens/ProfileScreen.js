@@ -307,6 +307,13 @@ const ProfileScreen = ({ navigation }) => {
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
+          <TouchableOpacity 
+            onPress={() => navigation.goBack()} 
+            style={{ marginBottom: spacing.md, alignSelf: 'flex-start', padding: 5 }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <FontAwesome5 name="arrow-left" size={20} color={colors.text.white} />
+          </TouchableOpacity>
           <View style={styles.profileInfo}>
             <View style={styles.avatarContainer}>
               <FontAwesome5 name="user" size={32} color={colors.text.white} />

@@ -14,11 +14,11 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { getThemeColors, spacing, typography, glass, borders, shadows } from '../theme/theme';
+import GlassPanel from '../components/GlassPanel';
+import { useDataSync } from '../contexts/AppContext';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { useOrder } from '../contexts/OrderContext';
-import DeliveryMap from '../components/DeliveryMap';
-import GlassPanel from '../components/GlassPanel';
+import { shadows, glass } from '../theme';
 
 const { height, width } = Dimensions.get('window');
 
@@ -27,8 +27,9 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
   const colors = getThemeColors(darkMode);
   const glassTokens = darkMode ? glass.dark : glass.light;
   
-  const orderId = route.params?.orderId || "DS-" + Math.random().toString(36).substr(2, 6).toUpperCase();
+   const orderId = route.params?.orderId || "DS-" + Math.random().toString(36).substr(2, 6).toUpperCase();
   const { orderDetails, loading, loadOrderDetails, refreshOrder } = useOrder();
+  const { isAutoSyncEnabled } = useDataSync();
   
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(height)).current;
@@ -60,13 +61,18 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
       })
     ]).start();
 
-    // Refresco automático cada 30 segundos
-    const interval = setInterval(() => {
-      refreshOrder(orderId);
-    }, 30000);
+    // Refresco automático cada 30 segundos (solo si está activado globalmente)
+    let interval = null;
+    if (isAutoSyncEnabled) {
+      interval = setInterval(() => {
+        refreshOrder(orderId);
+      }, 30000);
+    }
 
-    return () => clearInterval(interval);
-  }, [orderId]);
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [orderId, isAutoSyncEnabled]);
 
   const steps = [
     { key: 'preparing', label: 'Cocinando', icon: 'utensils' },
@@ -271,7 +277,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: 16,
   },
   backButton: {
     width: 44,
@@ -318,8 +324,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 35,
     borderTopRightRadius: 35,
     marginTop: -40,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
+    paddingHorizontal: 24,
+    paddingTop: 16,
     ...shadows.large,
   },
   dragHandle: {
@@ -363,7 +369,7 @@ const styles = StyleSheet.create({
   riderCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.md,
+    padding: 16,
     borderRadius: 25,
     marginBottom: 25,
     borderWidth: 1,
@@ -391,7 +397,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1.5,
     borderRadius: 20,
-    padding: spacing.lg,
+    padding: 24,
     marginTop: 10,
   },
   detailsBtnText: { fontSize: 15, fontWeight: '600' }

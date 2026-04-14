@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "DSicarioApp",
-    "slug": "snack-5baad7fb-f0d6-462a-a632-f151b104f565",
+    "slug": "dsicario-app",
+    "scheme": "dsicario",
     "web": {
       "bundler": "metro",
       "favicon": "./assets/favicon.png"
@@ -11,9 +12,9 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./assets/logo.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#1a1a1a"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -39,13 +40,13 @@
       }
     },
     "owner": "hairoman28",
-    "extra": {
-      "eas": {
-        "projectId": "507789ed-0452-493b-b330-159ad9f448db"
-      }
-    },
     "plugins": [
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f2b86deb-3577-44c9-8400-4ec78784f8f9"
+      }
+    }
   }
 }

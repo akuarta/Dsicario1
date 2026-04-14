@@ -11,7 +11,7 @@
  * spreadsheet con la misma convención de "primera fila = cabeceras".
  */
 
-var SS_ID = "1xNVeHGBr3T93ZOSfRaPKu4qd29uQK1ZxwVnp061B63Q";
+var SS_ID = "1xNVeHGBr3T93ZOSfRaPKu4qd29uQK1ZxwVnp061B63Q"; // Actualiza si cambias de spreadsheet
 
 // ─── ID_FIELD por hoja ─────────────────────────────────────────────────────────
 // Indica cuál columna usamos como identificador único en cada hoja.
@@ -53,6 +53,33 @@ function doGet(e) {
   if (e.parameter.action === "generatePDF") {
     var sheetName = e.parameter.sheet || e.parameter.type || "Hoja1";
     return generateUniversalPDF(e.parameter.id, sheetName);
+  }
+
+  // ── ✅ NUEVO: Obtener reseñas de un producto (?action=getReviews&id=PROD001) ──
+  if (e.parameter.action === "getReviews") {
+    var productId = e.parameter.id || "";
+    var sheets = ss.getSheets();
+    var valSheet = sheets.find(function(s) { return s.getName().toLowerCase() === "valoraciones"; });
+
+    if (!valSheet || valSheet.getLastRow() < 2) {
+      return ContentService.createTextOutput(JSON.stringify({ success: true, reviews: [] }))
+                           .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var vData = valSheet.getDataRange().getValues();
+    var vHeaders = vData[0];
+    var idCol = vHeaders.indexOf("ID_Producto");
+
+    var reviews = vData.slice(1)
+      .filter(function(row) { return String(row[idCol]).trim() === String(productId).trim(); })
+      .map(function(row) {
+        var obj = {};
+        vHeaders.forEach(function(h, i) { obj[h] = row[i]; });
+        return obj;
+      });
+
+    return ContentService.createTextOutput(JSON.stringify({ success: true, reviews: reviews }))
+                         .setMimeType(ContentService.MimeType.JSON);
   }
 
   // ── Filtros opcionales del GET ───────────────────────────────────────────────
@@ -124,9 +151,28 @@ function doPost(e) {
     var body      = JSON.parse(e.postData.contents);
     var action    = (body.action  || "").toUpperCase();
     var sheetName = body.sheet;
-    var data      = body.data || {};
+    var data      = body.data || body.item || {};
 
     if (!sheetName) { return jsonResponse(false, "Falta el campo 'sheet'."); }
+
+    // ✅ NUEVO: INSERT — guarda reseña y crea la hoja si no existe
+    if (action === "INSERT") {
+      var sheets = ss.getSheets();
+      var targetSheet = sheets.find(function(s) { return s.getName().toLowerCase() === sheetName.toLowerCase(); });
+
+      if (!targetSheet) {
+        targetSheet = ss.insertSheet(sheetName);
+        if (sheetName.toLowerCase() === "valoraciones") {
+          targetSheet.appendRow(["ID_Producto", "Producto", "Calificacion", "Comentario", "Usuario", "Email", "Fecha"]);
+        }
+        SpreadsheetApp.flush();
+      }
+
+      var insertHeaders = targetSheet.getRange(1, 1, 1, targetSheet.getLastColumn()).getValues()[0];
+      var newRow = insertHeaders.map(function(h) { return data.hasOwnProperty(h) ? data[h] : ""; });
+      targetSheet.appendRow(newRow);
+      return jsonResponse(true, "Registro insertado con éxito.");
+    }
 
     var ss    = SpreadsheetApp.openById(SS_ID);
     

@@ -67,7 +67,12 @@ const ConfigScreen = () => {
     Alert.alert('Cerrar Sesión', '¿Estás seguro de que deseas salir?', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Salir', style: 'destructive', onPress: async () => {
-        try { await signOut(); } catch (error) {
+        console.log('Botón cerrar sesión presionado');
+        try { 
+          await signOut(); 
+          console.log('Sesión cerrada');
+        } catch (error) {
+          console.error('Error:', error);
           Alert.alert('Error', 'No se pudo cerrar la sesión');
         }
       }}
@@ -92,6 +97,12 @@ const ConfigScreen = () => {
     <SafeAreaView style={styles.container}>
       <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
+          <TouchableOpacity 
+            onPress={() => navigation.goBack()} 
+            style={{ position: 'absolute', top: spacing.xl, left: spacing.md, zIndex: 10, padding: 10 }}
+          >
+            <FontAwesome5 name="arrow-left" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
           <View style={styles.avatarContainer}>
             <Text style={styles.avatarText}>{(user?.displayName || user?.email || 'U')[0].toUpperCase()}</Text>
           </View>

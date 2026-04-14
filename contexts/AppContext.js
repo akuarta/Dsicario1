@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
-import { fetchProducts, fetchBusinessInfo, saveWaiterCartItem, fetchAllUsers, fetchDeliveries, fetchKitchenOrders } from '../utils/api';
+import { fetchProducts, fetchBusinessInfo, saveWaiterCartItem, fetchAllUsers, fetchKitchenOrders } from '../utils/api';
 import { useUser } from './UserContext';
 
 // Context para productos
@@ -284,6 +284,16 @@ export const CartProvider = ({ children }) => {
     );
   };
 
+  const updateCartItemNote = (productId, note) => {
+    setCart((prevCart) =>
+      prevCart.map(item =>
+        String(item.id) === String(productId)
+          ? { ...item, orderNote: note }
+          : item
+      )
+    );
+  };
+
   const clearCart = () => {
     setCart([]);
   };
@@ -351,6 +361,7 @@ export const CartProvider = ({ children }) => {
     addToCart,
     removeFromCart,
     updateCartItemQuantity,
+    updateCartItemNote,
     clearCart,
     getTotalCost,
     getTotalItems,
@@ -399,20 +410,20 @@ export const DataSyncProvider = ({ children }) => {
   const [kitchenOrders, setKitchenOrders] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(null);
+  const [isAutoSyncEnabled, setIsAutoSyncEnabled] = useState(false); // Por defecto OFF para que el usuario sea quien lo active la primera vez
 
   const syncAllData = async () => {
+    if (isSyncing) return; // Evitar llamadas paralelas
     setIsSyncing(true);
     console.log('🔄 Iniciando Sincronización Global de Datos...');
     try {
       // Cargamos todo en paralelo para máxima velocidad
-      const [usersData, deliveriesData, kitchenData] = await Promise.all([
+      const [usersData, kitchenData] = await Promise.all([
         fetchAllUsers().catch(e => { console.warn('Sync Users Fail:', e); return []; }),
-        fetchDeliveries().catch(e => { console.warn('Sync Deliveries Fail:', e); return []; }),
         fetchKitchenOrders().catch(e => { console.warn('Sync Kitchen Fail:', e); return []; })
       ]);
 
       setUsers(usersData);
-      setDeliveries(deliveriesData);
       setKitchenOrders(kitchenData);
       setLastSync(new Date().toISOString());
       console.log('✅ Sincronización Global Completada');
@@ -424,8 +435,26 @@ export const DataSyncProvider = ({ children }) => {
   };
 
   useEffect(() => {
+    // Sincronización inicial rápida
     syncAllData();
   }, []);
+
+  useEffect(() => {
+    // ÚNICO MOTOR DE INTERVALO GLOBAL
+    let intervalId = null;
+    
+    if (isAutoSyncEnabled) {
+      console.log('📡 Motor de Sincronización Global: ENCENDIDO');
+      syncAllData(); // Sincronizar inmediatamente al activar
+      intervalId = setInterval(syncAllData, 30000);
+    } else {
+      console.log('📡 Motor de Sincronización Global: APAGADO');
+    }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isAutoSyncEnabled]);
 
   const value = React.useMemo(() => ({
     users,
@@ -434,10 +463,12 @@ export const DataSyncProvider = ({ children }) => {
     isSyncing,
     lastSync,
     syncAllData,
+    isAutoSyncEnabled,
+    setIsAutoSyncEnabled,
     setUsers, // Permitir actualizaciones locales tras edición
     setDeliveries,
     setKitchenOrders
-  }), [users, deliveries, kitchenOrders, isSyncing, lastSync]);
+  }), [users, deliveries, kitchenOrders, isSyncing, lastSync, isAutoSyncEnabled]);
 
   return (
     <DataSyncContext.Provider value={value}>

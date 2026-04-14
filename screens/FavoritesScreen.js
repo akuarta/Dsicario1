@@ -61,6 +61,9 @@ const FavoritesScreen = ({ navigation }) => {
 
   const renderEmptyFavorites = useCallback(() => (
     <View style={globalStyles.emptyContainer}>
+      <TouchableOpacity onPress={() => navigation.goBack()} style={{ position: 'absolute', top: spacing.md, left: spacing.md, padding: spacing.sm, zIndex: 10 }}>
+         <FontAwesome5 name="arrow-left" size={20} color={colors.text.primary} />
+      </TouchableOpacity>
       <FontAwesome5 name="heart" size={64} color={colors.text.light} />
       <Text style={globalStyles.emptyTitle}>Sin favoritos aún</Text>
       <Text style={globalStyles.emptyText}>
@@ -121,9 +124,14 @@ const FavoritesScreen = ({ navigation }) => {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>
-            {favorites.length} {favorites.length === 1 ? 'Producto' : 'Productos'} Favoritos
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={{ paddingRight: 10, paddingVertical: 5 }}>
+              <FontAwesome5 name="arrow-left" size={20} color={colors.text.white} />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>
+              {favorites.length} {favorites.length === 1 ? 'Producto' : 'Productos'} Favoritos
+            </Text>
+          </View>
           <TouchableOpacity 
             style={styles.clearButton}
             onPress={handleClearAll}

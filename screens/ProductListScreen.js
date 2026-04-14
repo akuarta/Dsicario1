@@ -10,7 +10,8 @@ import {
   SafeAreaView,
   RefreshControl,
   Dimensions,
-  Platform
+  Platform,
+  StatusBar
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useProducts, useCart } from '../contexts/AppContext';
@@ -100,8 +101,9 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
 
   const styles = StyleSheet.create({
     headerContainer: {
+      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0,
       paddingBottom: spacing.sm,
-      backgroundColor: colors.primary, // RED
+      backgroundColor: colors.primary,
       ...shadows.medium,
     },
     homeLogoSection: {
@@ -299,7 +301,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
                   data={seccion.productos}
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  keyExtractor={item => item.id?.toString()}
+                  keyExtractor={(item, index) => item.id?.toString() || `prod-${index}`}
                   renderItem={({ item }) => (
                     <ProductItem
                       product={item}
@@ -356,7 +358,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
           />
         )}
         numColumns={2}
-        keyExtractor={item => item.id?.toString()}
+        keyExtractor={(item, index) => item.id?.toString() || `opt-${index}`}
         contentContainerStyle={styles.listContainer}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />

@@ -132,6 +132,9 @@ const PurchaseHistoryScreen = ({ navigation }) => {
 
   const renderEmptyOrders = useCallback(() => (
     <View style={globalStyles.emptyContainer}>
+      <TouchableOpacity onPress={() => navigation.goBack()} style={{ position: 'absolute', top: spacing.md, left: spacing.md, padding: spacing.sm, zIndex: 10 }}>
+        <FontAwesome5 name="arrow-left" size={20} color={colors.text.primary} />
+      </TouchableOpacity>
       <FontAwesome5 name="receipt" size={64} color={colors.text.light} />
       <Text style={globalStyles.emptyTitle}>Sin pedidos aún</Text>
       <Text style={globalStyles.emptyText}>
@@ -232,12 +235,15 @@ const PurchaseHistoryScreen = ({ navigation }) => {
 
   if (isLoading) {
     return (
-      <View style={[styles.container, globalStyles.centerContainer]}>
+      <SafeAreaView style={[styles.container, globalStyles.centerContainer]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ position: 'absolute', top: spacing.md, left: spacing.md, padding: spacing.sm, zIndex: 10 }}>
+          <FontAwesome5 name="arrow-left" size={20} color={colors.text.primary} />
+        </TouchableOpacity>
         <ActivityIndicator size="large" color={colors.primary} />
         <Text style={{ marginTop: spacing.md, color: colors.text.secondary }}>
           Cargando historial...
         </Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
@@ -251,7 +257,10 @@ const PurchaseHistoryScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { flexDirection: 'row', alignItems: 'center' }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ paddingRight: 15, paddingVertical: 5 }}>
+          <FontAwesome5 name="arrow-left" size={20} color={colors.text.white} />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Historial de Compras</Text>
       </View>
 

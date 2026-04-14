@@ -14,8 +14,8 @@ import {
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
-import GlassPanel from '../components/GlassPanel';
 import { fetchRiderOrders, fetchRiderStats, updateOrderStatus, formatPrice } from '../utils/api';
+import { useDataSync } from '../contexts/AppContext';
 
 const RiderScreen = ({ navigation, route }) => {
   const { darkMode } = useThemeMode();
@@ -28,6 +28,7 @@ const RiderScreen = ({ navigation, route }) => {
   const [stats, setStats] = useState({ cartera: 0, deuda: 0, cupo: 0, nombre: '' });
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const { isAutoSyncEnabled } = useDataSync();
 
   const loadData = async () => {
     setIsLoading(true);
@@ -47,7 +48,14 @@ const RiderScreen = ({ navigation, route }) => {
 
   useEffect(() => {
     loadData();
-  }, []);
+    
+    // Intervalo de refresco global (solo si está ON)
+    let interval = null;
+    if (isAutoSyncEnabled) {
+      interval = setInterval(loadData, 30000);
+    }
+    return () => { if (interval) clearInterval(interval); };
+  }, [isAutoSyncEnabled]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -65,6 +73,16 @@ const RiderScreen = ({ navigation, route }) => {
     }
   };
 
+  const handlePickup = async (orderId) => {
+    try {
+      await updateOrderStatus(orderId, 'on_the_way');
+      Alert.alert('🛵 En Camino', 'Has recogido el pedido. ¡Mucho cuidado en la vía!');
+      loadData();
+    } catch (error) {
+       Alert.alert('Error', 'No se pudo actualizar el estado.');
+    }
+  };
+
   const handleDeliver = (orderId) => {
     Alert.alert(
       'Confirmar Entrega',
@@ -75,7 +93,7 @@ const RiderScreen = ({ navigation, route }) => {
           text: 'Entregado', 
           onPress: async () => {
             try {
-              await updateOrderStatus(orderId, 'entregado');
+              await updateOrderStatus(orderId, 'delivered');
               Alert.alert('✅ Éxito', 'Pedido entregado. Tu cupo ha sido liberado.');
               loadData();
             } catch (error) {
@@ -104,28 +122,30 @@ const RiderScreen = ({ navigation, route }) => {
       </View>
 
       <View style={styles.actionsRow}>
+        {item.estado === 'ready' ? (
+           <TouchableOpacity 
+             style={[styles.miniBtn, { backgroundColor: colors.primary }]}
+             onPress={() => handlePickup(item.id)}
+           >
+             <FontAwesome5 name="motorcycle" size={16} color="#FFF" />
+             <Text style={styles.miniBtnText}>Recoger</Text>
+           </TouchableOpacity>
+        ) : (
+          <TouchableOpacity 
+            style={[styles.miniBtn, { backgroundColor: colors.success }]}
+            onPress={() => handleDeliver(item.id)}
+          >
+            <FontAwesome5 name="check" size={16} color="#FFF" />
+            <Text style={styles.miniBtnText}>Liquidar</Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity 
           style={[styles.miniBtn, { backgroundColor: '#25D366' }]}
           onPress={() => handleAction('whatsapp', item.whatsapp)}
         >
           <FontAwesome5 name="whatsapp" size={16} color="#FFF" />
           <Text style={styles.miniBtnText}>WhatsApp</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={[styles.miniBtn, { backgroundColor: colors.primary }]}
-          onPress={() => handleAction('gps', item.cliente)} // Usamos nombre como query por ahora
-        >
-          <FontAwesome5 name="map-marked-alt" size={16} color="#FFF" />
-          <Text style={styles.miniBtnText}>GPS</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={[styles.miniBtn, { backgroundColor: colors.success }]}
-          onPress={() => handleDeliver(item.id)}
-        >
-          <FontAwesome5 name="check" size={16} color="#FFF" />
-          <Text style={styles.miniBtnText}>Liquidar</Text>
         </TouchableOpacity>
       </View>
     </GlassPanel>

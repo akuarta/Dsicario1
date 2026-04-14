@@ -44,24 +44,33 @@ const OrderCenterScreen = ({ navigation }) => {
 
   // Filtrar pedidos Activos vs Recientes
   const activeOrders = kitchenOrders.filter(o => 
-    ['pending', 'preparing', 'ready', 'nuevo', 'preparando'].includes((o.estado || '').toLowerCase())
+    ['pending', 'preparing', 'ready', 'on_the_way'].includes((o.estado || '').toLowerCase())
   );
   
   const completedOrders = kitchenOrders.filter(o => 
-    ['delivered', 'entregado', 'completado'].includes((o.estado || '').toLowerCase())
-  ).slice(0, 5); // Solo los últimos 5 para el registro de rastreo
+    ['delivered'].includes((o.estado || '').toLowerCase())
+  ).slice(0, 5);
 
   const getStatusInfo = (status) => {
     const s = (status || '').toLowerCase();
-    if (s === 'pending' || s === 'nuevo') return { label: 'Recibido', color: colors.warning || '#FFC107', icon: 'clock' };
-    if (s === 'preparing' || s === 'preparando') return { label: 'En Cocina', color: colors.primary || '#E63946', icon: 'fire' };
-    if (s === 'ready') return { label: '¡Listo!', color: colors.success || '#4CAF50', icon: 'check-circle' };
-    if (s === 'delivered' || s === 'entregado' || s === 'completado') return { label: 'Entregado', color: colors.success || '#4CAF50', icon: 'home' };
+    if (s === 'pending') return { label: 'Recibido', color: colors.warning || '#FFC107', icon: 'clock' };
+    if (s === 'preparing') return { label: 'En Cocina', color: colors.primary || '#E63946', icon: 'fire' };
+    if (s === 'ready') return { label: 'Listo p/ Despacho', color: colors.success || '#4CAF50', icon: 'check-circle' };
+    if (s === 'on_the_way') return { label: 'En Camino 🛵', color: '#2196F3', icon: 'motorcycle' };
+    if (s === 'delivered') return { label: '¡Entregado!', color: '#FFD700', icon: 'home' };
     return { label: 'Procesando', color: colors.text.secondary || '#666', icon: 'ellipsis-h' };
   };
 
   const renderActiveOrder = (order) => {
     const status = getStatusInfo(order.estado);
+    const s = (order.estado || '').toLowerCase();
+    
+    // Calcular paso activo para la visualización
+    let activeStep = 0;
+    if (s === 'preparing') activeStep = 1;
+    if (s === 'ready') activeStep = 2;
+    if (s === 'on_the_way') activeStep = 3;
+    if (s === 'delivered') activeStep = 4;
     return (
       <GlassPanel key={order.id} intensity={20} style={styles.activeCard}>
         <View style={styles.cardHeader}>
@@ -79,13 +88,26 @@ const OrderCenterScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
-        {/* Mini Timeline Horizontal */}
+        {/* Timeline Maestro de 5 Pasos */}
         <View style={styles.timelineRow}>
-          <View style={[styles.timelineDot, { backgroundColor: colors.success || '#4CAF50' }]} />
-          <View style={[styles.timelineLine, { backgroundColor: (order.estado || '').toLowerCase().includes('prepar') ? colors.primary : colors.border }]} />
-          <View style={[styles.timelineDot, { backgroundColor: (order.estado || '').toLowerCase().includes('prepar') ? colors.primary : colors.border }]} />
-          <View style={[styles.timelineLine, { backgroundColor: (order.estado || '').toLowerCase() === 'ready' ? colors.success : colors.border }]} />
-          <View style={[styles.timelineDot, { backgroundColor: (order.estado || '').toLowerCase() === 'ready' ? colors.success : colors.border }]} />
+          {/* Paso 1: Recibido */}
+          <View style={[styles.timelineDot, { backgroundColor: colors.success }]} />
+          <View style={[styles.timelineLine, { backgroundColor: activeStep >= 1 ? colors.primary : colors.border }]} />
+          
+          {/* Paso 2: Cocina */}
+          <View style={[styles.timelineDot, { backgroundColor: activeStep >= 1 ? colors.primary : colors.border }]} />
+          <View style={[styles.timelineLine, { backgroundColor: activeStep >= 2 ? colors.success : colors.border }]} />
+          
+          {/* Paso 3: Listo */}
+          <View style={[styles.timelineDot, { backgroundColor: activeStep >= 2 ? colors.success : colors.border }]} />
+          <View style={[styles.timelineLine, { backgroundColor: activeStep >= 3 ? '#2196F3' : colors.border }]} />
+          
+          {/* Paso 4: En Camino */}
+          <View style={[styles.timelineDot, { backgroundColor: activeStep >= 3 ? '#2196F3' : colors.border }]} />
+          <View style={[styles.timelineLine, { backgroundColor: activeStep >= 4 ? '#FFD700' : colors.border }]} />
+          
+          {/* Paso 5: Entregado */}
+          <View style={[styles.timelineDot, { backgroundColor: activeStep >= 4 ? '#FFD700' : colors.border }]} />
         </View>
 
         <Text style={[styles.itemSummary, { color: colors.text.secondary }]} numberOfLines={1}>

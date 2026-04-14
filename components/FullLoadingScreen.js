@@ -2,14 +2,13 @@ import React, { useEffect, useRef } from 'react';
 import { View, Image, StyleSheet, Animated, Dimensions } from 'react-native';
 import { getThemeColors } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
-// import DsicarioLogo from './DsicarioLogo'; // Removed
-
+import DsicarioLogo from '../assets/logo.png';
 const { width } = Dimensions.get('window');
 
 const FullLoadingScreen = () => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
-  
+
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -61,17 +60,17 @@ const FullLoadingScreen = () => {
         resizeMode="contain"
       />
       <View style={styles.loaderContainer}>
-        <Animated.View 
+        <Animated.View
           style={[
-            styles.loader, 
-            { 
+            styles.loader,
+            {
               backgroundColor: colors.primary,
               width: progressAnim.interpolate({
                 inputRange: [0, 1],
                 outputRange: [0, width * 0.4]
               })
             }
-          ]} 
+          ]}
         />
       </View>
     </View>

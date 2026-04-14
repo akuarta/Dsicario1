@@ -1,4 +1,6 @@
 {
     "codium.codeCompletion.enable": false,
-    "CodeGPT.apiKey": "OpenAI"
+    "CodeGPT.apiKey": "OpenAI",
+    "java.configuration.updateBuildConfiguration": "interactive",
+    "java.compile.nullAnalysis.mode": "automatic"
 }

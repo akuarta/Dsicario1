@@ -13,12 +13,14 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Button } from 'react-native-elements';
-import { useCart } from '../contexts/AppContext';
+import { useCart, useProducts } from '../contexts/AppContext';
+import { useUser } from '../contexts/UserContext';
+import ProductItem from '../components/ProductItem';
 import globalStyles from '../styles/globalStyles';
 import theme from '../theme';
 import { showAlert } from '../utils/showAlert';
 import { showConfirm } from '../utils/showConfirm';
-import { formatPrice, calculateDiscountedPrice } from '../utils/api';
+import { formatPrice, calculateDiscountedPrice, submitReview, fetchReviews } from '../utils/api';
 import ProductBadges from '../components/ProductBadges';
 import { CustomHeader } from '../components/CustomHeader';
 import { AirbnbRating } from '@rneui/themed';
@@ -28,11 +30,41 @@ const { colors, spacing, typography, borders } = theme;
 const ProductDetailScreen = ({ navigation, route }) => {
   const { product } = route.params;
   const { addToCart } = useCart();
+  const { products } = useProducts();
+  const { username, email } = useUser();
   
   const [quantity, setQuantity] = useState(1);
   const [subtotal, setSubtotal] = useState(0);
-  const [orderNote, setOrderNote] = useState('');
-  const [rating, setRating] = useState(5); 
+  // Nota privada para cocina (va al carrito)
+  const [kitchenNote, setKitchenNote] = useState('');
+  // Reseña pública (se guarda en Google Sheets)
+  const [reviewText, setReviewText] = useState('');
+  const [reviewRating, setReviewRating] = useState(5);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [submittedReview, setSubmittedReview] = useState(null);
+  // Reseñas públicas cargadas desde Sheets
+  const [publicReviews, setPublicReviews] = useState([]);
+
+  const suggestedProducts = React.useMemo(() => {
+    if (!products) return [];
+    const currentId = product.id || product.ID_Producto || product.id_producto;
+    return products
+      .filter(p => {
+        const pId = p.id || p.ID_Producto || p.id_producto;
+        return p.categoria === product.categoria && pId !== currentId;
+      })
+      .slice(0, 3);
+  }, [products, product]);
+
+  // Cargar reseñas públicas al montar
+  useEffect(() => {
+    const productId = product.id || product.ID_Producto || product.id_producto;
+    if (productId) {
+      fetchReviews(productId)
+        .then(setPublicReviews)
+        .catch(() => setPublicReviews([]));
+    }
+  }, [product]);
 
   // 🎨 ESTADOS PARA LÓGICA TRICOLOR (ROJO -> GRIS -> NARANJA)
   const [lastAddedValues, setLastAddedValues] = useState({ quantity: 0, note: null });
@@ -51,7 +83,7 @@ const ProductDetailScreen = ({ navigation, route }) => {
   // Determinar estado actual de la acción
   const isMatchWithLastAdded = hasAddedOnce && 
                                quantity === lastAddedValues.quantity && 
-                               orderNote === lastAddedValues.note;
+                               kitchenNote === lastAddedValues.note;
   
   const isUpdateMode = hasAddedOnce && !isMatchWithLastAdded;
 
@@ -65,20 +97,18 @@ const ProductDetailScreen = ({ navigation, route }) => {
     setQuantity(prev => prev > 1 ? prev - 1 : 1);
   }, []);
 
-  // Agregar al carrito
+  // Agregar al carrito (usa kitchenNote, NO la reseña)
   const handleAddToCart = useCallback(() => {
     const productWithQuantity = { 
       ...product, 
       quantity,
       subtotal,
-      orderNote,
-      rating 
+      orderNote: kitchenNote, // Nota privada de cocina
     };
     
     addToCart(productWithQuantity);
     
-    // Registrar lo último añadido para activar lógica tricolor
-    setLastAddedValues({ quantity, note: orderNote });
+    setLastAddedValues({ quantity, note: kitchenNote });
     setHasAddedOnce(true);
     
     showAlert(
@@ -92,7 +122,38 @@ const ProductDetailScreen = ({ navigation, route }) => {
         }
       ]
     );
-  }, [product, quantity, subtotal, orderNote, addToCart, navigation, isUpdateMode]);
+  }, [product, quantity, subtotal, kitchenNote, addToCart, navigation, isUpdateMode]);
+
+  // Enviar reseña pública a Google Sheets
+  const handleSubmitReview = useCallback(async () => {
+    if (reviewText.trim() === '') return;
+    setIsSubmittingReview(true);
+    try {
+      const productId = product.id || product.ID_Producto || product.id_producto;
+      await submitReview({
+        productId,
+        productName: product.nombre,
+        rating: reviewRating,
+        comment: reviewText.trim(),
+        userName: username,
+        userEmail: email,
+      });
+      const saved = { note: reviewText, rating: reviewRating, userName: username };
+      setSubmittedReview(saved);
+      setPublicReviews(prev => [{
+        ID_Producto: String(productId),
+        Comentario: reviewText.trim(),
+        Calificacion: reviewRating,
+        Usuario: username,
+        Fecha: new Date().toLocaleDateString('es-DO'),
+      }, ...prev]);
+      setReviewText('');
+    } catch (e) {
+      showAlert('Error', 'No se pudo guardar la reseña. Inténtalo de nuevo.');
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  }, [reviewText, reviewRating, product, username, email]);
   return (
     <SafeAreaView style={globalStyles.container}>
       <CustomHeader title="Detalles del Producto" showBack={true} />
@@ -193,33 +254,113 @@ const ProductDetailScreen = ({ navigation, route }) => {
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Sección: Reseñas Públicas */}
+          <View style={{ marginTop: spacing.md }}>
+            <Text style={styles.sectionTitle}>Reseñas del Producto</Text>
+
+            {/* Reseñas cargadas */}
+            {publicReviews.length === 0 ? (
+              <Text style={{ color: colors.text.light, fontStyle: 'italic', marginBottom: spacing.sm }}>
+                Aún no hay reseñas. ¡Sé el primero!
+              </Text>
+            ) : (
+              publicReviews.slice(0, 5).map((rev, i) => (
+                <View key={i} style={{ backgroundColor: colors.surface, padding: spacing.md, borderRadius: borders.radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+                    <Text style={{ fontWeight: 'bold', color: colors.text.primary }}>{rev.Usuario || rev.usuario || 'Anónimo'}</Text>
+                    <AirbnbRating isDisabled showRating={false} defaultRating={Number(rev.Calificacion || rev.calificacion || 5)} size={12} selectedColor={colors.warning} />
+                  </View>
+                  <Text style={{ color: colors.text.secondary, fontStyle: 'italic' }}>"{rev.Comentario || rev.comentario}"</Text>
+                  {rev.Fecha ? <Text style={{ color: colors.text.light, fontSize: 11, marginTop: 4 }}>{rev.Fecha}</Text> : null}
+                </View>
+              ))
+            )}
+
+            {/* Mi reseña enviada (preview) */}
+            {submittedReview && (
+              <View style={{ backgroundColor: colors.surface, padding: spacing.md, borderRadius: borders.radius.md, borderWidth: 1, borderColor: colors.primary, marginBottom: spacing.sm }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+                  <Text style={{ fontWeight: 'bold', color: colors.primary }}>✓ Tu reseña fue enviada</Text>
+                  <AirbnbRating isDisabled showRating={false} defaultRating={submittedReview.rating} size={12} selectedColor={colors.warning} />
+                </View>
+                <Text style={{ color: colors.text.secondary, fontStyle: 'italic' }}>"{submittedReview.note}"</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Productos Sugeridos */}
+          {suggestedProducts.length > 0 && (
+            <View style={{ marginTop: spacing.xl, marginBottom: spacing.md }}>
+              <Text style={styles.sectionTitle}>También te podría gustar</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: spacing.sm, paddingHorizontal: 2 }}>
+                {suggestedProducts.map(p => (
+                  <View key={p.id || p.ID_Producto} style={{ width: 160, marginRight: spacing.md }}>
+                    <ProductItem
+                      product={p}
+                      compact={true}
+                      onPress={() => navigation.push('ProductDetail', { product: p })}
+                    />
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
         </View>
       </ScrollView>
 
-      {/* Caja Fija de Comentario y Boton Agg */}
+      {/* Caja Fija: Reseña Pública + Nota de Cocina + Botón */}
       <View style={styles.fixedFooter}>
-        <View style={styles.ratingContainer}>
-          <Text style={styles.ratingLabel}>Califica este producto</Text>
-          <AirbnbRating
-            count={5}
-            defaultRating={rating}
-            size={20}
-            showRating={false}
-            onFinishRating={setRating}
-            selectedColor={colors.warning}
-            unSelectedColor={colors.border}
-          />
-        </View>
-        
+
+        {/* --- Reseña Pública --- */}
+        {!submittedReview && (
+          <View>
+            <View style={styles.ratingContainer}>
+              <Text style={styles.ratingLabel}>Califica este producto</Text>
+              <AirbnbRating
+                count={5}
+                defaultRating={reviewRating}
+                size={20}
+                showRating={false}
+                onFinishRating={setReviewRating}
+                selectedColor={colors.warning}
+                unSelectedColor={colors.border}
+              />
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm }}>
+              <TextInput
+                style={[styles.noteInput, { flex: 1, marginBottom: 0 }]}
+                placeholder="Reseña pública: ¿Cómo estuvo? (lo verán todos)"
+                placeholderTextColor={colors.text.light}
+                value={reviewText}
+                onChangeText={setReviewText}
+                multiline
+                numberOfLines={2}
+              />
+              <TouchableOpacity 
+                style={{ padding: spacing.md, paddingHorizontal: 18, marginLeft: spacing.sm, backgroundColor: colors.primary, borderRadius: borders.radius.md, flexDirection: 'row', alignItems: 'center', opacity: reviewText.trim() !== '' && !isSubmittingReview ? 1 : 0.5 }}
+                onPress={handleSubmitReview}
+                disabled={reviewText.trim() === '' || isSubmittingReview}
+              >
+                <FontAwesome5 name={isSubmittingReview ? 'spinner' : 'paper-plane'} size={14} color="#FFF" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* --- Nota para Cocina (privada, va al carrito) --- */}
         <TextInput
-          style={styles.noteInput}
-          placeholder="Comentarios o Valoración: Ej. Bien cocida..."
+          style={[styles.noteInput, { marginBottom: spacing.sm }]}
+          placeholder="Nota para cocina (ej: sin cebolla, bien cocida...)"
           placeholderTextColor={colors.text.light}
-          value={orderNote}
-          onChangeText={setOrderNote}
+          value={kitchenNote}
+          onChangeText={setKitchenNote}
           multiline
           numberOfLines={2}
         />
+
+        {/* --- Botón Agregar al Carrito --- */}
         <TouchableOpacity 
           style={[
             styles.addToCartButton,
