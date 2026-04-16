@@ -349,17 +349,6 @@ const ProductDetailScreen = ({ navigation, route }) => {
           </View>
         )}
 
-        {/* --- Nota para Cocina (privada, va al carrito) --- */}
-        <TextInput
-          style={[styles.noteInput, { marginBottom: spacing.sm }]}
-          placeholder="Nota para cocina (ej: sin cebolla, bien cocida...)"
-          placeholderTextColor={colors.text.light}
-          value={kitchenNote}
-          onChangeText={setKitchenNote}
-          multiline
-          numberOfLines={2}
-        />
-
         {/* --- Botón Agregar al Carrito --- */}
         <TouchableOpacity 
           style={[

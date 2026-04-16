@@ -15,10 +15,11 @@ import {
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import GlassPanel from '../components/GlassPanel';
+import DeliveryMap from '../components/DeliveryMap';
 import { useDataSync } from '../contexts/AppContext';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { useOrder } from '../contexts/OrderContext';
-import { shadows, glass } from '../theme';
+import { getThemeColors, shadows, glass } from '../theme/theme';
 
 const { height, width } = Dimensions.get('window');
 

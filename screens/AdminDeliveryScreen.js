@@ -22,14 +22,24 @@ import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import GlassPanel from '../components/GlassPanel';
 import { showConfirm } from '../utils/showConfirm';
-import { fetchDeliveries, updateDelivery } from '../utils/api';
+import { fetchDeliveries, updateDelivery, liquidateRiderCash } from '../utils/api';
 import { useDataSync } from '../contexts/AppContext';
+import { useUser } from '../contexts/UserContext';
 import { storage } from '../config/firebaseConfig';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const AdminDeliveryScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
+  const { role } = useUser();
+  const isAdmin = role?.toLowerCase() === 'admin';
+
+  useEffect(() => {
+    if (!isAdmin) {
+      Alert.alert('Acceso Denegado', 'No tienes permisos para acceder a esta sección.');
+      navigation.goBack();
+    }
+  }, [isAdmin]);
 
   const { deliveries: deliverys, isSyncing, syncAllData, setDeliveries } = useDataSync();
   const [modalVisible, setModalVisible] = useState(false);
@@ -136,12 +146,28 @@ const AdminDeliveryScreen = ({ navigation }) => {
         finalForm.foto = downloadUrl;
       }
       
+      // Generar ID si es nuevo y estÃ¡ vacÃ­o
+      if (!finalForm.id_delivery || finalForm.id_delivery.trim() === '') {
+        const tempId = `DLV${Math.floor(100 + Math.random() * 899)}`;
+        finalForm.id_delivery = tempId;
+        finalForm.id = tempId;
+      }
+
       await updateDelivery(finalForm);
       
-      // Optimistic update
-      setDeliveries(prev => prev.map(d => d.id === finalForm.id ? finalForm : d));
+      // Optimistic update: Si existe lo actualiza, si no, lo añade
+      setDeliveries(prev => {
+        const index = prev.findIndex(d => d.id === finalForm.id);
+        if (index !== -1) {
+          const newArray = [...prev];
+          newArray[index] = finalForm;
+          return newArray;
+        } else {
+          return [finalForm, ...prev];
+        }
+      });
 
-      Alert.alert('✅ Guardado', 'Repartidor actualizado correctamente en el Excel y Firebase.');
+      Alert.alert('✅ Éxito', 'Repartidor guardado correctamente.');
       
       setModalVisible(false);
       syncAllData(); // Sincronizar en segundo plano
@@ -156,15 +182,27 @@ const AdminDeliveryScreen = ({ navigation }) => {
     setForm({ ...form, cartera: parseFloat(value) || 0 });
   };
 
-  const toggleActive = (item) => {
+  const toggleActive = async (item) => {
+    const newStatus = !item.activo;
     showConfirm(
-      item.activo ? 'Desactivar Repartidor' : 'Activar Repartidor',
-      `¿Seguro que quieres ${item.activo ? 'desactivar' : 'activar'} a ${item.nombre} ${item.apellido}?`,
-      () => {
-        setDeliveries(prev => prev.map(d =>
-          d.id === item.id ? { ...d, activo: !d.activo } : d
-        ));
-        // En un caso real, aquí deberíamos llamar a updateDelivery(item con activo cambiado)
+      newStatus ? 'Activar Repartidor' : 'Desactivar Repartidor',
+      `¿Seguro que quieres ${newStatus ? 'activar' : 'desactivar'} a ${item.nombre} ${item.apellido}?`,
+      async () => {
+        try {
+          // Optimistic update
+          setDeliveries(prev => prev.map(d =>
+            d.id === item.id ? { ...d, activo: newStatus } : d
+          ));
+          
+          await updateDelivery({ ...item, activo: newStatus });
+          console.log(`Rider ${item.id} status updated to ${newStatus}`);
+        } catch (error) {
+          // Rollback on error
+          setDeliveries(prev => prev.map(d =>
+            d.id === item.id ? { ...d, activo: item.activo } : d
+          ));
+          Alert.alert('Error', 'No se pudo actualizar el estado en el servidor.');
+        }
       }
     );
   };
@@ -214,11 +252,18 @@ const AdminDeliveryScreen = ({ navigation }) => {
           </View>
           <TouchableOpacity
             style={styles.addCarteraBtn}
-            onPress={() => {
-              setDeliverys(prev => prev.map(d =>
-                d.id === item.id ? { ...d, cartera: d.cartera + 500 } : d
-              ));
-              Alert.alert('✅ Depósito', `RD$ 500 agregados correctamente a ${item.nombre}`);
+            onPress={async () => {
+              const newAmount = item.cartera + 500;
+              try {
+                setDeliveries(prev => prev.map(d =>
+                  d.id === item.id ? { ...d, cartera: newAmount } : d
+                ));
+                await updateDelivery({ ...item, cartera: newAmount });
+                Alert.alert('✅ Depósito', `RD$ 500 agregados correctamente a ${item.nombre}`);
+              } catch (e) {
+                setDeliveries(prev => prev.map(d => d.id === item.id ? { ...d, cartera: item.cartera } : d));
+                Alert.alert('Error', 'No se pudo registrar el depósito.');
+              }
             }}
           >
             <FontAwesome5 name="plus" size={14} color="#FFFFFF" />
@@ -227,11 +272,18 @@ const AdminDeliveryScreen = ({ navigation }) => {
 
           <TouchableOpacity
             style={[styles.addCarteraBtn, { backgroundColor: colors.success }]}
-            onPress={() => {
-              setDeliverys(prev => prev.map(d =>
-                d.id === item.id ? { ...d, cartera: d.cartera + 1000 } : d
-              ));
-              Alert.alert('✅ Depósito', `RD$ 1,000 agregados correctamente a ${item.nombre}`);
+            onPress={async () => {
+              const newAmount = item.cartera + 1000;
+              try {
+                setDeliveries(prev => prev.map(d =>
+                  d.id === item.id ? { ...d, cartera: newAmount } : d
+                ));
+                await updateDelivery({ ...item, cartera: newAmount });
+                Alert.alert('✅ Depósito', `RD$ 1,000 agregados correctamente a ${item.nombre}`);
+              } catch (e) {
+                setDeliveries(prev => prev.map(d => d.id === item.id ? { ...d, cartera: item.cartera } : d));
+                Alert.alert('Error', 'No se pudo registrar el depósito.');
+              }
             }}
           >
             <FontAwesome5 name="plus" size={14} color="#FFFFFF" />
@@ -256,6 +308,51 @@ const AdminDeliveryScreen = ({ navigation }) => {
           <FontAwesome5 name="hand-holding-heart" size={10} color={colors.text.secondary} />
           <Text style={styles.statText}>{item.honestidad}</Text>
           <Text style={styles.statLabel}>Honestidad</Text>
+        </View>
+      </View>
+
+      {/* PARTE NUEVA: DEUDA DE EFECTIVO (LO QUE DEBE AL LOCAL) */}
+      <View style={[styles.carteraContainer, { backgroundColor: colors.error + '15', borderColor: colors.error }]}>
+        <View style={styles.carteraBox}>
+          <FontAwesome5 name="wallet" size={16} color={colors.error} />
+          <View>
+            <Text style={[styles.carteraLabel, { color: colors.error }]}>EFECTIVO POR ENTREGAR</Text>
+            <Text style={[styles.carteraValue, { color: colors.error }]}>RD$ {item.deuda_efectivo || 0}</Text>
+          </View>
+          
+          <TouchableOpacity
+            style={[styles.addCarteraBtn, { backgroundColor: colors.error }]}
+            onPress={() => {
+              if ((item.deuda_efectivo || 0) <= 0) {
+                Alert.alert('Información', 'Este repartidor no tiene deuda de efectivo pendiente.');
+                return;
+              }
+              Alert.alert(
+                'Liquidar Efectivo',
+                `¿Confirmas que recibiste RD$ ${item.deuda_efectivo} de ${item.nombre}? Esto pondrá su deuda en $0.`,
+                [
+                  { text: 'Cancelar', style: 'cancel' },
+                  { text: 'SÍ, RECIBIDO', onPress: async () => {
+                    try {
+                      setUpdatingId(item.id);
+                      const res = await liquidateRiderCash(item.id_delivery || item.id);
+                      if (res.success) {
+                        Alert.alert('✅ Liquidado', 'La deuda ha sido limpiada.');
+                        syncAllData();
+                      }
+                    } catch (e) {
+                      Alert.alert('Error', 'No se pudo liquidar la deuda.');
+                    } finally {
+                      setUpdatingId(null);
+                    }
+                  }}
+                ]
+              );
+            }}
+          >
+            <FontAwesome5 name="hand-holding-usd" size={14} color="#FFFFFF" />
+            <Text style={styles.addCarteraBtnText}>LIQUIDAR</Text>
+          </TouchableOpacity>
         </View>
       </View>
 

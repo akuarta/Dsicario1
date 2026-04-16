@@ -35,8 +35,21 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
   
   const { products, isLoading, error, refetchProducts } = useProducts();
   const { role } = useUser();
-  const { waiterActiveSession } = useCart();
-  
+  const { waiterActiveSession, setWaiterActiveSession } = useCart();
+
+  // 🤵 Sincronizar Sesión de Mesero al entrar
+  useEffect(() => {
+    if (route.params?.cliente) {
+      setWaiterActiveSession({
+        id_carrito: route.params.orderId || route.params.mesaId || `POS-${Date.now()}`,
+        cliente: route.params.cliente,
+        mesa_id: route.params.mesaId,
+        mesa_nombre: route.params.mesaNombre,
+        orderId: route.params.orderId // 🔑 El ID real de la orden en la nube
+      });
+    }
+  }, [route.params?.cliente, route.params?.mesaId, route.params?.orderId]);
+
   const isInicio = mode === 'inicio';
   // 🤵 Detectar si estamos en flujo operativo de Camarero (vía Rol Global + Sesión si es Admin)
   const isWaiterWorkFlow = role === 'Mesero' || (role === 'Admin' && waiterActiveSession);

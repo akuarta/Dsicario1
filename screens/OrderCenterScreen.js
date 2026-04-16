@@ -16,13 +16,17 @@ import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows, glass } from '../theme/theme';
 import GlassPanel from '../components/GlassPanel';
 import { useDataSync } from '../contexts/AppContext';
+import { useUser } from '../contexts/UserContext';
 
 const { width } = Dimensions.get('window');
 
 const OrderCenterScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
+  const { email, role } = useUser();
   const { kitchenOrders, isSyncing, syncAllData } = useDataSync();
+
+  const isEmployee = !!(role && ['admin', 'cocina', 'delivery', 'mesero'].includes(role.toLowerCase()));
   const [refreshing, setRefreshing] = useState(false);
   
   // Animación para las tarjetas
@@ -42,12 +46,17 @@ const OrderCenterScreen = ({ navigation }) => {
     setRefreshing(false);
   }, []);
 
-  // Filtrar pedidos Activos vs Recientes
-  const activeOrders = kitchenOrders.filter(o => 
+  // Filtrar pedidos según rol
+  const filteredOrders = kitchenOrders.filter(o => 
+    isEmployee || (o.email && o.email.toLowerCase() === email.toLowerCase())
+  );
+
+  // Filtrar pedidos Activos vs Recientes dentro de los filtrados
+  const activeOrders = filteredOrders.filter(o => 
     ['pending', 'preparing', 'ready', 'on_the_way'].includes((o.estado || '').toLowerCase())
   );
   
-  const completedOrders = kitchenOrders.filter(o => 
+  const completedOrders = filteredOrders.filter(o => 
     ['delivered'].includes((o.estado || '').toLowerCase())
   ).slice(0, 5);
 

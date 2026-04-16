@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
-import { fetchProducts, fetchBusinessInfo, saveWaiterCartItem, fetchAllUsers, fetchKitchenOrders } from '../utils/api';
+import { fetchProducts, fetchBusinessInfo, saveWaiterCartItem, fetchAllUsers, fetchKitchenOrders, fetchDeliveries, fetchTables } from '../utils/api';
 import { useUser } from './UserContext';
 
 // Context para productos
@@ -154,7 +154,7 @@ export const CartProvider = ({ children }) => {
   
   // Información del Negocio — cargada dinámicamente desde la hoja USUARIOS
   const [businessInfo, setBusinessInfo] = useState({
-    name: 'DSicarioApp',
+    name: 'D�Sicario',
     phone: '809-000-0000',
     email: 'ventas@dsicario.com',
     address: 'República Dominicana',
@@ -406,69 +406,66 @@ export const useCart = () => {
 // --- DATA SYNC PROVIDER ---
 export const DataSyncProvider = ({ children }) => {
   const [users, setUsers] = useState([]);
-  const [deliveries, setDeliveries] = useState([]);
+  const [deliveries, setDeliveries] = useState([]); const [tables, setTables] = useState([]);
   const [kitchenOrders, setKitchenOrders] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(null);
   const [isAutoSyncEnabled, setIsAutoSyncEnabled] = useState(false); // Por defecto OFF para que el usuario sea quien lo active la primera vez
 
   const syncAllData = async () => {
-    if (isSyncing) return; // Evitar llamadas paralelas
+    if (isSyncing) return;
     setIsSyncing(true);
-    console.log('🔄 Iniciando Sincronización Global de Datos...');
+    console.log('🔄 Iniciando Sincronización Global...');
     try {
-      // Cargamos todo en paralelo para máxima velocidad
-      const [usersData, kitchenData] = await Promise.all([
-        fetchAllUsers().catch(e => { console.warn('Sync Users Fail:', e); return []; }),
-        fetchKitchenOrders().catch(e => { console.warn('Sync Kitchen Fail:', e); return []; })
+      const [usersData, kitchenData, deliveriesData, tablesData] = await Promise.all([
+        fetchAllUsers().catch(e => []),
+        fetchKitchenOrders().catch(e => []),
+        fetchDeliveries().catch(e => []),
+        fetchTables().catch(e => [])
       ]);
 
       setUsers(usersData);
       setKitchenOrders(kitchenData);
+      setDeliveries(deliveriesData);
+      setTables(tablesData);
+      
       setLastSync(new Date().toISOString());
-      console.log('✅ Sincronización Global Completada');
+      console.log('✅ Sincronización Global Exitosa');
     } catch (error) {
-      console.error('❌ Error en Sincronización Global:', error);
+      console.error('❌ Error en Sincronización:', error);
     } finally {
       setIsSyncing(false);
     }
   };
 
   useEffect(() => {
-    // Sincronización inicial rápida
     syncAllData();
   }, []);
 
   useEffect(() => {
-    // ÚNICO MOTOR DE INTERVALO GLOBAL
     let intervalId = null;
-    
     if (isAutoSyncEnabled) {
-      console.log('📡 Motor de Sincronización Global: ENCENDIDO');
-      syncAllData(); // Sincronizar inmediatamente al activar
+      syncAllData();
       intervalId = setInterval(syncAllData, 30000);
-    } else {
-      console.log('📡 Motor de Sincronización Global: APAGADO');
     }
-
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
+    return () => { if (intervalId) clearInterval(intervalId); };
   }, [isAutoSyncEnabled]);
 
   const value = React.useMemo(() => ({
     users,
     deliveries,
+    tables,
     kitchenOrders,
     isSyncing,
     lastSync,
     syncAllData,
     isAutoSyncEnabled,
     setIsAutoSyncEnabled,
-    setUsers, // Permitir actualizaciones locales tras edición
+    setUsers,
     setDeliveries,
+    setTables,
     setKitchenOrders
-  }), [users, deliveries, kitchenOrders, isSyncing, lastSync, isAutoSyncEnabled]);
+  }), [users, deliveries, tables, kitchenOrders, isSyncing, lastSync, isAutoSyncEnabled]);
 
   return (
     <DataSyncContext.Provider value={value}>
@@ -484,3 +481,9 @@ export const useDataSync = () => {
   }
   return context;
 };
+
+
+
+
+
+

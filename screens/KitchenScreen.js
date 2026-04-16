@@ -144,13 +144,31 @@ const KitchenScreen = ({ navigation }) => {
         <View style={styles.cardHeader}>
           <View>
             <Text style={styles.orderId}>Orden #{item.id}</Text>
-            <Text style={styles.customerName}>{item.cliente}</Text>
+            <View style={styles.typeBadgeContainer}>
+              {item.tipo?.toLowerCase() === 'delivery' ? (
+                <View style={[styles.typeBadge, { backgroundColor: '#FF6B35' }]}>
+                  <FontAwesome5 name="motorcycle" size={10} color="#FFF" />
+                  <Text style={styles.typeBadgeText}>DELIVERY</Text>
+                </View>
+              ) : item.mesa ? (
+                <View style={[styles.typeBadge, { backgroundColor: '#2196F3' }]}>
+                  <FontAwesome5 name="chair" size={10} color="#FFF" />
+                  <Text style={styles.typeBadgeText}>MESA {item.mesa}</Text>
+                </View>
+              ) : (
+                <View style={[styles.typeBadge, { backgroundColor: '#4CAF50' }]}>
+                  <FontAwesome5 name="shopping-bag" size={10} color="#FFF" />
+                  <Text style={styles.typeBadgeText}>LOCAL</Text>
+                </View>
+              )}
+            </View>
           </View>
           <View style={styles.timeBadge}>
             <FontAwesome5 name="clock" size={12} color={colors.text.secondary} />
             <Text style={styles.timeText}>{item.hora || 'Ahora'}</Text>
           </View>
         </View>
+        <Text style={styles.customerName}>{item.cliente}</Text>
 
         <View style={styles.itemsList}>
           {item.items && item.items.map((prod, index) => (
@@ -454,6 +472,23 @@ const styles = StyleSheet.create({
   syncStatusText: {
     fontSize: 10,
     fontWeight: 'bold',
+  },
+  typeBadgeContainer: {
+    flexDirection: 'row',
+    marginTop: 4,
+  },
+  typeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    gap: 4,
+  },
+  typeBadgeText: {
+    color: '#FFF',
+    fontSize: 9,
+    fontWeight: '900',
   }
 });
 

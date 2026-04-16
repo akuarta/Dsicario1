@@ -1,15 +1,25 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetchUserRoleByEmail } from '../utils/api';
+import { useAuth } from './AuthContext';
 
 const UserContext = createContext();
 
 export const UserProvider = ({ children }) => {
+  const { user } = useAuth();
   const [username, setUsername] = useState('Usuario');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('Cliente'); // Role por defecto
   const [userId, setUserId] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Efecto para sincronizar el nombre desde Firebase inmediatamente
+  useEffect(() => {
+    if (user && user.displayName) {
+      setUsername(user.displayName);
+      setEmail(user.email);
+    }
+  }, [user]);
 
   // Cargar perfil completo desde Google Sheets si hay un email
   const syncUserRole = async (userEmail) => {

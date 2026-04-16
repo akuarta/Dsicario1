@@ -27,9 +27,11 @@ import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import KitchenScreen from '../screens/KitchenScreen';
 import RiderScreen from '../screens/RiderScreen';
+import WaiterScreen from '../screens/WaiterScreen';
 import AdminStaffScreen from '../screens/AdminStaffScreen';
 import ProductListScreen from '../screens/ProductListScreen';
 import OrderCenterScreen from '../screens/OrderCenterScreen';
+import AdminDeliveryScreen from '../screens/AdminDeliveryScreen';
 
 const Tab = createBottomTabNavigator();
 const Drawer = createDrawerNavigator();
@@ -66,9 +68,10 @@ const MainTabs = () => {
   
   const isCocina = role === 'Cocina' || role === 'Cosina';
   const isDelivery = role === 'Delivery';
+  const isMesero = role === 'Mesero' || role?.toLowerCase() === 'mesero';
   const isAdmin = role?.toLowerCase() === 'admin';
   
-  const isRestricted = isCocina || isDelivery;
+  const isRestricted = (isCocina || isDelivery || isMesero) && !isAdmin;
 
   return (
     <Tab.Navigator
@@ -81,9 +84,9 @@ const MainTabs = () => {
     >
       <Tab.Screen
         name="InicioTab"
-        component={isCocina ? KitchenScreen : (isDelivery ? RiderScreen : InicioStack)}
+        component={isCocina ? KitchenScreen : (isDelivery ? RiderScreen : (isMesero ? WaiterScreen : InicioStack))}
         options={{
-          tabBarLabel: isCocina ? 'MONITOR' : (isDelivery ? 'ENTREGAS' : 'INICIO'),
+          tabBarLabel: isCocina ? 'MONITOR' : (isDelivery ? 'ENTREGAS' : (isMesero ? 'SERVICIO' : 'INICIO')),
           tabBarIcon: ({ color }) => <Home color={color} size={24} />,
         }}
       />
@@ -121,19 +124,25 @@ const MainTabs = () => {
         />
       )}
 
-      {/* Hidden tabs for Drawer Screens so Bottom Tabs don't disappear */}
+      {/* Hidden tabs for Admin/Specialized navigation */}
       <Tab.Screen name="OrderCenter" component={OrderCenterScreen} options={{ tabBarButton: () => null }} />
       <Tab.Screen name="Historial" component={PurchaseHistoryStack} options={{ tabBarButton: () => null }} />
       <Tab.Screen name="Favoritos" component={FavoritesStack} options={{ tabBarButton: () => null }} />
       <Tab.Screen name="Configuracion" component={ConfigStack} options={{ tabBarButton: () => null }} />
+      <Tab.Screen name="DeliveryTracking" component={DeliveryTrackingScreen} options={{ tabBarButton: () => null }} />
       
       {(isAdmin || isCocina) && (
         <Tab.Screen name="CocinaAdmin" component={KitchenScreen} options={{ tabBarButton: () => null }} />
       )}
 
+      {(isAdmin || isMesero) && (
+        <Tab.Screen name="WaiterHome" component={WaiterScreen} options={{ tabBarButton: () => null }} />
+      )}
+
       {isAdmin && (
         <>
-          <Tab.Screen name="RiderAdmin" component={RiderScreen} options={{ tabBarButton: () => null }} />
+          <Tab.Screen name="RiderView" component={RiderScreen} options={{ tabBarButton: () => null }} />
+          <Tab.Screen name="RiderAdmin" component={AdminDeliveryScreen} options={{ tabBarButton: () => null }} />
           <Tab.Screen name="AdminStaff" component={AdminStaffScreen} options={{ tabBarButton: () => null }} />
         </>
       )}

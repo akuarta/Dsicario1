@@ -17,15 +17,15 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Google from 'expo-auth-session/providers/google';
-import * as WebBrowser from 'expo-web-browser';
-import * as AuthSession from 'expo-auth-session';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 
-WebBrowser.maybeCompleteAuthSession();
+GoogleSignin.configure({
+  webClientId: '758740272138-77lhol13d82jds53656573ijqi0u766k.apps.googleusercontent.com',
+});
 
 const { width } = Dimensions.get('window');
 
@@ -39,37 +39,27 @@ const LoginScreen = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  // Generamos el redirectUri directamente
-  const redirectUri = AuthSession.makeRedirectUri({
-    scheme: 'dsicario',
-  });
+  const handleGoogleLogin = async () => {
+    try {
+      await GoogleSignin.hasPlayServices();
+      
+      // Intentamos cerrar sesión previa para forzar el selector de cuentas
+      try {
+        await GoogleSignin.signOut();
+      } catch (e) {
+        // No hay sesión activa para cerrar, procedemos normal
+      }
 
-  // Configuración de Google Auth (Envuelto en try-catch por si falla en Web)
-  let googleRequest = null;
-  let googleResponse = null;
-  let googlePromptAsync = () => Alert.alert('Error', 'Google Login no disponible en este entorno.');
-
-  try {
-    const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
-      clientId: '758740272138-77lhol13d82jds53656573ijqi0u766k.apps.googleusercontent.com',
-      webClientId: '758740272138-77lhol13d82jds53656573ijqi0u766k.apps.googleusercontent.com',
-      androidClientId: '758740272138-dasbir8hjp2ffvs50nmm0t9mldo992i8.apps.googleusercontent.com',
-      redirectUri: redirectUri,
-    });
-    
-    googleRequest = request;
-    googleResponse = response;
-    googlePromptAsync = promptAsync;
-  } catch (e) {
-    console.warn('Google Auth Hook error:', e.message);
-  }
-
-  useEffect(() => {
-    if (googleResponse?.type === 'success') {
-      const { id_token } = googleResponse.params;
-      signInWithGoogle(id_token);
+      const response = await GoogleSignin.signIn();
+      const idToken = response.data?.idToken || response.idToken;
+      if (idToken) {
+        await signInWithGoogle(idToken);
+      }
+    } catch (error) {
+      console.warn('Google Signin Error:', error);
+      Alert.alert('Error', 'Hubo un problema al iniciar sesión con Google.');
     }
-  }, [googleResponse]);
+  };
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -237,8 +227,8 @@ const LoginScreen = () => {
 
           <TouchableOpacity 
             style={styles.googleButton} 
-            onPress={() => googlePromptAsync()}
-            disabled={!googleRequest}
+            onPress={handleGoogleLogin}
+            disabled={isAuthenticating}
           >
             <FontAwesome5 name="google" size={18} color="#EA4335" />
             <Text style={styles.googleText}>Continuar con Google</Text>
@@ -253,14 +243,7 @@ const LoginScreen = () => {
             </Text>
           </TouchableOpacity>
 
-          <View style={{marginTop: 40, padding: 10, backgroundColor: '#f0f0f0', borderRadius: 8}}>
-            <Text style={{fontSize: 12, color: 'red', fontWeight: 'bold', textAlign: 'center'}}>
-              AÑADE ESTA URL EN GOOGLE CLOUD:
-            </Text>
-            <Text style={{fontSize: 10, color: '#333', textAlign: 'center', marginTop: 4}} selectable={true}>
-              {redirectUri}
-            </Text>
-          </View>
+
 
         </ScrollView>
       </KeyboardAvoidingView>

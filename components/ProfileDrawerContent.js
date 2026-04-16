@@ -13,8 +13,10 @@ const ProfileDrawerContent = (props) => {
   const { clearCart, getTotalItems } = useCart();
   const totalItems = getTotalItems();
   
-  const isAdmin = role && role.toLowerCase() === 'admin';
-  const isCocina = role && role.toLowerCase() === 'cocina';
+  const isCocina = !!(role && (role.toLowerCase() === 'cocina' || role.toLowerCase() === 'cosina'));
+  const isDelivery = !!(role && role.toLowerCase() === 'delivery');
+  const isMesero = !!(role && role.toLowerCase() === 'mesero');
+  const isAdmin = !!(role && role.toLowerCase() === 'admin');
 
   const showAlert = (title, message) => Alert.alert(title, message);
 
@@ -41,6 +43,51 @@ const ProfileDrawerContent = (props) => {
   };
 
   const menuItems = [
+    // --- SECCIÓN ADMIN / STAFF (PRIMERO SI ES ADMIN) ---
+    {
+      id: 7,
+      title: 'Monitor de Cocina',
+      icon: 'utensils',
+      onPress: () => props.navigation.navigate('CocinaAdmin'),
+      visible: isAdmin || isCocina,
+    },
+    {
+      id: 11,
+      title: 'Panel de Servicios (Mesas)',
+      icon: 'walking',
+      onPress: () => props.navigation.navigate('WaiterHome'),
+      visible: isAdmin || isMesero,
+    },
+    {
+      id: 12,
+      title: 'Vista de Repartidor (Rider)',
+      icon: 'biking',
+      onPress: () => props.navigation.navigate('RiderView'),
+      visible: isAdmin,
+    },
+    {
+      id: 8,
+      title: 'Administrar Repartidores',
+      icon: 'motorcycle',
+      onPress: () => props.navigation.navigate('RiderAdmin'),
+      visible: isAdmin,
+    },
+    {
+      id: 9,
+      title: 'Gestión de Personal',
+      icon: 'users-cog',
+      onPress: () => props.navigation.navigate('AdminStaff'),
+      visible: isAdmin,
+    },
+    {
+      id: 10,
+      title: 'Centro de Pedidos',
+      icon: 'map-marked-alt',
+      onPress: () => props.navigation.navigate('OrderCenter'),
+      visible: isAdmin || isCocina || isDelivery,
+    },
+    
+    // --- SECCIÓN CLIENTE (PARA TODOS) ---
     {
       id: 1,
       title: 'Mi Carrito',
@@ -48,12 +95,6 @@ const ProfileDrawerContent = (props) => {
       onPress: () => props.navigation.navigate('MainTabs', { screen: 'Carrito' }),
       showBadge: totalItems > 0,
       badgeCount: totalItems
-    },
-    {
-      id: 10,
-      title: 'Centro de Pedidos',
-      icon: 'map-marked-alt',
-      onPress: () => props.navigation.navigate('OrderCenter'),
     },
     {
       id: 2,
@@ -88,27 +129,6 @@ const ProfileDrawerContent = (props) => {
       icon: 'info-circle',
       onPress: () => showAlert('DSicario v1.0', 'Aplicación de e-commerce desarrollada con React Native\n\n© 2024 DSicario'),
     },
-    {
-      id: 7,
-      title: 'Monitor de Cocina',
-      icon: 'utensils',
-      onPress: () => props.navigation.navigate('CocinaAdmin'),
-      visible: isAdmin || isCocina,
-    },
-    {
-      id: 8,
-      title: 'Panel de Repartidores',
-      icon: 'motorcycle',
-      onPress: () => props.navigation.navigate('RiderAdmin'),
-      visible: isAdmin,
-    },
-    {
-      id: 9,
-      title: 'Gestión de Personal',
-      icon: 'users-cog',
-      onPress: () => props.navigation.navigate('AdminStaff'),
-      visible: isAdmin,
-    },
   ];
 
   const styles = StyleSheet.create({
@@ -134,26 +154,30 @@ const ProfileDrawerContent = (props) => {
           <Text style={styles.userEmail}>{email}</Text>
         </View>
         <View style={styles.menuContainer}>
-          {menuItems.filter(item => item.visible !== false).map(item => (
-            <TouchableOpacity
-              key={item.id}
-              style={[styles.menuItem, item.isDestructive && styles.destructiveItem]}
-              onPress={item.onPress}
-            >
-              <FontAwesome5 
-                name={item.icon} 
-                size={20} 
-                color={item.isDestructive ? (colors.error || '#f44336') : (colors.primary || '#FF6B35')} 
-                style={{ marginRight: 16 }} 
-              />
-              <Text style={[styles.menuItemTitle, item.isDestructive && styles.destructiveText]}>{item.title}</Text>
-              {item.showBadge && item.badgeCount > 0 && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{item.badgeCount > 99 ? '99+' : item.badgeCount}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          ))}
+          {menuItems.map(item => {
+            if (item.visible === false) return null;
+
+            return (
+              <TouchableOpacity
+                key={item.id}
+                style={[styles.menuItem, item.isDestructive && styles.destructiveItem]}
+                onPress={item.onPress}
+              >
+                <FontAwesome5 
+                  name={item.icon} 
+                  size={20} 
+                  color={item.isDestructive ? (colors.error || '#f44336') : (colors.primary || '#FF6B35')} 
+                  style={{ marginRight: 16 }} 
+                />
+                <Text style={[styles.menuItemTitle, item.isDestructive && styles.destructiveText]}>{item.title}</Text>
+                {item.showBadge && item.badgeCount > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{item.badgeCount > 99 ? '99+' : item.badgeCount}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
         </View>
         
         <TouchableOpacity 

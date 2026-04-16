@@ -12,6 +12,7 @@ import {
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
+import { useUser } from '../contexts/UserContext';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 
@@ -20,6 +21,8 @@ const ConfigScreen = () => {
   const colors = getThemeColors(darkMode);
   const navigation = useNavigation();
   const { user, signOut } = useAuth();
+  const { role } = useUser();
+  const isAdmin = !!(role && role.toLowerCase() === 'admin');
   const [notifications, setNotifications] = useState(true);
 
   const styles = StyleSheet.create({
@@ -118,10 +121,12 @@ const ConfigScreen = () => {
         </View>
 
         {/* ADMIN MENU */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>⚙️ ADMINISTRACIÓN</Text>
-            <SettingItem icon="motorcycle" title="Administrar Repartidores" onPress={() => navigation.navigate('AdminDeliveryScreen')} />
-        </View>
+        {isAdmin && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>⚙️ ADMINISTRACIÓN</Text>
+            <SettingItem icon="motorcycle" title="Administrar Repartidores" onPress={() => navigation.navigate('RiderAdmin')} />
+          </View>
+        )}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Ajustes de App</Text>

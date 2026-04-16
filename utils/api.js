@@ -3,6 +3,7 @@ import { CONFIG } from '../constants/Config';
 // Caché temporal para evitar race-conditions en el monitor de cocina
 const pendingUpdates = {};
 const UPDATE_LOCK_MS = 10000; // 10 segundos de bloqueo post-update
+let cachedDeliverySheet = 'Deliverys';
 
 /**
  * Diccionario de Estados para sincronización con Excel (Español)
@@ -14,7 +15,8 @@ const STATUS_MAP = {
       'preparing': 'Preparando',
       'ready': 'Listo',
       'on_the_way': 'En Camino',
-      'delivered': 'Entregado'
+      'delivered': 'Entregado',
+      'draft': 'borrador'
     };
     return map[status?.toLowerCase()] || 'Pendiente';
   },
@@ -28,7 +30,8 @@ const STATUS_MAP = {
       'listo': 'ready',
       'en camino': 'on_the_way',
       'entregado': 'delivered',
-      'completado': 'ready'
+      'completado': 'ready',
+      'borrador': 'draft'
     };
     return map[excelStatus?.toLowerCase()] || 'pending';
   }
@@ -129,16 +132,109 @@ export const fetchBusinessInfo = async () => {
     const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=inicio`, { redirect: 'follow' });
     const data = await response.json();
     const info = resolveSheetData(data, 'inicio');
-    return info.length > 0 ? info[0] : { name: 'DSicario' };
+    
+    if (info.length > 0) {
+      // Buscar la primera fila que realmente tenga datos (al menos un nombre)
+      const b = info.find(row => 
+        getRobustProp(row, 'NombreLocal') || 
+        getRobustProp(row, 'nombrelocal')
+      ) || info[0];
+
+      return {
+        name:    getRobustProp(b, 'NombreLocal') || 'D´Sicario',
+        phone:   getRobustProp(b, 'TelefonoLocal') || '809-000-0000',
+        email:   getRobustProp(b, 'EmailLocal') || 'ventas@dsicario.com',
+        address: getRobustProp(b, 'DireccionLocal') || 'República Dominicana',
+        logo:    getRobustProp(b, 'Logo') || null,
+        appLink: getRobustProp(b, 'Link App') || null,
+        closed:  getRobustProp(b, 'Cerrado?') === true || getRobustProp(b, 'cerrado?') === true
+      };
+    }
+    
+    // Fallback completo para evitar undefined
+    return {
+      name: 'D´Sicario',
+      phone: '809-000-0000',
+      email: 'hairoman28@gmail.com',
+      address: 'Calle diagonal 1ra. no. 29, Santo Tomas De Aquino',
+      logo: null,
+      appLink: null,
+      closed: false
+    };
   } catch (error) {
     console.error('Error fetching business info:', error);
-    return { name: 'DSicario' };
+    return {
+      name: 'D´Sicario',
+      phone: '809-000-0000',
+      email: 'hairoman28@gmail.com',
+      address: 'Calle diagonal 1ra. no. 29, Santo Tomas De Aquino',
+      logo: null,
+      appLink: null,
+      closed: false
+    };
+  }
+};
+
+
+/**
+ * Update order status inside Google Sheets (allows extra fields like ID_Rider)
+ */
+export const updateOrderStatus = async (orderId, newStatus, extraData = {}) => {
+  try {
+    const idStr = String(orderId);
+    const excelStatus = STATUS_MAP.toExcel(newStatus);
+    
+    pendingUpdates[idStr] = {
+        status: newStatus,
+        time: Date.now()
+    };
+    
+    const payload = {
+      action: "UPDATE",
+      sheet: "pedidos",
+      data: {
+        'ID_Pedido': idStr,
+        'Estado': excelStatus,
+        ...extraData
+      }
+    };
+    
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      redirect: 'follow'
+    }).then(r => r.json());
+
+    // También actualizar detalle para consistencia en segundo plano
+    fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: "UPDATE",
+        sheet: "pedido detalle",
+        data: { 'ID_Pedido': idStr, 'Estado': excelStatus, ...extraData }
+      }),
+      redirect: 'follow'
+    }).catch(() => {});
+
+    return response;
+  } catch (error) {
+    console.error('Error updating status:', error);
+    throw error;
   }
 };
 
 /**
- * Fetch all active orders for the Kitchen Display System (KDS)
+ * Responder a una propuesta de despacho (Aceptar/Rechazar)
  */
+export const respondToOffer = async (orderId, riderId, accept = true) => {
+  return await updateOrderStatus(orderId, accept ? 'ready' : 'rechazado', {
+    ID_Rider: accept ? riderId : '',
+    ID_Pedido: orderId
+  });
+};
+
+
+
 export const fetchKitchenOrders = async () => {
   try {
     const [ordersRes, itemsRes] = await Promise.all([
@@ -219,6 +315,7 @@ export const fetchKitchenOrders = async () => {
         return {
           id: orderId || Math.random().toString(),
           cliente: (getRobustProp(order, 'Cliente') || 'Invitado').replace('\n', '').trim(),
+          email: getRobustProp(order, 'Email') || getRobustProp(order, 'email') || getRobustProp(order, 'usuario') || getRobustProp(order, 'Usuario') || '',
           items: itemsDetectados.length > 0 ? itemsDetectados.map(it => ({
             nombre: it.nombre || it.name || it.product || 'Producto',
             cantidad: it.cantidad || it.quantity || 1,
@@ -230,6 +327,8 @@ export const fetchKitchenOrders = async () => {
           estado: finalStatus,
           hora: getRobustProp(order, 'Entrada') || '',
           total: parseFloat(getRobustProp(order, 'Total')) || 0,
+          mesa: getRobustProp(order, 'ID_Mesa') || getRobustProp(order, 'Mesa') || '',
+          tipo: getRobustProp(order, 'Tipo') || (getRobustProp(order, 'ID_Mesa') ? 'Mesa' : 'Local'),
         };
       });
   } catch (error) {
@@ -238,54 +337,15 @@ export const fetchKitchenOrders = async () => {
   }
 };
 
+
 /**
- * Update order status inside Google Sheets
+ * Specialized function for Riders to pick up an order
  */
-export const updateOrderStatus = async (orderId, newStatus) => {
-  try {
-    const idStr = String(orderId);
-    const excelStatus = STATUS_MAP.toExcel(newStatus);
-    
-    pendingUpdates[idStr] = {
-        status: newStatus,
-        time: Date.now()
-    };
-    
-    const payload = {
-      action: "UPDATE",
-      sheet: "pedidos",
-      data: {
-        'ID_Pedido': idStr,
-        'Estado': excelStatus
-      }
-    };
-
-    if (newStatus === 'ready') {
-      payload.data['Salida'] = new Date().toLocaleTimeString();
-    }
-    
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    }).then(r => r.json());
-
-    // También actualizar detalle para consistencia
-    fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify({
-        action: "UPDATE",
-        sheet: "pedido detalle",
-        data: { 'ID_Pedido': idStr, 'Estado': excelStatus }
-      }),
-      redirect: 'follow'
-    }).catch(() => {});
-
-    return response;
-  } catch (error) {
-    console.error('Error updating status:', error);
-    throw error;
-  }
+export const pickupOrder = async (orderId, riderId) => {
+  return await updateOrderStatus(orderId, 'on_the_way', {
+    'ID_Rider': riderId,
+    'Salida': new Date().toLocaleTimeString() 
+  });
 };
 
 /**
@@ -328,7 +388,19 @@ export const fetchRiderOrders = async (riderId) => {
     });
     
     return rawDeliveries
-      .filter(d => getRobustProp(d, 'ID_Rider') === riderId)
+      .filter(d => {
+        const dRiderId = getRobustProp(d, 'ID_Rider');
+        const excelStatus = getRobustProp(d, 'Estado') || 'Listo';
+        
+        // Mostrar si:
+        // 1. Está asignado a este repartidor
+        // 2. O si NO está asignado a nadie Y el estado es "Listo" (disponible para recoger)
+        const isAssignedToMe = dRiderId === riderId;
+        const isAvailableToPick = (!dRiderId || dRiderId.toString().trim() === '' || dRiderId.toString().toLowerCase() === 'n/a') && 
+                                  (excelStatus.toLowerCase() === 'listo' || excelStatus.toLowerCase() === 'ready');
+        
+        return isAssignedToMe || isAvailableToPick;
+      })
       .map(d => {
         const orderId = getRobustProp(d, 'ID_Pedido');
         const excelStatus = getRobustProp(d, 'Estado') || 'Listo';
@@ -337,6 +409,7 @@ export const fetchRiderOrders = async (riderId) => {
           cliente: getRobustProp(d, 'Cliente') || 'Desconocido',
           total: parseFloat(getRobustProp(d, 'Total')) || 0,
           whatsapp: getRobustProp(d, 'Telefono') || '',
+          direccion: getRobustProp(d, 'Direccion') || getRobustProp(d, 'Ubicacion') || '',
           estado: STATUS_MAP.fromExcel(excelStatus),
           items: itemsMap[orderId] || [],
         };
@@ -352,22 +425,29 @@ export const fetchRiderOrders = async (riderId) => {
  */
 export const fetchRiderStats = async (riderId) => {
   try {
-    const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=usuarios`, { redirect: 'follow' });
-    const rawData = await response.json();
-    const users = resolveSheetData(rawData, 'usuarios');
-    const rider = users.find(u => getRobustProp(u, 'Usuario') === riderId || getRobustProp(u, 'ID_Usuario') === riderId);
+    const [userRes, deliveryRes] = await Promise.all([
+      fetch(`${CONFIG.GAS_API_URL}?sheet=usuarios`, { redirect: 'follow' }),
+      fetchDeliveries()
+    ]);
     
-    if (rider) {
-      return {
-        nombre: getRobustProp(rider, 'Nombre') || riderId,
-        cartera: parseFloat(getRobustProp(rider, 'Cartera')) || 0,
-        deuda: parseFloat(getRobustProp(rider, 'Deuda')) || 0,
-        cupo: (parseFloat(getRobustProp(rider, 'Limite')) || 5000) - (parseFloat(getRobustProp(rider, 'Deuda')) || 0)
-      };
-    }
-    return { cartera: 0, deuda: 0, cupo: 0, nombre: riderId };
+    const rawUsers = await userRes.json();
+    const users = resolveSheetData(rawUsers, 'usuarios');
+    const riderUser = users.find(u => getRobustProp(u, 'Usuario') === riderId || getRobustProp(u, 'ID_Usuario') === riderId);
+    
+    // Buscar datos especÃ­ficos de delivery
+    const deliveryInfo = deliveryRes.find(d => d.id === riderId || d.id_delivery === riderId);
+    
+    return {
+      nombre: (riderUser ? getRobustProp(riderUser, 'Nombre') : null) || (deliveryInfo ? deliveryInfo.nombre : null) || riderId,
+      cartera: deliveryInfo ? deliveryInfo.cartera : (riderUser ? parseFloat(getRobustProp(riderUser, 'Cartera')) : 0) || 0,
+      deuda: deliveryInfo ? deliveryInfo.deuda_efectivo : (riderUser ? parseFloat(getRobustProp(riderUser, 'Deuda')) : 0) || 0,
+      cupo: (parseFloat(getRobustProp(riderUser, 'Limite')) || 5000) - (deliveryInfo ? deliveryInfo.deuda_efectivo : 0),
+      activo: deliveryInfo ? deliveryInfo.activo : false, // <--- Estado de disponibilidad real
+      fullData: deliveryInfo || {} // Guardamos todo por si acaso
+    };
   } catch (error) {
-    return { cartera: 0, deuda: 0, cupo: 0, nombre: riderId };
+    console.error('Error fetching rider stats:', error);
+    return { cartera: 0, deuda: 0, cupo: 0, nombre: riderId, activo: false };
   }
 };
 
@@ -401,6 +481,198 @@ export const fetchUserRoleByEmail = async (email) => {
     return getRobustProp(user, 'UserType') || 'client';
   } catch (error) {
     return 'client';
+  }
+};
+
+/**
+ * Fetch all delivery riders
+ */
+export const fetchDeliveries = async () => {
+  try {
+    // Intentar con varios nombres comunes por si acaso
+    const sheetsToTry = ['Deliverys', 'Delivery', 'Repartidores'];
+    let raw = [];
+    
+    let foundSheet = 'Deliverys';
+    for (const sheetName of sheetsToTry) {
+        const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=${sheetName}`, { redirect: 'follow' });
+        const data = await response.json();
+        raw = resolveSheetData(data, sheetName);
+        if (raw.length > 0) {
+          foundSheet = sheetName;
+          break;
+        }
+    }
+    
+    // GUARDAR NOMBRE DE HOJA DETECTADO
+    cachedDeliverySheet = foundSheet;
+    console.log('API: Hoja de Delivery detectada:', cachedDeliverySheet);
+    
+    if (raw.length === 0) {
+        // Si no funcionó con nombres específicos, pedir todo y buscar cualquier cosa que parezca de repartidores
+        const response = await fetch(`${CONFIG.GAS_API_URL}`, { redirect: 'follow' });
+        const data = await response.json();
+        const firstKey = Object.keys(data).find(k => k.toLowerCase().includes('delivery') || k.toLowerCase().includes('repartid'));
+        if (firstKey) raw = data[firstKey];
+    }
+    
+    return raw.map(d => {
+        const id = getRobustProp(d, 'ID_Delivery') || getRobustProp(d, 'ID_Rider') || getRobustProp(d, 'id') || Math.random().toString();
+        const rawActivo = String(getRobustProp(d, 'Activo') || getRobustProp(d, 'Disponible') || getRobustProp(d, 'Estado') || '').toLowerCase().trim();
+        const isActive = rawActivo === 'true' || rawActivo === 'si' || rawActivo === 'activo' || rawActivo === '1' || rawActivo === 'disponible';
+
+        // Intentar obtener el nombre de varias fuentes
+        const nombreDetectado = getRobustProp(d, 'Nombre') || getRobustProp(d, 'Rider') || getRobustProp(d, 'Personal') || id;
+
+        return {
+          id: String(id),
+          id_delivery: String(id),
+          nombre: nombreDetectado,
+          apellido: getRobustProp(d, 'Apellido') || '',
+          telefono: getRobustProp(d, 'Telefono') || '',
+          whatsapp: getRobustProp(d, 'Whatsapp') || '',
+          vehiculo: getRobustProp(d, 'Vehiculo') || 'Vehículo',
+          costo_pedido: parseFloat(getRobustProp(d, 'Costo_Pedido')) || 50,
+          cartera: parseFloat(getRobustProp(d, 'Cartera')) || 0,
+          deuda_efectivo: parseFloat(getRobustProp(d, 'Deuda_Efectivo')) || 0,
+          rapidez: parseFloat(getRobustProp(d, 'Rapidez')) || 5.0,
+          servicio: parseFloat(getRobustProp(d, 'Servicio')) || 5.0,
+          honestidad: parseFloat(getRobustProp(d, 'Honestidad')) || 5.0,
+          activo: isActive,
+          foto: getRobustProp(d, 'Foto') || '',
+          pedidos_dia: parseInt(getRobustProp(d, 'Pedidos_Dia')) || 0,
+          pedidos_semana: parseInt(getRobustProp(d, 'Pedidos_Semana')) || 0,
+          ingreso_dia: parseFloat(getRobustProp(d, 'Ingreso_Dia')) || 0
+        };
+      });
+  } catch (error) {
+    console.error('Error fetching deliveries:', error);
+    console.error('Error fetching global deliveries:', error);
+    return [];
+  }
+};
+
+/**
+ * Liquidate all cash debt for a rider
+ */
+export const liquidateRiderCash = async (riderId) => {
+  try {
+    const payload = {
+      action: "UPSERT",
+      sheet: "Deliverys",
+      idField: "ID_Delivery",
+      data: {
+        'ID_Delivery': String(riderId),
+        'Deuda_Efectivo': 0,
+        'UltimaLiquidacion': new Date().toISOString()
+      }
+    };
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      redirect: 'follow'
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error liquidating cash:', error);
+    return { success: false };
+  }
+};
+
+/**
+ * Fetch all tables
+ */
+export const fetchTables = async () => {
+  try {
+    const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=Mesas`, { redirect: 'follow' });
+    const data = await response.json();
+    const raw = resolveSheetData(data, 'Mesas');
+    
+    return raw
+      .filter(m => getRobustProp(m, 'ID_Mesa') || getRobustProp(m, 'Nombre'))
+      .map((m, index) => {
+        const id = getRobustProp(m, 'ID_Mesa') || getRobustProp(m, 'ID') || `temp-${index}`;
+        return {
+          id: String(id),
+          nombre: getRobustProp(m, 'Nombre') || getRobustProp(m, 'Mesa') || `Mesa ${id}`,
+          estado: (getRobustProp(m, 'Estado') || 'disponible').toLowerCase(),
+          pedido_id: getRobustProp(m, 'ID_Pedido') || getRobustProp(m, 'Pedido') || null,
+          capacidad: parseInt(getRobustProp(m, 'Capacidad')) || 4
+        };
+      });
+  } catch (error) {
+    console.error('Error fetching tables:', error);
+    return [];
+  }
+};
+
+/**
+ * Update table status
+ */
+export const updateTableStatus = async (tableId, status, orderId = '') => {
+  try {
+    const payload = {
+      action: "UPSERT",
+      sheet: "Mesas",
+      idField: "ID_Mesa",
+      data: {
+        'ID_Mesa': String(tableId),
+        'Estado': status,
+        'ID_Pedido': orderId,
+        'UltimaActualizacion': new Date().toISOString()
+      }
+    };
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      redirect: 'follow'
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error updating table:', error);
+    return { success: false };
+  }
+};
+
+/**
+ * Update or Add a delivery rider
+ */
+export const updateDelivery = async (deliveryData) => {
+  try {
+    const payload = {
+      action: "UPSERT", 
+      sheet: cachedDeliverySheet, // Usar la hoja detectada dinÃ¡micamente
+      idField: "ID_Delivery", 
+      data: {
+        'ID_Delivery': deliveryData.id_delivery || deliveryData.id,
+        'ID_Rider': deliveryData.id_delivery || deliveryData.id, // Redundancia
+        'ID': deliveryData.id_delivery || deliveryData.id, // Redundancia
+        'Nombre': deliveryData.nombre,
+        'Apellido': deliveryData.apellido,
+        'Telefono': deliveryData.telefono,
+        'Whatsapp': deliveryData.whatsapp,
+        'Vehiculo': deliveryData.vehiculo,
+        'Costo_Pedido': deliveryData.costo_pedido,
+        'Cartera': deliveryData.cartera,
+        'Rapidez': deliveryData.rapidez,
+        'Servicio': deliveryData.servicio,
+        'Honestidad': deliveryData.honestidad,
+        'Activo': deliveryData.activo,
+        'Disponible': deliveryData.activo, // Redundancia
+        'Estado': deliveryData.activo ? 'Activo' : 'Inactivo', // Redundancia
+        'Foto': deliveryData.foto
+      }
+    };
+
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      redirect: 'follow'
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error updating delivery:', error);
+    throw error;
   }
 };
 
@@ -446,6 +718,7 @@ export const saveOrder = async (orderData) => {
       data: {
         'ID_Pedido': orderData.orderId,
         'Cliente': orderData.cliente || 'Invitado',
+        'Email': orderData.usuario || '',
         'Total': orderData.total,
         'Entrada': orderData.hora || new Date().toLocaleTimeString(),
         'Fecha': new Date().toLocaleDateString(),
@@ -478,8 +751,9 @@ export const saveOrder = async (orderData) => {
 export const saveUser = async (userData) => {
   try {
     const payload = {
-      action: "ADD",
+      action: "UPSERT",
       sheet: "usuarios",
+      idField: "ID_Usuario",
       data: {
         'ID_Usuario': userData.id || Math.random().toString(),
         'Nombre': userData.username || userData.email?.split('@')[0] || 'Cliente',
@@ -504,6 +778,90 @@ export const saveUser = async (userData) => {
   }
 };
 
+/**
+ * Create a basic draft order to 'reserve' a client/table name
+ */
+export const createDraftOrder = async (orderData) => {
+  try {
+    // 1. Marcar Mesa como Ocupada
+    if (orderData.mesa_id) {
+      const tablePayload = {
+        action: "UPSERT",
+        sheet: "Mesas",
+        idField: "ID_Mesa",
+        data: {
+          'ID_Mesa': String(orderData.mesa_id),
+          'Estado': 'ocupada',
+          'ID_Pedido': orderData.orderId,
+          'Cliente': orderData.cliente,
+          'UltimaActualizacion': new Date().toISOString()
+        }
+      };
+      await fetch(CONFIG.GAS_API_URL, { 
+        method: 'POST', 
+        body: JSON.stringify(tablePayload), 
+        redirect: 'follow' 
+      }).catch(e => console.warn('Table update fail:', e));
+    }
+
+    // 2. Crear cabecera del pedido como Borrador
+    const payload = {
+      action: "UPSERT",
+      sheet: "pedidos",
+      data: {
+        'ID_Pedido': orderData.orderId,
+        'Cliente': orderData.cliente,
+        'Estado': 'borrador',
+        'Pagado?': 'NO',
+        'Fecha': new Date().toLocaleDateString(),
+        'Entrada': new Date().toLocaleTimeString(),
+        'Email': orderData.usuario || ''
+      }
+    };
+
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      redirect: 'follow'
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error creating draft:', error);
+    return { success: false };
+  }
+};
+
+/**
+ * Specialized writer for waiter items (direct to cloud)
+ */
+export const saveWaiterCartItem = async (data) => {
+  try {
+    const payload = {
+      action: "ADD",
+      sheet: "pedido detalle",
+      data: {
+        'ID_Pedido': data.id_carrito,
+        'ID_Producto': data.id_producto,
+        'Pedido_Items': data.nombre,
+        'Cantidad': data.cantidad,
+        'Precio_Unitario': data.precio,
+        'Notas': data.orderNote || '',
+        'Estado': 'borrador',
+        'Fecha_Hora': new Date().toISOString()
+      }
+    };
+
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      redirect: 'follow'
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error saving waiter item:', error);
+    return { success: false };
+  }
+};
 /**
  * Submit a public product review to the 'Valoraciones' sheet in Google Sheets
  * @param {Object} reviewData - { productId, productName, rating, comment, userName, userEmail }
@@ -561,6 +919,75 @@ export const fetchReviews = async (productId) => {
   }
 };
 
+/**
+ * Fetch specific order details
+ * @param {string} orderId 
+ */
+export const fetchOrderDetails = async (orderId) => {
+  try {
+    const [ordersRes, itemsRes] = await Promise.all([
+      fetch(`${CONFIG.GAS_API_URL}?sheet=pedidos`, { redirect: 'follow' }),
+      fetch(`${CONFIG.GAS_API_URL}?sheet=pedido detalle`, { redirect: 'follow' })
+    ]);
+
+    const ordersData = await ordersRes.json();
+    const itemsData = await itemsRes.json();
+
+    const rawOrders = resolveSheetData(ordersData, 'pedidos');
+    const rawItems = resolveSheetData(itemsData, 'pedido detalle');
+
+    const order = rawOrders.find(o => String(getRobustProp(o, 'ID_Pedido')) === String(orderId));
+    
+    if (!order) {
+      // Retornar un mock decente si es un ID de prueba o falló temporalmente
+      return {
+        id: orderId,
+        status: 'on_the_way',
+        estimatedTime: '15-20 min',
+        rider: { name: 'Juan Pérez', phone: '+1234567890', location: { lat: 18.5001, lng: -69.9880 } },
+        restaurantLocation: { lat: 18.4861, lng: -69.9312 },
+        items: []
+      };
+    }
+
+    const orderItems = rawItems.filter(i => String(getRobustProp(i, 'ID_Pedido')) === String(orderId));
+    let itemsDetectados = [];
+    
+    if (orderItems.length > 0) {
+      const rawItemsCell = getRobustProp(orderItems[0], 'Pedido_Items');
+      if (rawItemsCell && typeof rawItemsCell === 'string' && rawItemsCell.trim().startsWith('[')) {
+        try { itemsDetectados = JSON.parse(rawItemsCell); } catch (e) {}
+      }
+    }
+
+    const excelStatus = getRobustProp(order, 'Estado') || 'Pendiente';
+    const finalStatus = STATUS_MAP.fromExcel(excelStatus);
+
+    return {
+        id: orderId,
+        status: finalStatus,
+        cliente: getRobustProp(order, 'Cliente') || 'Invitado',
+        total: parseFloat(getRobustProp(order, 'Total')) || 0,
+        estimatedTime: '20-30 min',
+        hora: getRobustProp(order, 'Entrada'),
+        rider: { name: 'Asignando...', phone: '', location: { lat: 18.5001, lng: -69.9880 } },
+        restaurantLocation: { lat: 18.4861, lng: -69.9312 }, // Coordenadas fijas o base del negocio
+        items: itemsDetectados.length > 0 ? itemsDetectados.map(it => ({
+            nombre: it.nombre || it.name || it.product || 'Producto',
+            cantidad: it.cantidad || it.quantity || 1,
+            precio: it.precio || 0
+        })) : orderItems.map(i => ({
+            nombre: getRobustProp(i, 'Pedido_Items') || 'Producto',
+            cantidad: 1,
+            precio: 0
+        }))
+    };
+  } catch (error) {
+    console.error('Error fetching order details:', error);
+    return null;
+  }
+};
+
 export default {
   fetchProducts,
   mapProductData,
@@ -569,10 +996,17 @@ export default {
   fetchRiderOrders,
   fetchRiderStats,
   fetchAllUsers,
+  fetchDeliveries,
+  updateDelivery,
+  liquidateRiderCash,
+  fetchTables,
+  updateTableStatus,
   formatPrice,
   fetchUserRoleByEmail,
-  saveOrder,
-  saveUser,
-  submitReview,
-  fetchReviews
+  fetchReviews,
+  fetchOrderDetails,
+  saveWaiterCartItem,
+  createDraftOrder,
+  respondToOffer,
+  saveOrder
 };
