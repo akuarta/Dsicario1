@@ -63,7 +63,7 @@ const ProductDetailScreen = ({ navigation, route }) => {
   const { product } = route.params;
   const { addToCart } = useCart();
   const { products } = useProducts();
-  const { username, email, isClientMode } = useUser();
+  const { username, email, isClientMode, role } = useUser();
   
   const [quantity, setQuantity] = useState(1);
   const [subtotal, setSubtotal] = useState(0);

@@ -84,6 +84,8 @@ const RiderProposalOverlay = () => {
     rejectBtn: { backgroundColor: colors.error || '#FF3B30' },
     acceptBtn: { backgroundColor: colors.success || '#34C759' },
     btnText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
+    itemsList: { backgroundColor: colors.background, padding: 10, borderRadius: 10, marginTop: 4 },
+    itemsContent: { fontSize: 13, color: colors.text.secondary, fontStyle: 'italic' },
   }), [colors, darkMode]);
 
   // ─── Limpiar el modal de propuesta ─────────────────────────────────
@@ -193,7 +195,18 @@ const RiderProposalOverlay = () => {
             {proposal.direccion && (
               <>
                 <Text style={styles.label}>Dirección</Text>
-                <Text style={styles.value}>{proposal.direccion}</Text>
+                <Text style={styles.value} numberOfLines={1}>{proposal.direccion}</Text>
+              </>
+            )}
+
+            {proposal.items && proposal.items.length > 0 && (
+              <>
+                <Text style={styles.label}>Pedido</Text>
+                <View style={styles.itemsList}>
+                   <Text style={styles.itemsContent} numberOfLines={2}>
+                      {proposal.items.map(it => `${it.cantidad}x ${it.nombre}`).join(', ')}
+                   </Text>
+                </View>
               </>
             )}
           </View>

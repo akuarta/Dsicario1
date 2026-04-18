@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -46,24 +46,88 @@ const RiderScreen = ({ navigation, route }) => {
   const [activeTab, setActiveTab] = useState('ready'); 
   const { isAutoSyncEnabled } = useDataSync();
   const [proposal, setProposal] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(20);
+  const timerRef = useRef(null);
+
+  // Sincronización de propuesta y contador
+  useEffect(() => {
+    if (proposal && proposal.id) {
+      // Intentamos extraer el timestamp del ID (ORD-123456789)
+      const timestamp = parseInt(proposal.id.replace('ORD-', ''));
+      if (!isNaN(timestamp)) {
+        const elapsed = Math.floor((Date.now() - timestamp) / 1000);
+        const actualTimeLeft = Math.max(0, 20 - elapsed);
+        
+        console.log(`[Timer] Pedido creado hace ${elapsed}s. Iniciando contador en: ${actualTimeLeft}s`);
+        setTimeLeft(actualTimeLeft);
+
+        if (actualTimeLeft <= 0) {
+          handleProposalResponse(false);
+          return;
+        }
+      } else {
+        setTimeLeft(20);
+      }
+
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            handleProposalResponse(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+      setTimeLeft(20);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [proposal]);
+
   const [lastAssignedCount, setLastAssignedCount] = useState(0);
 
   const loadData = async (silent = false) => {
     if (!silent) setIsLoading(true);
     try {
+      console.log(`[RiderDebug] Buscando pedidos para ID: "${riderId}"`);
       const [orderData, statData] = await Promise.all([
         fetchRiderOrders(riderId),
         fetchRiderStats(riderId, user?.email)
       ]);
-      const currentProposal = orderData.find(o => o.estado === 'proposal');
+      console.log(`[RiderDebug] Pedidos encontrados: ${orderData.length}`, orderData.map(o => ({ id: o.id, estado: o.estado })));
+      
+      const currentProposal = orderData.find(o => String(o.estado).toLowerCase().trim() === 'propuesta');
       if (currentProposal && (!proposal || proposal.id !== currentProposal.id)) {
+          console.log('[RiderDebug] 📢 ¡Propuesta detectada!', currentProposal.id);
           setProposal(currentProposal);
+          // 🔔 Notificar al repartidor en su propio navegador
+          if (Platform.OS === 'web') {
+            import('../utils/notifications').then(m => {
+              m.sendWebBrowserNotification({
+                cliente: currentProposal.cliente || currentProposal.Cliente || 'Nuevo Pedido',
+                total: currentProposal.total || currentProposal.Total || 0,
+                orderId: currentProposal.id
+              });
+            });
+          }
       } else if (!currentProposal && proposal) {
           setProposal(null);
       }
-      const currentAssigned = orderData.filter(o => o.id_rider === riderId && o.estado === 'ready').length;
+      const currentAssigned = orderData.filter(o => 
+          (String(o.id_repartidor || '').toLowerCase() === String(riderId).toLowerCase()) && 
+          ['ready', 'on_the_way'].includes(String(o.estado).toLowerCase())
+      ).length;
+
       if (currentAssigned > lastAssignedCount) {
-          Alert.alert("🚀 ¡NUEVO PEDIDO!", "Un administrador te ha asignado un pedido.");
+          console.log('[RiderDebug] 🚚 ¡Nuevo pedido asignado detectado!');
+          const msg = "Un administrador te ha asignado un pedido.";
+          if (Platform.OS === 'web') {
+            import('../utils/notifications').then(m => m.sendWebBrowserNotification({ cliente: 'Admin', total: 'Asignado', orderId: 'NEW' }));
+          }
+          Alert.alert("🚀 ¡NUEVO PEDIDO!", msg);
       }
       setLastAssignedCount(currentAssigned);
       setOrders(orderData);
@@ -94,7 +158,7 @@ const RiderScreen = ({ navigation, route }) => {
     loadData();
     let interval = null;
     if (isAutoSyncEnabled) {
-      interval = setInterval(() => loadData(true), 3000);
+      interval = setInterval(() => loadData(true), 1000);
     }
     const setupPushNotifications = async () => {
       const token = await registerForPushNotifications();
@@ -130,7 +194,13 @@ const RiderScreen = ({ navigation, route }) => {
   };
 
   const filteredOrders = useMemo(() => {
-    return orders.filter(o => o.estado === activeTab);
+    return orders.filter(o => {
+      const status = String(o.estado || '').toLowerCase().trim();
+      if (activeTab === 'ready') {
+        return ['pending', 'accepted', 'ready', 'listo'].includes(status);
+      }
+      return status === activeTab;
+    });
   }, [orders, activeTab]);
 
   const handleAction = (type, val) => {
@@ -252,43 +322,106 @@ const RiderScreen = ({ navigation, route }) => {
     propBtn: { flex: 1, height: 50, borderRadius: 15, alignItems: 'center', justifyContent: 'center', elevation: 4 },
     declineBtn: { backgroundColor: colors.error },
     acceptBtn: { backgroundColor: colors.success },
-    propBtnText: { color: '#FFF', fontSize: 14, fontWeight: '900' }
+    propBtnText: { color: '#FFF', fontSize: 14, fontWeight: '900' },
+    floatingProposal: { 
+      position: 'absolute', 
+      top: 60, 
+      left: 15, 
+      right: 15, 
+      zIndex: 9999, 
+      elevation: 15, 
+      shadowColor: '#000', 
+      shadowOffset: { width: 0, height: 10 }, 
+      shadowOpacity: 0.5, 
+      shadowRadius: 15 
+    },
+    proposalInner: { padding: 15, borderRadius: 25, borderWidth: 2, borderColor: colors.primary },
+    propHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
+    timerBadge: { 
+      width: 45, 
+      height: 45, 
+      borderRadius: 22.5, 
+      backgroundColor: colors.primary, 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      borderWidth: 3,
+      borderColor: 'rgba(255,255,255,0.3)'
+    },
+    timerText: { color: '#FFF', fontWeight: '900', fontSize: 16 },
+    propTitle: { color: 'rgba(255,255,255,0.6)', fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' },
+    propClient: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
+    propPrice: { color: colors.success, fontSize: 22, fontWeight: '900' },
+    propActions: { flexDirection: 'row', gap: 10 },
+    miniBtn: { height: 45, borderRadius: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 15 }
   }), [colors, darkMode]);
 
-  const renderOrderItem = ({ item }) => (
-    <GlassPanel intensity={20} style={styles.orderCard}>
-      <View style={styles.cardHeader}>
-        <View style={styles.idBadge}><Text style={styles.orderId}>#{String(item.id).slice(-4)}</Text></View>
-        <Text style={styles.orderTotal}>{formatPrice(item.Total || item.total)}</Text>
-      </View>
-      <Text style={styles.customerName}>{item.Cliente || item.cliente || 'Desconocido'}</Text>
-      <View style={styles.addressBox}>
-        <Ionicons name="location-sharp" size={14} color={colors.primary} />
-        <Text style={styles.infoText} numberOfLines={2}>{item.Direccion || item.direccion || 'No especificada'}</Text>
-      </View>
-      <View style={styles.itemsBrief}>
-         <Text style={styles.itemsText} numberOfLines={2}>{item.items.map(i => `${i.cantidad}x ${i.nombre}`).join(', ')}</Text>
-      </View>
-      <View style={styles.actionsRow}>
-        {item.estado === 'delivered' ? (
-          <View style={[styles.mainBtn, { backgroundColor: colors.success + '20', borderWidth: 1, borderColor: colors.success }]}>
-            <FontAwesome5 name="check-circle" size={16} color={colors.success} />
-            <Text style={[styles.mainBtnText, { color: colors.success }]}>ENTREGADO</Text>
-          </View>
-        ) : (
-          <>
-            <TouchableOpacity style={[styles.mainBtn, { backgroundColor: item.estado === 'ready' ? colors.primary : colors.success }]} onPress={() => item.estado === 'ready' ? handlePickup(item.id) : handleDeliver(item.id)}>
-              <FontAwesome5 name={item.estado === 'ready' ? "motorcycle" : "check-double"} size={16} color="#FFF" /><Text style={styles.mainBtnText}>{item.estado === 'ready' ? 'RECOGER' : 'ENTREGAR'}</Text>
-            </TouchableOpacity>
-            <View style={styles.secondaryActions}>
-                <TouchableOpacity style={[styles.circleBtn, { backgroundColor: '#25D366' }]} onPress={() => handleAction('whatsapp', item.whatsapp)}><FontAwesome5 name="whatsapp" size={18} color="#FFF" /></TouchableOpacity>
-                <TouchableOpacity style={[styles.circleBtn, { backgroundColor: '#4285F4' }]} onPress={() => handleAction('gps', item.direccion)}><Ionicons name="map" size={18} color="#FFF" /></TouchableOpacity>
+  const renderOrderItem = ({ item }) => {
+    const status = String(item.estado || '').toLowerCase();
+    const isReady = status === 'ready' || status === 'listo';
+    const isPending = status === 'pending';
+    const isAccepted = status === 'accepted';
+    const isOnTheWay = status === 'on_the_way';
+    const isDelivered = status === 'delivered';
+    const isCancelled = status === 'cancelado' || status === 'rechazado';
+
+    return (
+      <GlassPanel intensity={20} style={styles.orderCard}>
+        <View style={styles.cardHeader}>
+          <View style={styles.idBadge}><Text style={styles.orderId}>#{String(item.id).slice(-4)}</Text></View>
+          <Text style={styles.orderTotal}>{formatPrice(item.Total || item.total)}</Text>
+        </View>
+        <Text style={styles.customerName}>{item.Cliente || item.cliente || 'Desconocido'}</Text>
+        <View style={styles.addressBox}>
+          <Ionicons name="location-sharp" size={14} color={colors.primary} />
+          <Text style={styles.infoText} numberOfLines={2}>{item.Direccion || item.direccion || 'No especificada'}</Text>
+        </View>
+        <View style={styles.itemsBrief}>
+           <Text style={styles.itemsText} numberOfLines={2}>{item.items?.map(i => `${i.cantidad}x ${i.nombre}`).join(', ') || 'Sin items'}</Text>
+        </View>
+        
+        <View style={styles.actionsRow}>
+          {isDelivered ? (
+            <View style={[styles.mainBtn, { backgroundColor: colors.success + '20', borderWidth: 1, borderColor: colors.success }]}>
+              <FontAwesome5 name="check-circle" size={16} color={colors.success} />
+              <Text style={[styles.mainBtnText, { color: colors.success }]}>ENTREGADO</Text>
             </View>
-          </>
-        )}
-      </View>
-    </GlassPanel>
-  );
+          ) : isCancelled ? (
+            <View style={[styles.mainBtn, { backgroundColor: colors.error + '20', borderWidth: 1, borderColor: colors.error }]}>
+              <FontAwesome5 name="times-circle" size={16} color={colors.error} />
+              <Text style={[styles.mainBtnText, { color: colors.error }]}>PEDIDO CANCELADO</Text>
+            </View>
+          ) : isAccepted ? (
+            <View style={[styles.mainBtn, { backgroundColor: colors.text.disabled + '20', borderWidth: 1, borderColor: colors.border }]}>
+              <FontAwesome5 name="user-clock" size={16} color={colors.text.disabled} />
+              <Text style={[styles.mainBtnText, { color: colors.text.disabled }]}>ESPERANDO CLIENTE</Text>
+            </View>
+          ) : isPending ? (
+            <View style={[styles.mainBtn, { backgroundColor: colors.text.disabled + '20', borderWidth: 1, borderColor: colors.border }]}>
+              <FontAwesome5 name="fire" size={16} color={colors.text.disabled} />
+              <Text style={[styles.mainBtnText, { color: colors.text.disabled }]}>EN COCINA</Text>
+            </View>
+          ) : (
+            <TouchableOpacity 
+              style={[styles.mainBtn, { backgroundColor: isReady ? colors.primary : colors.success }]} 
+              onPress={() => isReady ? handlePickup(item.id) : handleDeliver(item.id)}
+            >
+              <FontAwesome5 name={isReady ? "motorcycle" : "check-double"} size={16} color="#FFF" />
+              <Text style={styles.mainBtnText}>{isReady ? 'RECOGER' : 'ENTREGAR'}</Text>
+            </TouchableOpacity>
+          )}
+
+          <View style={styles.secondaryActions}>
+            <TouchableOpacity style={[styles.circleBtn, { backgroundColor: '#25D366' }]} onPress={() => handleAction('whatsapp', item.whatsapp)}>
+              <FontAwesome5 name="whatsapp" size={18} color="#FFF" />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.circleBtn, { backgroundColor: '#4285F4' }]} onPress={() => handleAction('gps', item.direccion)}>
+              <Ionicons name="map" size={18} color="#FFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </GlassPanel>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -316,7 +449,28 @@ const RiderScreen = ({ navigation, route }) => {
           }} style={{ marginRight: 15 }}>
             <Ionicons name="log-out-outline" size={24} color="#FFF" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => onRefresh()}><Ionicons name="refresh" size={22} color="#FFF" /></TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity 
+                onPress={() => {
+                  import('../utils/notifications').then(m => {
+                    m.sendWebBrowserNotification({
+                      cliente: 'SISTEMA (Prueba)',
+                      total: 0,
+                      orderId: 'TEST-123'
+                    });
+                    Alert.alert('Prueba enviada', 'Deberías ver una notificación del navegador en unos segundos.');
+                  });
+                }}
+                style={[styles.statItem, { backgroundColor: colors.primary + '20' }]}
+              >
+                <FontAwesome5 name="bell" size={16} color={colors.primary} />
+                <Text style={[styles.statLabel, { color: colors.primary }]}>Probar Campana</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={() => loadData()} style={styles.syncBtn}>
+                <FontAwesome5 name="sync-alt" size={16} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
         </View>
         <GlassPanel style={[styles.availabilityCard, { borderColor: stats.activo ? colors.success : colors.error }]}>
             <View style={styles.availabilityRow}>
@@ -327,6 +481,57 @@ const RiderScreen = ({ navigation, route }) => {
                 <Switch value={stats.activo} onValueChange={toggleAvailability} trackColor={{ false: '#767577', true: colors.success + '80' }} thumbColor="#f4f3f4" />
             </View>
         </GlassPanel>
+
+        <TouchableOpacity 
+          onPress={() => {
+            import('../utils/notifications').then(m => {
+              m.sendWebBrowserNotification({
+                cliente: 'PRUEBA DE DSICARIO',
+                total: '0.00',
+                orderId: 'TEST-OK'
+              });
+            });
+          }}
+          style={{ 
+            backgroundColor: 'rgba(255,255,255,0.2)', 
+            marginHorizontal: 20, 
+            padding: 10, 
+            borderRadius: 12, 
+            flexDirection: 'row', 
+            justifyContent: 'center', 
+            alignItems: 'center',
+            gap: 10,
+            marginTop: 5
+          }}
+        >
+          <FontAwesome5 name="bell" size={14} color="#FFF" />
+          <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 12 }}>PROBAR ALERTAS</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          onPress={() => {
+            setProposal({
+              id: 'MOCK-' + Math.random().toString(36).substr(2, 5),
+              cliente: 'CLIENTE DE PRUEBA',
+              total: '550.00',
+              estado: 'propuesta'
+            });
+          }}
+          style={{ 
+            backgroundColor: 'rgba(255,165,0,0.2)', 
+            marginHorizontal: 20, 
+            padding: 10, 
+            borderRadius: 12, 
+            flexDirection: 'row', 
+            justifyContent: 'center', 
+            alignItems: 'center',
+            gap: 10,
+            marginTop: 10
+          }}
+        >
+          <FontAwesome5 name="vial" size={14} color="#FFA500" />
+          <Text style={{ color: '#FFA500', fontWeight: 'bold', fontSize: 12 }}>SIMULAR PEDIDO (PRUEBA)</Text>
+        </TouchableOpacity>
         <View style={styles.statsGrid}>
           <View style={styles.statItem}><Text style={styles.statLabel}>BOLSILLO</Text><Text style={styles.statValue}>{formatPrice(stats.cartera)}</Text></View>
           <View style={styles.statDivider} />
@@ -339,7 +544,7 @@ const RiderScreen = ({ navigation, route }) => {
         <TouchableOpacity style={[styles.tab, activeTab === 'ready' && styles.activeTab]} onPress={() => setActiveTab('ready')}>
           <MaterialCommunityIcons name="package-variant" size={20} color={activeTab === 'ready' ? colors.primary : colors.text.secondary} />
           <Text style={[styles.tabText, activeTab === 'ready' && { color: colors.primary, fontWeight: 'bold' }]}>RECOGER</Text>
-          {orders.filter(o => o.estado === 'ready').length > 0 && <View style={styles.badgeCount}><Text style={styles.badgeText}>{orders.filter(o => o.estado === 'ready').length}</Text></View>}
+          {orders.filter(o => ['pending', 'accepted', 'ready', 'listo'].includes(o.estado)).length > 0 && <View style={styles.badgeCount}><Text style={styles.badgeText}>{orders.filter(o => ['pending', 'accepted', 'ready', 'listo'].includes(o.estado)).length}</Text></View>}
         </TouchableOpacity>
         <TouchableOpacity style={[styles.tab, activeTab === 'on_the_way' && styles.activeTab]} onPress={() => setActiveTab('on_the_way')}>
           <MaterialCommunityIcons name="truck-delivery" size={20} color={activeTab === 'on_the_way' ? colors.primary : colors.text.secondary} />
@@ -356,21 +561,40 @@ const RiderScreen = ({ navigation, route }) => {
           <FlatList data={filteredOrders} renderItem={renderOrderItem} keyExtractor={item => item?.id?.toString() || Math.random().toString()} contentContainerStyle={styles.listContainer} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />} ListEmptyComponent={<View style={styles.emptyContainer}><Ionicons name="bicycle-outline" size={80} color={colors.border} /><Text style={styles.emptyText}>Sin entregas activas.</Text></View>} />
         )}
       </View>
-      <Modal visible={!!proposal} transparent animationType="slide">
-          <View style={styles.modalOverlay}>
-              <GlassPanel style={{ padding: 25, borderRadius: 25, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 22, fontWeight: 'bold', color: colors.text.white, textAlign: 'center' }}>¡NUEVO PEDIDO!</Text>
-                  <View style={{ width: '100%', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 15, padding: 15, marginVertical: 20 }}>
-                      <Text style={{ color: colors.text.white }}>{proposal?.Cliente || 'Cliente'}</Text>
-                      <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 24 }}>RD${proposal?.Total || '0.00'}</Text>
-                  </View>
-                  <View style={{ width: '100%', gap: 10 }}>
-                      <TouchableOpacity style={[styles.propBtn, styles.acceptBtn]} onPress={() => handleProposalResponse(true)}><Text style={styles.propBtnText}>ACEPTAR</Text></TouchableOpacity>
-                      <TouchableOpacity style={[styles.propBtn, styles.declineBtn]} onPress={() => handleProposalResponse(false)}><Text style={styles.propBtnText}>RECHAZAR</Text></TouchableOpacity>
-                  </View>
-              </GlassPanel>
-          </View>
-      </Modal>
+      {/* 🚀 OVERLAY DE PROPUESTA FLOTANTE */}
+      {proposal && (
+        <View style={styles.floatingProposal}>
+          <GlassPanel style={styles.proposalInner}>
+            <View style={styles.propHeader}>
+              <View style={styles.timerBadge}>
+                <Text style={styles.timerText}>{timeLeft}s</Text>
+              </View>
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={styles.propTitle}>¡Nueva Propuesta!</Text>
+                <Text style={styles.propClient}>{proposal.cliente || 'Nuevo Cliente'}</Text>
+              </View>
+              <Text style={styles.propPrice}>RD${proposal.total || '0'}</Text>
+            </View>
+
+            <View style={styles.propActions}>
+              <TouchableOpacity 
+                style={[styles.miniBtn, { backgroundColor: colors.error + '20' }]} 
+                onPress={() => handleProposalResponse(false)}
+              >
+                <Text style={{ color: colors.error, fontWeight: 'bold' }}>RECHAZAR</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.miniBtn, { backgroundColor: colors.success, flex: 2 }]} 
+                onPress={() => handleProposalResponse(true)}
+              >
+                <FontAwesome5 name="check" size={14} color="#FFF" />
+                <Text style={{ color: '#FFF', fontWeight: 'bold', marginLeft: 8 }}>ACEPTAR PEDIDO</Text>
+              </TouchableOpacity>
+            </View>
+          </GlassPanel>
+        </View>
+      )}
     </SafeAreaView>
   );
 };

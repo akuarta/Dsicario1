@@ -23,7 +23,7 @@ import { getThemeColors, spacing, typography, borders, shadows } from '../theme/
 import { useThemeMode } from '../contexts/ThemeContext';
 import { generateInvoice } from '../utils/invoiceService';
 import { useUser } from '../contexts/UserContext';
-import { saveOrder, fetchDeliveries, updateOrderStatus, fetchOrderStatus } from '../utils/api';
+import { saveOrder, fetchDeliveries, updateOrderStatus, fetchOrderStatus, updateOrderFinalDetails } from '../utils/api';
 import { notifyRider } from '../utils/notifications';
 import GlassPanel from '../components/GlassPanel';
 
@@ -157,13 +157,14 @@ const CheckoutScreen = ({ navigation, route }) => {
   const stopWaiting = useCallback(() => {
     clearAllTimers();
     setIsWaitingRider(false);
-    setCountdown(15);
+    setCountdown(25);
   }, [clearAllTimers]);
 
   const startWaitingCycle = useCallback((orderId, rider) => {
+    clearAllTimers(); // 🧹 Limpiar CUALQUIER timer anterior para evitar que se vuelva "loco"
     currentOrderIdRef.current = orderId;
     selectedRiderRef.current = rider;
-    setCountdown(15);
+    setCountdown(25);
     setIsWaitingRider(true);
 
     tickTimerRef.current = setInterval(() => {
@@ -178,11 +179,14 @@ const CheckoutScreen = ({ navigation, route }) => {
 
     pollTimerRef.current = setInterval(async () => {
       try {
-        const estado = await fetchOrderStatus(currentOrderIdRef.current);
-        if (estado === 'ready') {
+        const estadoRaw = await fetchOrderStatus(currentOrderIdRef.current);
+        const estado = (estadoRaw || '').toLowerCase();
+        
+        if (estado === 'aceptado' || estado === 'listo' || estado === 'ready') {
           stopWaiting();
           setRiderConfirmed(true);
-          Alert.alert('¡Aceptado! ✅', `${selectedRiderRef.current?.nombre} ha aceptado el pedido.`);
+          // OJO: No marcamos éxito todavía, esperamos a que el cliente pulse el botón final
+          Alert.alert('¡Rider aceptó! 🛵', `${selectedRiderRef.current?.nombre} está disponible. Ahora puedes confirmar tu pedido.`);
         } else if (estado === 'rechazado') {
           stopWaiting();
           setSelectedRider(null);
@@ -200,7 +204,7 @@ const CheckoutScreen = ({ navigation, route }) => {
       setRiderModalVisible(false);
       Alert.alert('⏰ Sin respuesta', `${riderName} no respondió a tiempo.`);
       updateOrderStatus(oid, 'pending', { ID_Rider: '' }).catch(() => {});
-    }, 15000);
+    }, 25000);
   }, [stopWaiting]);
 
   const sendRiderProposal = async (rider) => {
@@ -228,6 +232,8 @@ const CheckoutScreen = ({ navigation, route }) => {
         ID_Mesa: '',
         Tipo: 'Domicilio',
         ID_Rider: rider?.id_delivery || '',
+        ID_Delivery: rider?.id_delivery || '',
+        id_repartidor: rider?.id_delivery || '',
         Salida: '',
         notas: orderNote,
         whatsapp: 'Ver en Perfil',
@@ -236,14 +242,19 @@ const CheckoutScreen = ({ navigation, route }) => {
         usuario: email || 'App User'
       };
 
-      await saveOrder(orderData);
+      // 🚀 VELOCIDAD MÁXIMA: Guardar y notificar al mismo tiempo
+      const savePromise = saveOrder(orderData);
       
       if (rider) {
-        await notifyRider(rider, { orderId: oid, cliente: username, total: finalTotal.toFixed(2), direccion: 'Domicilio (App)', riderId: rider.id_delivery });
+        // Enviar notificación y empezar contador YA
+        notifyRider(rider, { orderId: oid, cliente: username, total: finalTotal.toFixed(2), direccion: 'Domicilio (App)', riderId: rider.id_delivery });
+        startWaitingCycle(oid, rider);
       } else {
         setRiderConfirmed(true);
         setRiderModalVisible(false);
       }
+
+      await savePromise; // Esperamos al final a que el Excel confirme
     } catch (e) {
       Alert.alert('Error', 'No se pudo procesar la propuesta.');
       setIsWaitingRider(false);
@@ -255,46 +266,73 @@ const CheckoutScreen = ({ navigation, route }) => {
   const executePayment = async () => {
     try {
       setIsProcessing(true);
-      setIsConfirming(false);
-      
-      if (currentOrderId && (riderConfirmed || deliveryType !== 'pickup')) {
-          handleFinalSuccess();
-          return;
+
+      // CASO 1: El repartidor YA aceptó. Ahora el cliente confirma el trato final con sus datos de pago.
+      if (riderConfirmed && currentOrderId) {
+        // Recogemos los datos finales de pago que el cliente llenó
+        const finalPaymentData = {
+          metodo: paymentType === 'cash' ? 'Efectivo' : 'Tarjeta',
+          Pagado: paymentType === 'cash' ? numericAmountReceived : 0,
+          Devuelta: paymentType === 'cash' ? devuelta : 0,
+          Estado: 'pending' // Ahora sí, a cocina
+        };
+        
+        // Actualizamos el pedido en el Excel con los datos finales
+        await updateOrderFinalDetails(currentOrderId, finalPaymentData);
+        handleFinalSuccess();
+        return;
       }
 
+      // CASO 2: Empezamos el proceso de pedido
       const oid = `ORD-${Date.now()}`;
       setCurrentOrderId(oid);
 
+      const itemsJson = JSON.stringify(cart.map(item => ({ 
+        nombre: item.nombre, 
+        cantidad: item.quantity, 
+        precio: item.precio 
+      })));
+
       const orderData = {
         ID_Pedido: oid,
-        orderId: oid, // redundancia para api.js
-        userId: user?.uid || '', // Firebase UID vinculante
+        orderId: oid,
         Cliente: username || 'Cliente App',
-        cliente: username || 'Cliente App', // redundancia
         Email: email || '',
-        usuario: email || 'App User', // redundancia
-        Pedido_Items: JSON.stringify(cart.map(item => ({ nombre: item.nombre, cantidad: item.quantity, precio: item.precio }))),
-        items: cart.map(item => ({ nombre: item.nombre, cantidad: item.quantity, precio: item.precio })), // Estructura de items esperada
+        Pedido_Items: itemsJson,
+        items: cart.map(item => ({ nombre: item.nombre, cantidad: item.quantity, precio: item.precio })),
         Total: finalTotal,
-        total: finalTotal, // redundancia
-        Estado: 'Listo',
+        Estado: deliveryType === 'delivery' && selectedRider ? 'Propuesta' : 'Pendiente',
         Entrada: new Date().toLocaleTimeString(),
-        hora: new Date().toLocaleTimeString(), // redundancia
         Fecha: new Date().toLocaleDateString(),
-        ID_Mesa: '',
         Tipo: deliveryType === 'delivery' ? 'Domicilio' : 'Local',
         ID_Rider: selectedRider?.id_delivery || '',
-        Salida: '', 
-        notas: orderNote,
+        Delivery: selectedRider?.id_delivery || '',
         whatsapp: 'Ver en Perfil',
-        direccion: deliveryType === 'delivery' ? 'Domicilio (App)' : 'Retiro en Local',
+        direccion: 'Domicilio (App)',
         metodo: paymentType === 'cash' ? 'Efectivo' : 'Tarjeta',
+        usuario: email || 'App User'
       };
 
-      await saveOrder(orderData);
-      handleFinalSuccess();
-    } catch (error) {
-      Alert.alert('Error', 'No se pudo procesar la orden.');
+      if (deliveryType === 'delivery' && selectedRider) {
+        // Enviar propuesta y esperar al repartidor
+        const savePromise = saveOrder(orderData);
+        notifyRider(selectedRider, { 
+          orderId: oid, 
+          cliente: username, 
+          total: finalTotal.toFixed(2), 
+          direccion: 'Domicilio (App)', 
+          riderId: selectedRider.id_delivery 
+        });
+        startWaitingCycle(oid, selectedRider);
+        await savePromise;
+      } else {
+        // Recogida o sin repartidor: Guardado directo
+        await saveOrder(orderData);
+        handleFinalSuccess();
+      }
+    } catch (e) {
+      console.error('Error executePayment:', e);
+      Alert.alert('Error', 'No se pudo procesar el pedido. Reintenta.');
     } finally {
       setIsProcessing(false);
     }
@@ -349,8 +387,11 @@ const CheckoutScreen = ({ navigation, route }) => {
             <FontAwesome5 name="receipt" size={18} color="#FFF" />
             <Text style={styles.backButtonText}>{isGeneratingPDF ? 'Generando...' : 'Descargar Ticket'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.backButton, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary }]} onPress={() => navigation.popToTop()}>
-            <Text style={[styles.backButtonText, { color: colors.primary }]}>Volver al menú</Text>
+          <TouchableOpacity 
+            style={[styles.backButton, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary }]} 
+            onPress={() => navigation.navigate('Home')}
+          >
+            <Text style={[styles.backButtonText, { color: colors.primary }]}>Volver al inicio</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -406,20 +447,24 @@ const CheckoutScreen = ({ navigation, route }) => {
           </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Pago</Text>
+        <View style={[styles.section, riderConfirmed && { borderColor: colors.success, borderWidth: 2, padding: 15, borderRadius: 20 }]}>
+          <Text style={styles.sectionTitle}>
+            {riderConfirmed ? '🏁 PASO FINAL: DETALLES DE PAGO' : 'Pago'}
+          </Text>
           <TouchableOpacity 
-            style={styles.paymentMethod} 
+            style={[styles.paymentMethod, riderConfirmed && { backgroundColor: colors.success + '10' }]} 
             onPress={() => setPaymentType(paymentType === 'cash' ? 'card' : 'cash')}
           >
             <FontAwesome5 name={paymentType === 'cash' ? 'money-bill' : 'credit-card'} size={20} color={colors.primary} />
             <Text style={styles.paymentText}>{paymentType === 'cash' ? 'Efectivo' : 'Tarjeta'}</Text>
           </TouchableOpacity>
+          
           {paymentType === 'cash' && (
             <View style={styles.cashInputContainer}>
+              <Text style={{ fontSize: 12, color: colors.text.secondary, marginBottom: 5 }}>¿Con cuánto pagarás al repartidor?</Text>
               <TextInput 
-                style={styles.cashInput} 
-                placeholder="Monto recibido" 
+                style={[styles.cashInput, riderConfirmed && { borderColor: colors.success, borderWidth: 2 }]} 
+                placeholder="Ej: 1000" 
                 keyboardType="numeric" 
                 value={amountReceived} 
                 onChangeText={setAmountReceived} 
@@ -427,7 +472,7 @@ const CheckoutScreen = ({ navigation, route }) => {
               />
               {numericAmountReceived > 0 && (
                 <View style={styles.changeContainer}>
-                  <Text style={styles.changeLabel}>Devuelta</Text>
+                  <Text style={styles.changeLabel}>Devuelta para el repartidor:</Text>
                   <Text style={styles.changeValue}>RD${devuelta.toFixed(2)}</Text>
                 </View>
               )}
@@ -438,11 +483,17 @@ const CheckoutScreen = ({ navigation, route }) => {
 
       <GlassPanel intensity={20} style={styles.footer}>
         <TouchableOpacity 
-          style={[styles.confirmButton, (isAmountInsufficient || isProcessing) && { opacity: 0.5 }]} 
+          style={[
+            styles.confirmButton, 
+            (isAmountInsufficient || isProcessing) && { opacity: 0.5 },
+            riderConfirmed && { backgroundColor: '#4CAF50' } // Verde si ya aceptó
+          ]} 
           disabled={isAmountInsufficient || isProcessing} 
           onPress={executePayment}
         >
-          <Text style={styles.confirmButtonText}>Confirmar RD${finalTotal.toFixed(2)}</Text>
+          <Text style={styles.confirmButtonText}>
+            {riderConfirmed ? '¡ACEPTADO! CONFIRMAR PEDIDO FINAL' : `Confirmar RD$${finalTotal.toFixed(2)}`}
+          </Text>
         </TouchableOpacity>
       </GlassPanel>
 
@@ -464,7 +515,7 @@ const CheckoutScreen = ({ navigation, route }) => {
                 <TouchableOpacity key={r.id_delivery} style={styles.riderItem} onPress={() => sendRiderProposal(r)}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.riderName}>{r.nombre} {r.apellido}</Text>
-                    <Text style={styles.riderDetail}>{r.vehiculo}</Text>
+                    <Text style={styles.riderDetail}>ID: {r.id_delivery} • {r.vehiculo}</Text>
                   </View>
                   <View style={styles.activeDot} />
                 </TouchableOpacity>

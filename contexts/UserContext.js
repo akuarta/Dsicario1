@@ -47,28 +47,37 @@ export const UserProvider = ({ children }) => {
     if (!userEmail) return;
     setIsSyncing(true);
     try {
-      // 🛡️ Buscamos el rol real en la hoja primero
       const profile = await fetchUserRoleByEmail(userEmail);
+      console.log('[UserContext] Perfil cargado de Usuarios:', profile);
       
       if (profile && profile.rol) {
-        console.log('📄 Rol encontrado en hoja:', profile.rol);
+        console.log('📄 Rol encontrado:', profile.rol, 'ID Inicial:', profile.id);
         let finalRole = profile.rol;
-        let finalId = profile.id || '';
+        let finalId = profile.id || 'N/A';
 
         // 🛵 Si es repartidor, necesitamos su ID_Delivery real para que coincida con los pedidos
         const roleLow = finalRole.toLowerCase();
         if (roleLow.includes('rider') || roleLow.includes('delivery') || roleLow.includes('repartidor')) {
           try {
             const allRiders = await fetchDeliveries();
+            const internalId = String(profile.id || '').trim();
+            
+            console.log(`[UserContext] Vinculando repartidor (ID Interno: "${internalId}", Email: "${cleanAuthEmail}")`);
+            
+            // Buscar por ID interno (id_user) primero, luego por email como fallback
             const myRiderInfo = allRiders.find(r => 
-              (r.email || r.Email || r.usuario || '').toLowerCase() === cleanAuthEmail
+              (String(r.id_user || '').trim() === internalId && internalId !== '') ||
+              (String(r.email || '').toLowerCase().trim() === cleanAuthEmail)
             );
+            
             if (myRiderInfo) {
-              console.log('🛵 ID de Repartidor vinculado:', myRiderInfo.id_delivery);
+              console.log('🛵 Repartidor encontrado! ID Delivery:', myRiderInfo.id_delivery);
               finalId = myRiderInfo.id_delivery;
+            } else {
+              console.warn('[UserContext] ⚠️ No se encontró el ID de Delivery vinculado a este usuario.');
             }
           } catch (e) {
-            console.warn('[UserContext] Error buscando ID de Delivery:', e);
+            console.warn('[UserContext] Error vinculando repartidor:', e);
           }
         }
 

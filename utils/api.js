@@ -16,9 +16,11 @@ const STATUS_MAP = {
       'ready': 'Listo',
       'on_the_way': 'En Camino',
       'delivered': 'Entregado',
-      'draft': 'borrador'
+      'draft': 'borrador',
+      'accepted': 'Aceptado',
+      'proposal': 'Propuesta'
     };
-    return map[status?.toLowerCase()] || 'Pendiente';
+    return map[status?.toLowerCase()] || status || 'Pendiente';
   },
   fromExcel: (excelStatus) => {
     const map = {
@@ -32,6 +34,7 @@ const STATUS_MAP = {
       'entregado': 'delivered',
       'completado': 'ready',
       'propuesta': 'proposal',
+      'aceptado': 'accepted',
       'borrador': 'draft'
     };
     return map[excelStatus?.toLowerCase()] || 'pending';
@@ -66,11 +69,12 @@ const getRobustProp = (obj, propName) => {
   if (!obj) return null;
   if (obj[propName] !== undefined) return obj[propName];
   
-  const lowerProp = propName.toLowerCase().replace('_', '');
-  const foundKey = Object.keys(obj).find(k => {
-    const normalizedKey = k.toLowerCase().replace('_', '');
-    return normalizedKey === lowerProp;
-  });
+  // Normalización agresiva: minúsculas, quitar símbolos y la 's' final para plurales
+  const normalize = (s) => s.toLowerCase().replace(/[_\s\(\)\/]/g, '').replace(/s$/, '');
+  
+  const target = normalize(propName);
+  const foundKey = Object.keys(obj).find(k => normalize(k) === target);
+  
   return foundKey ? obj[foundKey] : null;
 };
 
@@ -235,9 +239,10 @@ export const respondToOffer = async (orderId, riderId, accept = true) => {
   const lockKey = String(orderId);
   delete pendingUpdates[lockKey];
 
-  return await updateOrderStatus(orderId, accept ? 'ready' : 'rechazado', {
+  return await updateOrderStatus(orderId, accept ? 'Aceptado' : 'rechazado', {
     ID_Rider: accept ? riderId : '',
-    ID_Pedido: orderId
+    ID_Pedido: orderId,
+    Delivery: accept ? riderId : '', // Aseguramos que se guarde en la columna Delivery también
   });
 };
 
@@ -347,7 +352,7 @@ export const fetchKitchenOrders = async () => {
           ID_Orden: orderId, // Alias para OrderCenterScreen
           cliente: (getRobustProp(order, 'Cliente') || 'Invitado').replace('\n', '').trim(),
           NombreUser: (getRobustProp(order, 'Cliente') || 'Invitado'), // Alias para OrderCenterScreen
-          email: getRobustProp(order, 'Email') || getRobustProp(order, 'email') || getRobustProp(order, 'usuario') || getRobustProp(order, 'Usuario') || '',
+          email: String(getRobustProp(order, 'Email') || getRobustProp(order, 'email') || getRobustProp(order, 'Usuario') || ''),
           id_user: getRobustProp(order, 'ID_Usuario') || '', // Alias para OrderCenterScreen
           id_usuario: getRobustProp(order, 'ID_Usuario') || '',
           items: itemsDetectados.length > 0 ? itemsDetectados.map(it => ({
@@ -425,33 +430,57 @@ export const fetchRiderOrders = async (riderId) => {
     
     return rawOrders
       .filter(d => {
-        const dRiderId = String(getRobustProp(d, 'ID_Rider') || '').trim();
+        const dRiderId = String(getRobustProp(d, 'Delivery') || getRobustProp(d, 'ID_Rider') || getRobustProp(d, 'ID_Delivery') || getRobustProp(d, 'id_repartidor') || '').trim().toLowerCase();
+        const rIdClean = String(riderId || '').trim().toLowerCase();
         const excelStatus = (getRobustProp(d, 'Estado') || '').toLowerCase();
+
+        const cleanDRiderId = dRiderId.replace(/^0+/, '').trim().toLowerCase();
+        const cleanRId = rIdClean.replace(/^0+/, '').trim().toLowerCase();
+        const cleanDRiderIdAlt = dRiderId.replace(/[^a-z0-9]/g, '');
+        const cleanRIdAlt = rIdClean.replace(/[^a-z0-9]/g, '');
+
+        const isMatch = (cleanDRiderId === cleanRId && cleanRId !== '') || 
+                        (cleanDRiderIdAlt === cleanRIdAlt && cleanRIdAlt !== '');
         
-        // Mostrar si:
-        // 1. Está asignado a este repartidor
-        // 2. O si NO está asignado a nadie Y el estado es "Listo" (disponible para recoger)
-        // Solo hay match si AMBOS IDs existen y no están vacíos
-        const isAssignedToMe = dRiderId !== '' && riderId !== '' && dRiderId === riderId;
-        const isAvailableToPick = (dRiderId === '' || dRiderId === 'n/a') && 
-                                  (excelStatus === 'listo' || excelStatus === 'ready');
+        const rawEstado = getRobustProp(d, 'Estado') || getRobustProp(d, 'estado') || getRobustProp(d, 'Status') || 'N/A';
         
-        // También mostrar si está en fase de "Propuesta" para este repartidor específico
-        const isProposalForMe = dRiderId !== '' && riderId !== '' && dRiderId === riderId && excelStatus === 'propuesta';
-        
+        const isAssignedToMe = isMatch && excelStatus !== 'propuesta' && excelStatus !== 'liquidado';
+        const isProposalForMe = isMatch && excelStatus === 'propuesta';
+        const isAvailableToPick = (dRiderId === '' || dRiderId === 'n/a') && (excelStatus === 'listo' || excelStatus === 'ready');
+
         return isAssignedToMe || isAvailableToPick || isProposalForMe;
       })
       .map(d => {
         const orderId = getRobustProp(d, 'ID_Pedido');
-        const excelStatus = getRobustProp(d, 'Estado') || 'Listo';
+        const excelStatus = (getRobustProp(d, 'Estado') || 'Listo').toLowerCase();
+        
+        // --- Mejorado: Detección de Items ---
+        let itemsBrief = itemsMap[orderId] || [];
+        
+        // Fallback: Si no hay items en 'pedido detalle', buscar el JSON en la columna 'Pedido_Items' de la fila del pedido
+        if (itemsBrief.length === 0) {
+          const rawItemsOrder = getRobustProp(d, 'Pedido_Items');
+          if (rawItemsOrder && typeof rawItemsOrder === 'string' && rawItemsOrder.trim().startsWith('[')) {
+            try { itemsBrief = JSON.parse(rawItemsOrder); } catch (e) {}
+          }
+        }
+
         return {
           id: orderId,
           cliente: getRobustProp(d, 'Cliente') || 'Desconocido',
           total: parseFloat(getRobustProp(d, 'Total')) || 0,
-          whatsapp: getRobustProp(d, 'Telefono') || '',
-          direccion: getRobustProp(d, 'Direccion') || getRobustProp(d, 'Ubicacion') || '',
+          whatsapp: getRobustProp(d, 'whatsapp') || getRobustProp(d, 'Telefono') || '',
+          direccion: getRobustProp(d, 'direccion') || getRobustProp(d, 'Direccion') || getRobustProp(d, 'Ubicacion') || '',
           estado: STATUS_MAP.fromExcel(excelStatus),
-          items: itemsMap[orderId] || [],
+          items: itemsBrief.map(it => {
+            const name = it.nombre || it.name || it.product || (it['Pedido_Items'] || 'Producto');
+            const qty = it.cantidad || it.quantity || (it['Cantidad'] || 1);
+            return {
+              nombre: String(name),
+              cantidad: parseInt(qty) || 1,
+              precio: parseFloat(it.precio || 0) || 0
+            };
+          }),
         };
       });
   } catch (error) {
@@ -538,16 +567,23 @@ export const fetchUserRoleByEmail = async (email) => {
     const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=Usuarios`, { redirect: 'follow' });
     const data = await response.json();
     const users = resolveSheetData(data, 'Usuarios');
+    console.log('[DEBUG API] Buscando email:', email);
+    console.log('[DEBUG API] Total usuarios en hoja:', users.length);
+    if (users.length > 0) console.log('[DEBUG API] Columnas detectadas en Usuarios:', Object.keys(users[0]));
+
     const user = users.find(u => 
-      (u.EmailUser || u.emailuser || u.Email || u.email || '').toLowerCase() === email.toLowerCase()
+      (getRobustProp(u, 'EmailUser') || getRobustProp(u, 'Email') || getRobustProp(u, 'Correo') || '').toLowerCase().trim() === email.toLowerCase().trim()
     );
 
-    if (!user) return null;
+    if (!user) {
+        console.warn('[DEBUG API] No se encontró el usuario en la hoja de Usuarios. Email buscado:', email);
+        return null;
+    }
 
     return {
-      id: user.ID_User || user.ID_Usuario || user.id || '',
-      nombre: user.NombreUser || user.Nombre || user.username || '',
-      rol: user.UserType || user.Role || user.rol || 'Cliente'
+      id: getRobustProp(user, 'ID_User') || getRobustProp(user, 'ID_Usuario') || getRobustProp(user, 'id_user') || getRobustProp(user, 'id') || '',
+      nombre: getRobustProp(user, 'NombreUser') || getRobustProp(user, 'Nombre') || '',
+      rol: getRobustProp(user, 'UserType') || getRobustProp(user, 'Rol') ||'Cliente'
     };
   } catch (error) {
     console.error('Error fetching user profile:', error);
@@ -588,29 +624,26 @@ export const fetchDeliveries = async () => {
     }
     
     return raw.map(d => {
-        const id = getRobustProp(d, 'ID_Delivery') || getRobustProp(d, 'ID_Rider') || getRobustProp(d, 'id') || Math.random().toString();
+        const id = getRobustProp(d, 'ID_Delivery') || getRobustProp(d, 'ID_Rider');
+        const fallbackId = getRobustProp(d, 'id') || getRobustProp(d, 'id_user') || Math.random().toString();
+        const finalRiderId = id ? String(id) : String(fallbackId);
         const rawActivo = String(getRobustProp(d, 'Activo') || getRobustProp(d, 'Disponible') || getRobustProp(d, 'Estado') || '').toLowerCase().trim();
         const isActive = rawActivo === 'true' || rawActivo === 'si' || rawActivo === 'activo' || rawActivo === '1' || rawActivo === 'disponible';
 
-        // Intentar obtener el nombre de varias fuentes muy variadas incluyendo paréntesis
-        const nombreDetectado = getRobustProp(d, 'Nombre') || 
-                               getRobustProp(d, 'Nombre(s)') || // 👈 Caso específico de tu Excel
-                               getRobustProp(d, 'Rider') || 
-                               getRobustProp(d, 'NombreUser') || 
-                               id;
-        
-        const apellidoDetectado = getRobustProp(d, 'Apellido') || 
-                                 getRobustProp(d, 'Apellido(s)') || // 👈 Caso específico de tu Excel
-                                 '';
+        // Búsqueda robusta de nombre y activo
+        const nombreDetectado = getRobustProp(d, 'Nombre') || getRobustProp(d, 'Rider') || getRobustProp(d, 'NombreUser') || id;
+        const apellidoDetectado = getRobustProp(d, 'Apellido') || '';
         const vehiculo = getRobustProp(d, 'Vehiculo') || getRobustProp(d, 'Moto') || getRobustProp(d, 'Transporte') || 'Moto';
 
         return {
-          id: String(id),
-          id_delivery: String(id),
-          nombre: nombreDetectado,
-          apellido: apellidoDetectado,
-          telefono: getRobustProp(d, 'Telefono') || '',
-          whatsapp: getRobustProp(d, 'Whatsapp') || '',
+          id: String(finalRiderId),
+          id_delivery: String(finalRiderId),
+          nombre: String(nombreDetectado),
+          apellido: String(apellidoDetectado),
+          id_user: String(getRobustProp(d, 'id_user') || ''),
+          email: String(getRobustProp(d, 'Email') || getRobustProp(d, 'Correo') || getRobustProp(d, 'Usuario') || getRobustProp(d, 'id_user') || getRobustProp(d, 'id_repartidor') || '').trim(),
+          telefono: String(getRobustProp(d, 'Telefono') || getRobustProp(d, 'WhatsApp') || ''),
+          whatsapp: String(getRobustProp(d, 'WhatsApp') || getRobustProp(d, 'Telefono') || ''),
           vehiculo: vehiculo,
           costo_pedido: parseFloat(getRobustProp(d, 'Costo_Pedido')) || 50,
           cartera: parseFloat(getRobustProp(d, 'Cartera')) || 0,
@@ -758,6 +791,20 @@ export const updateDelivery = async (deliveryData) => {
   }
 };
 
+export const updateOrderFinalDetails = async (orderId, details) => {
+  try {
+    console.log(`[API] Guardando detalles finales para ${orderId}:`, details);
+    return await updateOrderStatus(orderId, details.Estado || 'pending', {
+        'Metodo': details.metodo,
+        'Pagado': details.Pagado,
+        'Devuelta': details.Devuelta
+    });
+  } catch (error) {
+    console.error('Error updateOrderFinalDetails:', error);
+    throw error;
+  }
+};
+
 /**
  * DB Writers
  */
@@ -797,20 +844,28 @@ export const saveOrder = async (orderData) => {
 
     const payload = {
       action: "ADD",
-      sheet: "pedidos",
+      sheet: orderData.sheet || "pedidos",
       data: {
-        'ID_Pedido': orderData.orderId,
+        'ID_Pedido': orderData.ID_Pedido || orderData.orderId,
         'ID_Usuario': orderData.userId || '',
-        'Cliente': orderData.cliente || 'Invitado',
-        'Email': orderData.usuario || orderData.email || '',
-        'Total': orderData.total,
-        'Entrada': orderData.hora || new Date().toLocaleTimeString(),
-        'Fecha': new Date().toLocaleDateString(),
-        'Estado': 'Pendiente',
-        'Pagado?': 'NO',
-        'Pedido_Items': itemsJson
+        'Cliente': orderData.Cliente || orderData.cliente || 'Invitado',
+        'Email': orderData.Email || orderData.usuario || orderData.email || '',
+        'Total': orderData.Total || orderData.total,
+        'Estado': orderData.Estado || 'Pendiente',
+        'ID_Rider': orderData.ID_Rider || '',
+        'ID_Delivery': orderData.ID_Rider || '',
+        'Delivery': orderData.ID_Rider || '',
+        'id_repartidor': orderData.id_repartidor || orderData.ID_Rider || '',
+        'Entrada': orderData.Entrada || orderData.hora || new Date().toLocaleTimeString(),
+        'Fecha': orderData.Fecha || new Date().toLocaleDateString(),
+        'Pagado?': orderData.metodo === 'Cash' || orderData.metodo === 'Efectivo' ? 'NO' : 'SI',
+        'Pedido_Items': orderData.Pedido_Items || itemsJson,
+        'whatsapp': orderData.whatsapp || '',
+        'direccion': orderData.direccion || ''
       }
     };
+
+    console.log('[API] Guardando pedido con Estado:', payload.data.Estado, 'Rider:', payload.data.ID_Rider);
 
     const response = await fetch(CONFIG.GAS_API_URL, {
       method: 'POST',

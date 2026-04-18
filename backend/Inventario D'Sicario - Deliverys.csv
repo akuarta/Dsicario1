@@ -1,0 +1,3 @@
+id_user,ID_Delivery,Nombre(s),Apellido(S),Telefono(s),Whatsapp,Vehiculo,Costo_Pedido,Cartera,Rapidez,Servicio,Servicio/Cliente,Honestidad,Foto Perfil,Activo,Disponible,Estado
+umbiGiz8I2fPZ2AJ4fAdrCNvV9t1,DS001,admin,,,,Vehículo,50,0,5,5,,5,,TRUE,TRUE,Activo
+NZ6YPUsOQ2ZxEUMLpmgdeEW03Eq2,DLV001,zairo,,,,Vehículo,50,0,5,5,,5,,TRUE,TRUE,Activo

@@ -9,7 +9,7 @@ import { useCart } from '../contexts/AppContext';
 const ProfileDrawerContent = (props) => {
   const { colors } = useTheme();
   const { signOut } = useAuth();
-  const { username, email, role, isClientMode, setIsClientMode } = useUser();
+  const { username, email, role, isClientMode, setIsClientMode, userId } = useUser();
   const { clearCart, getTotalItems } = useCart();
   const totalItems = getTotalItems();
   
@@ -174,7 +174,7 @@ const ProfileDrawerContent = (props) => {
           <Text style={styles.userEmail}>{email}</Text>
           <View style={{ flexDirection: 'row', gap: 5 }}>
             <Text style={styles.userRole}>{role?.toUpperCase() || 'CLIENTE'}</Text>
-            <Text style={[styles.userRole, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>ID: {props.rowId || 'N/A'}</Text>
+            <Text style={[styles.userRole, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>ID: {userId || 'N/A'}</Text>
           </View>
         </View>
         {isStaff && (

@@ -82,19 +82,21 @@ export const sendWebBrowserNotification = async (orderData) => {
   }
 
   try {
-    const notif = new window.Notification('🛵 ¡Nuevo Pedido!', {
+    const title = '🛵 ¡Nuevo Pedido!';
+    const options = {
       body: `Cliente: ${orderData.cliente || 'Desconocido'}\nTotal: $${orderData.total || 0}\n⏰ Tienes 15 segundos para aceptarlo.`,
       icon: '/favicon.png',
       badge: '/favicon.png',
-      requireInteraction: true, // No se cierra sola hasta que el usuario actúe
-      tag: `order-${orderData.orderId}`,  // Evita duplicados
-    });
-    notif.onclick = () => {
-      window.focus();
-      notif.close();
+      requireInteraction: true, 
+      tag: `order-${orderData.orderId}`,
     };
-    console.log('[WebNotif] Notificación del navegador enviada ✅');
-    return true;
+
+    if (Notification.permission === 'granted') {
+      const n = new window.Notification(title, options);
+      n.onshow = () => console.log('[WebNotif] 👁️ Notificación MOSTRADA en pantalla');
+      n.onclick = () => { window.focus(); n.close(); };
+      n.onerror = (err) => console.error('[WebNotif] ❌ ERROR al mostrar:', err);
+    }
   } catch (e) {
     console.error('[WebNotif] Error:', e.message);
     return false;
@@ -112,11 +114,8 @@ export const sendWebBrowserNotification = async (orderData) => {
 export const notifyRider = async (rider, orderData) => {
   let notified = false;
 
-  // Canal 1: Web Notification del navegador (web/localhost sin HTTPS)
-  if (Platform.OS === 'web') {
-    notified = await sendWebBrowserNotification(orderData);
-    if (notified) console.log('[Notif] Repartidor notificado vía Web Browser ✅');
-  }
+  // Canal 1 (ELIMINADO): Web Notification local. 
+  // No se usa porque notifica al que envía (cliente) y no al destinatario (repartidor).
 
   // Canal 2: WhatsApp vía CallMeBot
   if (!notified && rider?.whatsapp && rider?.callmebotKey) {
@@ -131,10 +130,15 @@ export const notifyRider = async (rider, orderData) => {
   }
 
   if (!notified) {
-    console.warn('[Notif] Sin canal disponible para notificar al repartidor.');
+    if (!rider?.pushToken && !rider?.callmebotKey) {
+        console.log('[Notif] Notificación interna activada (Polling 🛵). El repartidor verá el pedido en su pantalla.');
+        return { success: true, channel: 'internal' };
+    }
+    console.warn('[Notif] No se pudo enviar notificación externa.');
+    return { success: false, error: 'No external channels' };
   }
 
-  return notified;
+  return { success: true, notified: true };
 };
 
 // ─────────────────────────────────────────────
