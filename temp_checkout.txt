@@ -26,7 +26,6 @@ import { useUser } from '../contexts/UserContext';
 import { saveOrder, fetchDeliveries, updateOrderStatus, fetchOrderStatus, updateOrderFinalDetails } from '../utils/api';
 import { notifyRider } from '../utils/notifications';
 import GlassPanel from '../components/GlassPanel';
-import LocationPickerModal from '../components/LocationPickerModal';
 
 const CheckoutScreen = ({ navigation, route }) => {
   const { darkMode } = useThemeMode();
@@ -58,9 +57,6 @@ const CheckoutScreen = ({ navigation, route }) => {
   const [includePropina, setIncludePropina] = useState(true);
   const [paymentType, setPaymentType] = useState(paymentTypeProps);
   const [orderNote, setOrderNote] = useState(orderNoteProps);
-  const [deliveryAddress, setDeliveryAddress] = useState('');
-  const [isMapVisible, setIsMapVisible] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState(null);
 
   const deadlineTimerRef = useRef(null);
   const tickTimerRef = useRef(null);
@@ -78,11 +74,6 @@ const CheckoutScreen = ({ navigation, route }) => {
   const numericAmountReceived = parseFloat(amountReceived) || 0;
   const devuelta = paymentType === 'cash' ? Math.max(0, numericAmountReceived - finalTotal) : 0;
   const isAmountInsufficient = paymentType === 'cash' && numericAmountReceived < finalTotal;
-
-  const handleLocationSelected = (locationData) => {
-    setSelectedLocation({ latitude: locationData.latitude, longitude: locationData.longitude });
-    setDeliveryAddress(locationData.address);
-  };
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
@@ -219,13 +210,7 @@ const CheckoutScreen = ({ navigation, route }) => {
   const sendRiderProposal = async (rider) => {
     try {
       setIsProcessing(true);
-      if (deliveryType === 'delivery' && !deliveryAddress.trim()) {
-        Alert.alert('Falta dirección', 'Por favor ingresa la dirección para el repartidor.');
-        setIsProcessing(false);
-        return;
-      }
-
-      const oid = `ORD-${Date.now().toString(36).toUpperCase()}`;
+      const oid = `ORD-${Date.now()}`;
       setCurrentOrderId(oid);
       setSelectedRider(rider);
 
@@ -252,7 +237,7 @@ const CheckoutScreen = ({ navigation, route }) => {
         Salida: '',
         notas: orderNote,
         whatsapp: 'Ver en Perfil',
-        direccion: deliveryType === 'delivery' ? deliveryAddress : 'Local',
+        direccion: 'Domicilio (App)',
         metodo: paymentType === 'cash' ? 'Efectivo' : 'Tarjeta',
         usuario: email || 'App User'
       };
@@ -262,7 +247,7 @@ const CheckoutScreen = ({ navigation, route }) => {
       
       if (rider) {
         // Enviar notificación y empezar contador YA
-        notifyRider(rider, { orderId: oid, cliente: username, total: finalTotal.toFixed(2), direccion: deliveryType === 'delivery' ? deliveryAddress : 'Local', riderId: rider.id_delivery });
+        notifyRider(rider, { orderId: oid, cliente: username, total: finalTotal.toFixed(2), direccion: 'Domicilio (App)', riderId: rider.id_delivery });
         startWaitingCycle(oid, rider);
       } else {
         setRiderConfirmed(true);
@@ -299,13 +284,7 @@ const CheckoutScreen = ({ navigation, route }) => {
       }
 
       // CASO 2: Empezamos el proceso de pedido
-      if (deliveryType === 'delivery' && !deliveryAddress.trim()) {
-        Alert.alert('Falta dirección', 'Por favor ingresa la dirección de entrega.');
-        setIsProcessing(false);
-        return;
-      }
-
-      const oid = `ORD-${Date.now().toString(36).toUpperCase()}`;
+      const oid = `ORD-${Date.now()}`;
       setCurrentOrderId(oid);
 
       const itemsJson = JSON.stringify(cart.map(item => ({ 
@@ -329,7 +308,7 @@ const CheckoutScreen = ({ navigation, route }) => {
         ID_Rider: selectedRider?.id_delivery || '',
         Delivery: selectedRider?.id_delivery || '',
         whatsapp: 'Ver en Perfil',
-        direccion: deliveryType === 'delivery' ? deliveryAddress : 'Local',
+        direccion: 'Domicilio (App)',
         metodo: paymentType === 'cash' ? 'Efectivo' : 'Tarjeta',
         usuario: email || 'App User'
       };
@@ -341,7 +320,7 @@ const CheckoutScreen = ({ navigation, route }) => {
           orderId: oid, 
           cliente: username, 
           total: finalTotal.toFixed(2), 
-          direccion: deliveryAddress, 
+          direccion: 'Domicilio (App)', 
           riderId: selectedRider.id_delivery 
         });
         startWaitingCycle(oid, selectedRider);
@@ -449,39 +428,6 @@ const CheckoutScreen = ({ navigation, route }) => {
                 </Text>
                 <FontAwesome5 name="chevron-right" size={12} color={colors.primary} />
               </TouchableOpacity>
-              
-              <Text style={[styles.sectionTitle, { marginTop: 20, marginBottom: 8, fontSize: typography.sizes.md }]}>Dirección de Entrega</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <TextInput
-                  style={{ 
-                    flex: 1, 
-                    marginRight: 10, 
-                    borderColor: colors.border, 
-                    borderWidth: 1,
-                    borderRadius: borders.radius.md,
-                    padding: spacing.md,
-                    color: colors.text.primary,
-                    backgroundColor: colors.background
-                  }}
-                  placeholder="Ej: Calle Principal 123..."
-                  placeholderTextColor={colors.text.tertiary}
-                  value={deliveryAddress}
-                  onChangeText={setDeliveryAddress}
-                />
-                <TouchableOpacity 
-                  style={{ 
-                    backgroundColor: colors.primary, 
-                    padding: 15, 
-                    borderRadius: borders.radius.md, 
-                    justifyContent: 'center', 
-                    alignItems: 'center',
-                    aspectRatio: 1
-                  }}
-                  onPress={() => setIsMapVisible(true)}
-                >
-                  <FontAwesome5 name="map-marker-alt" size={18} color="#FFF" />
-                </TouchableOpacity>
-              </View>
             </View>
           )}
 
@@ -593,13 +539,6 @@ const CheckoutScreen = ({ navigation, route }) => {
           </View>
         </View>
       </Modal>
-
-      <LocationPickerModal 
-        visible={isMapVisible}
-        onClose={() => setIsMapVisible(false)}
-        onLocationSelected={handleLocationSelected}
-        initialLocation={selectedLocation}
-      />
     </SafeAreaView>
   );
 };
