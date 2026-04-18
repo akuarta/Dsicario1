@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -25,12 +25,13 @@ const ConfigScreen = () => {
   const isAdmin = !!(role && role.toLowerCase() === 'admin');
   const [notifications, setNotifications] = useState(true);
 
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
       padding: spacing.xl, alignItems: 'center', backgroundColor: colors.primary,
       borderBottomLeftRadius: 30, borderBottomRightRadius: 30, ...shadows.medium, marginBottom: spacing.lg,
     },
+    backBtn: { position: 'absolute', top: spacing.xl, left: spacing.md, zIndex: 10, padding: 10 },
     avatarContainer: {
       width: 80, height: 80, borderRadius: 40, backgroundColor: '#FFFFFF',
       justifyContent: 'center', alignItems: 'center', marginBottom: spacing.md, ...shadows.small,
@@ -64,20 +65,14 @@ const ConfigScreen = () => {
       borderWidth: 1, borderColor: colors.error + '30',
     },
     logoutText: { fontSize: typography.sizes.md, fontWeight: typography.weights.bold, color: colors.error, marginLeft: spacing.sm },
-  });
+    footerText: { textAlign: 'center', color: colors.text.secondary, fontSize: 10, marginBottom: spacing.xl }
+  }), [colors, darkMode]);
 
   const handleLogout = () => {
     Alert.alert('Cerrar Sesión', '¿Estás seguro de que deseas salir?', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Salir', style: 'destructive', onPress: async () => {
-        console.log('Botón cerrar sesión presionado');
-        try { 
-          await signOut(); 
-          console.log('Sesión cerrada');
-        } catch (error) {
-          console.error('Error:', error);
-          Alert.alert('Error', 'No se pudo cerrar la sesión');
-        }
+        try { await signOut(); } catch (error) { Alert.alert('Error', 'No se pudo cerrar la sesión'); }
       }}
     ]);
   };
@@ -100,10 +95,7 @@ const ConfigScreen = () => {
     <SafeAreaView style={styles.container}>
       <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <TouchableOpacity 
-            onPress={() => navigation.goBack()} 
-            style={{ position: 'absolute', top: spacing.xl, left: spacing.md, zIndex: 10, padding: 10 }}
-          >
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <FontAwesome5 name="arrow-left" size={20} color="#FFFFFF" />
           </TouchableOpacity>
           <View style={styles.avatarContainer}>
@@ -117,10 +109,8 @@ const ConfigScreen = () => {
           <Text style={styles.sectionTitle}>Mi Cuenta</Text>
           <SettingItem icon="history" title="Historial de Pedidos" onPress={() => navigation.navigate('PurchaseHistory')} />
           <SettingItem icon="heart" title="Mis Favoritos" onPress={() => navigation.navigate('Favorites')} />
-          <SettingItem icon="map-marker-alt" title="Mis Direcciones" onPress={() => Alert.alert('Próximamente', 'Disponible pronto')} />
         </View>
 
-        {/* ADMIN MENU */}
         {isAdmin && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>⚙️ ADMINISTRACIÓN</Text>
@@ -147,18 +137,12 @@ const ConfigScreen = () => {
           <SettingItem icon="bell" title="Notificaciones" isSwitch value={notifications} onPress={() => setNotifications(!notifications)} />
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Soporte</Text>
-          <SettingItem icon="question-circle" title="Ayuda Pedidos" onPress={() => Alert.alert('Ayuda', 'ventas@dsicario.com')} />
-          <SettingItem icon="info-circle" title="Sobre DSicario" onPress={() => Alert.alert('DSicario', 'v1.0\nHecho con amor 🇩🇴')} />
-        </View>
-
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <FontAwesome5 name="power-off" size={16} color={colors.error} />
           <Text style={styles.logoutText}>Cerrar Sesión</Text>
         </TouchableOpacity>
         
-        <Text style={{ textAlign: 'center', color: colors.text.secondary, fontSize: 10, marginBottom: spacing.xl }}>
+        <Text style={styles.footerText}>
           DSicarioApp v1.2.0 • Hecho con amor 🇩🇴
         </Text>
       </ScrollView>

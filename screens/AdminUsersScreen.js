@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -6,13 +6,10 @@ import {
   SafeAreaView,
   FlatList,
   TouchableOpacity,
-  RefreshControl,
-  Alert,
-  Modal,
   TextInput,
-  Switch,
-  ScrollView,
-  ActivityIndicator
+  Modal,
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useThemeMode } from '../contexts/ThemeContext';
@@ -26,330 +23,284 @@ const AdminUsersScreen = ({ navigation }) => {
   const colors = getThemeColors(darkMode);
 
   const { users, isSyncing, syncAllData, setUsers } = useDataSync();
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editUser, setEditUser] = useState(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const [form, setForm] = useState({
-    id: '',
-    username: '',
-    email: '',
-    role: 'Mesero',
-    active: true
-  });
+  // Form State
+  const [userName, setUserName] = useState('');
+  const [userId, setUserId] = useState('');
+  const [userEmail, setUserEmail] = useState('');
 
-  const roles = ['Admin', 'Mesero', 'Cocina', 'Delivery', 'Cliente'];
+  const filteredUsers = useMemo(() => {
+    if (!searchText) return users;
+    const search = searchText.toLowerCase();
+    return users.filter(u => 
+      (u.NombreUser || '').toLowerCase().includes(search) || 
+      (u.EmailUser || '').toLowerCase().includes(search) ||
+      (u.ID_User || '').toLowerCase().includes(search)
+    );
+  }, [users, searchText]);
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await syncAllData();
-    setRefreshing(false);
-  }, []);
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadUsers();
-    setRefreshing(false);
-  }, []);
+  const handleEdit = (user) => {
+    setEditingUser(user);
+    setUserName(user.NombreUser || '');
+    setUserId(user.ID_User || '');
+    setUserEmail(user.EmailUser || '');
+    setIsModalVisible(true);
+  };
 
   const handleSave = async () => {
-    if (!form.username || !form.email || !form.id) {
-      Alert.alert('Error', 'Por favor completa los campos ID, Nombre y Email.');
+    if (!userName || !userId) {
+      Alert.alert('Error', 'ID y Nombre son obligatorios');
       return;
     }
 
+    setIsSaving(true);
     try {
-      const result = await saveUser(form);
-      if (result.success) {
-        
-        // Optimistic update
-        if (editUser) {
-          setUsers(prev => prev.map(u => u.id === form.id ? form : u));
-        } else {
-          setUsers(prev => [...prev, form]);
-        }
+      const updatedUser = {
+        ...editingUser,
+        NombreUser: userName,
+        ID_User: userId,
+        EmailUser: userEmail
+      };
 
-        Alert.alert('✅ Éxito', 'Personal actualizado correctamente.');
-        setModalVisible(false);
-        syncAllData(); // Background sync
-      } else {
-        throw new Error(result.error || 'Error al guardar');
-      }
+      await saveUser(updatedUser);
+      
+      // Update local state
+      setUsers(prev => prev.map(u => u.ID_User === editingUser.ID_User ? updatedUser : u));
+      
+      Alert.alert('Éxito', 'Usuario actualizado correctamente');
+      setIsModalVisible(false);
+      syncAllData();
     } catch (error) {
-      Alert.alert('❌ Error', error.message);
+      Alert.alert('Error', 'No se pudo actualizar el usuario');
     } finally {
-      setIsLoading(false);
+      setIsSaving(false);
     }
   };
 
-  const renderUserItem = ({ item }) => (
-    <GlassPanel intensity={15} style={styles.userCard}>
-      <View style={styles.cardHeader}>
-        <View style={styles.userInfo}>
-          <Text style={styles.userName}>{item.username}</Text>
-          <Text style={styles.userEmail}>{item.email}</Text>
-        </View>
-        <View style={[styles.roleBadge, { backgroundColor: colors.primary + '20' }]}>
-          <Text style={[styles.roleText, { color: colors.primary }]}>{item.role.toUpperCase()}</Text>
-        </View>
-      </View>
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: spacing.md,
+      paddingTop: spacing.lg,
+      justifyContent: 'space-between',
+    },
+    headerTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
+    backBtn: { padding: 5 },
+    searchContainer: {
+      padding: spacing.md,
+    },
+    searchBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 15,
+      height: 50,
+      borderRadius: 15,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    searchInput: {
+      flex: 1,
+      marginLeft: 10,
+      fontSize: 16,
+      color: colors.text.primary,
+    },
+    list: { paddingHorizontal: spacing.md, paddingBottom: 20 },
+    userCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: spacing.md,
+      borderRadius: 20,
+      marginBottom: spacing.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      ...shadows.small,
+    },
+    userAvatar: {
+      width: 50,
+      height: 50,
+      borderRadius: 25,
+      backgroundColor: colors.primary + '20',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 15,
+    },
+    userInfo: { flex: 1 },
+    userName: { fontSize: 16, fontWeight: 'bold', color: colors.text.primary },
+    userId: { fontSize: 12, color: colors.text.secondary, marginTop: 2 },
+    userEmail: { fontSize: 12, color: colors.primary, marginTop: 2 },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      justifyContent: 'center',
+      padding: spacing.xl,
+    },
+    modalContent: {
+      padding: spacing.xl,
+      borderRadius: 30,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    modalTitle: { 
+      fontSize: 22, 
+      fontWeight: 'bold', 
+      marginBottom: 25, 
+      textAlign: 'center',
+      color: colors.text.primary 
+    },
+    inputLabel: {
+      fontSize: 12,
+      fontWeight: 'bold',
+      color: colors.text.secondary,
+      marginBottom: 8,
+      marginLeft: 5,
+    },
+    inputField: {
+      height: 55,
+      borderRadius: 15,
+      paddingHorizontal: 15,
+      marginBottom: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      color: colors.text.primary,
+    },
+    modalActions: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: 10,
+    },
+    modalBtn: {
+      flex: 0.48,
+      height: 55,
+      borderRadius: 15,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    btnText: { fontWeight: 'bold', fontSize: 16 }
+  }), [colors]);
 
-      <View style={styles.cardFooter}>
-        <View style={styles.statusRow}>
-          <View style={[styles.statusDot, { backgroundColor: item.active ? colors.success : colors.error }]} />
-          <Text style={[styles.statusText, { color: item.active ? colors.success : colors.error }]}>
-            {item.active ? 'ACTIVO' : 'INACTIVO'}
-          </Text>
+  const renderUser = ({ item }) => (
+    <TouchableOpacity onPress={() => handleEdit(item)}>
+      <GlassPanel intensity={10} style={styles.userCard}>
+        <View style={styles.userAvatar}>
+          <FontAwesome5 name="user" size={20} color={colors.primary} />
         </View>
-        <TouchableOpacity 
-          style={styles.editBtn}
-          onPress={() => {
-            setEditUser(item);
-            setForm({ ...item });
-            setModalVisible(true);
-          }}
-        >
-          <FontAwesome5 name="edit" size={14} color={colors.primary} />
-          <Text style={[styles.editText, { color: colors.primary }]}>Editar</Text>
-        </TouchableOpacity>
-      </View>
-    </GlassPanel>
+        <View style={styles.userInfo}>
+          <Text style={styles.userName}>{item.NombreUser || 'Sin Nombre'}</Text>
+          <Text style={styles.userId}>ID: {item.ID_User}</Text>
+          <Text style={styles.userEmail}>{item.EmailUser || 'Sin Email'}</Text>
+        </View>
+        <FontAwesome5 name="edit" size={14} color={colors.text.secondary} />
+      </GlassPanel>
+    </TouchableOpacity>
   );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: colors.primary }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <FontAwesome5 name="arrow-left" size={20} color={colors.text.primary} />
+          <FontAwesome5 name="arrow-left" size={20} color="#FFF" />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text.primary }]}>👥 Gestión de Personal</Text>
-        <TouchableOpacity 
-          style={styles.addBtn}
-          onPress={() => {
-            setEditUser(null);
-            setForm({ id: `DS${Date.now().toString().slice(-4)}`, username: '', email: '', role: 'Mesero', active: true });
-            setModalVisible(true);
-          }}
-        >
-          <FontAwesome5 name="user-plus" size={18} color={colors.primary} />
+        <Text style={styles.headerTitle}>Gestión de Usuarios</Text>
+        <TouchableOpacity onPress={syncAllData}>
+          <FontAwesome5 name="sync" size={18} color="#FFF" />
         </TouchableOpacity>
       </View>
 
-      {isSyncing && !refreshing && users.length === 0 ? (
-        <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 50 }} />
-      ) : (
-        <FlatList
-          data={users}
-          renderItem={renderUserItem}
-          keyExtractor={item => item.id.toString()}
-          contentContainerStyle={styles.listContainer}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <FontAwesome5 name="users-slash" size={60} color={colors.border} />
-              <Text style={styles.emptyText}>No hay personal registrado</Text>
-            </View>
-          }
-        />
-      )}
+      <View style={styles.searchContainer}>
+        <View style={styles.searchBar}>
+          <FontAwesome5 name="search" size={16} color="#999" />
+          <TextInput
+            placeholder="Buscar por ID, nombre o email..."
+            placeholderTextColor="#999"
+            style={styles.searchInput}
+            value={searchText}
+            onChangeText={setSearchText}
+          />
+        </View>
+      </View>
 
-      {/* Modal de Edición/Nuevo */}
-      <Modal visible={modalVisible} transparent animationType="slide">
+      <FlatList
+        data={filteredUsers}
+        renderItem={renderUser}
+        keyExtractor={item => item.ID_User}
+        contentContainerStyle={styles.list}
+        refreshing={isSyncing}
+        onRefresh={syncAllData}
+        ListEmptyComponent={
+          <View style={{ alignItems: 'center', marginTop: 50 }}>
+            <FontAwesome5 name="users-slash" size={50} color={colors.border} />
+            <Text style={{ marginTop: 15, color: colors.text.secondary }}>No se encontraron usuarios</Text>
+          </View>
+        }
+      />
+
+      <Modal visible={isModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <GlassPanel style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{editUser ? 'Editar Empleado' : 'Nuevo Empleado'}</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <FontAwesome5 name="times" size={20} color={colors.text.secondary} />
+          <GlassPanel intensity={40} style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Editar Usuario</Text>
+            
+            <Text style={styles.inputLabel}>ID DE USUARIO (ID_User)</Text>
+            <TextInput
+              style={[styles.inputField, { opacity: 0.6 }]}
+              value={userId}
+              editable={false}
+            />
+
+            <Text style={styles.inputLabel}>NOMBRE COMPLETO (NombreUser)</Text>
+            <TextInput
+              style={styles.inputField}
+              value={userName}
+              onChangeText={setUserName}
+              placeholder="Ej. Juan Pérez"
+              placeholderTextColor="#999"
+            />
+
+            <Text style={styles.inputLabel}>CORREO ELECTRÓNICO (EmailUser)</Text>
+            <TextInput
+              style={styles.inputField}
+              value={userEmail}
+              onChangeText={setUserEmail}
+              placeholder="correo@ejemplo.com"
+              placeholderTextColor="#999"
+              autoCapitalize="none"
+              keyboardType="email-address"
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={[styles.modalBtn, { backgroundColor: colors.border }]}
+                onPress={() => setIsModalVisible(false)}
+              >
+                <Text style={[styles.btnText, { color: colors.text.primary }]}>Cerrar</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.modalBtn, { backgroundColor: colors.primary }]}
+                onPress={handleSave}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={[styles.btnText, { color: '#FFF' }]}>Guardar</Text>
+                )}
               </TouchableOpacity>
             </View>
-
-            <ScrollView style={styles.formScroll}>
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>ID Empleado (Email Ref)</Text>
-                <TextInput 
-                  style={[styles.input, { color: colors.text.primary, borderColor: colors.border }]}
-                  value={form.id}
-                  onChangeText={v => setForm({...form, id: v})}
-                  placeholder="ID_User"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Nombre Completo</Text>
-                <TextInput 
-                  style={[styles.input, { color: colors.text.primary, borderColor: colors.border }]}
-                  value={form.username}
-                  onChangeText={v => setForm({...form, username: v})}
-                  placeholder="Nombre"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Email (Firebase)</Text>
-                <TextInput 
-                  style={[styles.input, { color: colors.text.primary, borderColor: colors.border }]}
-                  value={form.email}
-                  onChangeText={v => setForm({...form, email: v})}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  placeholder="ejemplo@dsicario.com"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Rol en el Sistema</Text>
-                <View style={styles.rolesContainer}>
-                  {roles.map(r => (
-                    <TouchableOpacity 
-                      key={r}
-                      style={[
-                        styles.roleOption, 
-                        { borderColor: colors.border },
-                        form.role === r && { backgroundColor: colors.primary, borderColor: colors.primary }
-                      ]}
-                      onPress={() => setForm({...form, role: r})}
-                    >
-                      <Text style={[
-                        styles.roleOptionText,
-                        { color: colors.text.secondary },
-                        form.role === r && { color: '#FFF' }
-                      ]}>{r}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              <View style={styles.switchRow}>
-                <Text style={styles.label}>Usuario Activo</Text>
-                <Switch 
-                  value={form.active}
-                  onValueChange={v => setForm({...form, active: v})}
-                  trackColor={{ false: colors.border, true: colors.success }}
-                />
-              </View>
-
-              <TouchableOpacity 
-                style={[styles.saveBtn, { backgroundColor: colors.primary }]}
-                onPress={handleSave}
-              >
-                <Text style={styles.saveBtnText}>Guardar Personal</Text>
-              </TouchableOpacity>
-            </ScrollView>
           </GlassPanel>
         </View>
       </Modal>
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.05)',
-  },
-  headerTitle: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
-  },
-  backBtn: { padding: spacing.xs },
-  addBtn: { padding: spacing.xs },
-  listContainer: { padding: spacing.md },
-  userCard: {
-    borderRadius: borders.radius.lg,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: spacing.md,
-  },
-  userInfo: { flex: 1 },
-  userName: { fontSize: 18, fontWeight: 'bold' },
-  userEmail: { fontSize: 13, color: '#999', marginTop: 2 },
-  roleBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  roleText: { fontSize: 10, fontWeight: '900' },
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.05)',
-    paddingTop: spacing.md,
-  },
-  statusRow: { flexDirection: 'row', alignItems: 'center' },
-  statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
-  statusText: { fontSize: 12, fontWeight: 'bold' },
-  editBtn: { flexDirection: 'row', alignItems: 'center' },
-  editText: { fontSize: 12, fontWeight: 'bold', marginLeft: 6 },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    padding: spacing.lg,
-    maxHeight: '85%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  modalTitle: { fontSize: 20, fontWeight: 'bold' },
-  formScroll: { marginBottom: spacing.lg },
-  inputGroup: { marginBottom: spacing.md },
-  label: { fontSize: 14, fontWeight: 'bold', marginBottom: 8, color: '#666' },
-  input: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    fontSize: 16,
-  },
-  rolesContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  roleOption: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  roleOptionText: { fontSize: 12, fontWeight: 'bold' },
-  switchRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginVertical: spacing.md,
-  },
-  saveBtn: {
-    borderRadius: 15,
-    padding: 18,
-    alignItems: 'center',
-    marginTop: spacing.md,
-    ...shadows.medium,
-  },
-  saveBtnText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
-  emptyContainer: { alignItems: 'center', marginTop: 100, opacity: 0.5 },
-  emptyText: { marginTop: 20, fontSize: 16, fontWeight: 'bold' },
-});
 
 export default AdminUsersScreen;

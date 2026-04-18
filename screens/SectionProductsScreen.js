@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, FlatList } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import ProductItem from '../components/ProductItem';
 import { CustomHeader } from '../components/CustomHeader';
 import { getThemeColors, spacing, typography } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
+
 const SectionProductsScreen = ({ route, navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
@@ -13,6 +14,25 @@ const SectionProductsScreen = ({ route, navigation }) => {
   const handleProductPress = (product) => {
     navigation.navigate('ProductDetail', { product });
   };
+
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    productContainer: {
+      flex: 1,
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      padding: 12,
+      margin: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      elevation: 2,
+      shadowColor: colors.text?.primary || '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      minHeight: 220,
+    },
+  }), [colors]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -24,7 +44,7 @@ const SectionProductsScreen = ({ route, navigation }) => {
             <ProductItem product={item} onPress={handleProductPress} showBadges showRating />
           </View>
         )}
-        keyExtractor={item => item.id?.toString() || Math.random().toString()}
+        keyExtractor={(item, index) => (item.id || index).toString()}
         contentContainerStyle={{
           padding: 16,
         }}
@@ -34,41 +54,6 @@ const SectionProductsScreen = ({ route, navigation }) => {
       />
     </SafeAreaView>
   );
-
-  const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: colors.primary,
-      paddingVertical: 18,
-      paddingHorizontal: 16,
-    },
-    backButton: {
-      marginRight: 16,
-      padding: 4,
-    },
-    title: {
-      fontSize: 20,
-      fontWeight: 'bold',
-      color: colors.text.white,
-    },
-    productContainer: {
-      flex: 1,
-      backgroundColor: colors.surface, // Fondo tipo placeholder
-      borderRadius: 12,
-      padding: 12,
-      margin: 8,
-      alignItems: 'center', // Centra imagen y texto
-      justifyContent: 'center',
-      elevation: 2, // Sombra para Android
-      shadowColor: colors.text.primary, // Sombra para iOS
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-      minHeight: 220, // Altura mínima tipo placeholder
-    },
-  });
 };
 
 export default SectionProductsScreen;

@@ -3,7 +3,7 @@ import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createDrawerNavigator } from '@react-navigation/drawer';
-import { Home, Compass, ShoppingCart, User, ClipboardList } from 'lucide-react-native';
+import { Home, Compass, ShoppingCart, User, ClipboardList, History } from 'lucide-react-native';
 
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -64,14 +64,15 @@ const ExplorarStack = () => {
 
 const MainTabs = () => {
   const { colors } = useTheme();
-  const { role } = useUser();
+  const { role, isClientMode } = useUser();
+  const roleLow = role ? role.toLowerCase() : '';
   
-  const isCocina = role === 'Cocina' || role === 'Cosina';
-  const isDelivery = role === 'Delivery';
-  const isMesero = role === 'Mesero' || role?.toLowerCase() === 'mesero';
-  const isAdmin = role?.toLowerCase() === 'admin';
+  const isCocina = roleLow.includes('cocina') || roleLow.includes('cosina');
+  const isDelivery = roleLow.includes('delivery') || roleLow.includes('repartidor');
+  const isMesero = roleLow.includes('mesero');
+  const isAdmin = roleLow.includes('admin');
   
-  const isRestricted = (isCocina || isDelivery || isMesero) && !isAdmin;
+  const showServiceScreen = !isClientMode && (isCocina || isDelivery || isMesero);
 
   return (
     <Tab.Navigator
@@ -84,49 +85,47 @@ const MainTabs = () => {
     >
       <Tab.Screen
         name="InicioTab"
-        component={isCocina ? KitchenScreen : (isDelivery ? RiderScreen : (isMesero ? WaiterScreen : InicioStack))}
+        component={showServiceScreen ? (isCocina ? KitchenScreen : (isDelivery ? RiderScreen : WaiterScreen)) : InicioStack}
         options={{
-          tabBarLabel: isCocina ? 'MONITOR' : (isDelivery ? 'ENTREGAS' : (isMesero ? 'SERVICIO' : 'INICIO')),
+          tabBarLabel: showServiceScreen ? (isCocina ? 'MONITOR' : (isDelivery ? 'ENTREGAS' : 'SERVICIO')) : 'INICIO',
           tabBarIcon: ({ color }) => <Home color={color} size={24} />,
         }}
       />
-      
-      {!isRestricted && (
-        <Tab.Screen
-          name="ExplorarTab"
-          component={ExplorarStack}
-          options={{
-            tabBarLabel: 'EXPLORAR',
-            tabBarIcon: ({ color }) => <Compass color={color} size={24} />,
-          }}
-        />
-      )}
-
-      {!isRestricted && (
-        <Tab.Screen
-          name="CarritoTab"
-          component={CartStack}
-          options={{
-            tabBarLabel: 'CARRITO',
-            tabBarIcon: ({ color }) => <ShoppingCart color={color} size={24} />,
-          }}
-        />
-      )}
-
-      {!isRestricted && (
-        <Tab.Screen
-          name="PedidosTab"
-          component={OrderCenterScreen}
-          options={{
-            tabBarLabel: 'PEDIDOS',
-            tabBarIcon: ({ color }) => <ClipboardList color={color} size={24} />,
-          }}
-        />
-      )}
-
-      {/* Hidden tabs for Admin/Specialized navigation */}
+      <Tab.Screen
+        name="ExplorarTab"
+        component={ExplorarStack}
+        options={{
+          tabBarLabel: 'EXPLORAR',
+          tabBarIcon: ({ color }) => <Compass color={color} size={24} />,
+        }}
+      />
+      <Tab.Screen
+        name="CarritoTab"
+        component={CartStack}
+        options={{
+          tabBarLabel: 'CARRITO',
+          tabBarIcon: ({ color }) => <ShoppingCart color={color} size={24} />,
+          // Forzamos visibilidad si es Admin o si el usuario está en modo cliente
+          tabBarButton: (isAdmin || isClientMode) ? undefined : () => null,
+        }}
+      />
+      <Tab.Screen
+        name="PedidosTab"
+        component={OrderCenterScreen}
+        options={{
+          tabBarLabel: 'PEDIDOS',
+          tabBarIcon: ({ color }) => <ClipboardList color={color} size={24} />,
+        }}
+      />
       <Tab.Screen name="OrderCenter" component={OrderCenterScreen} options={{ tabBarButton: () => null }} />
-      <Tab.Screen name="Historial" component={PurchaseHistoryStack} options={{ tabBarButton: () => null }} />
+      <Tab.Screen 
+        name="Historial" 
+        component={PurchaseHistoryStack} 
+        options={{ 
+          tabBarLabel: 'HISTORIAL',
+          tabBarIcon: ({ color }) => <History color={color} size={24} />,
+        }} 
+      />
       <Tab.Screen name="Favoritos" component={FavoritesStack} options={{ tabBarButton: () => null }} />
       <Tab.Screen name="Configuracion" component={ConfigStack} options={{ tabBarButton: () => null }} />
       <Tab.Screen name="DeliveryTracking" component={DeliveryTrackingScreen} options={{ tabBarButton: () => null }} />
@@ -134,11 +133,9 @@ const MainTabs = () => {
       {(isAdmin || isCocina) && (
         <Tab.Screen name="CocinaAdmin" component={KitchenScreen} options={{ tabBarButton: () => null }} />
       )}
-
       {(isAdmin || isMesero) && (
         <Tab.Screen name="WaiterHome" component={WaiterScreen} options={{ tabBarButton: () => null }} />
       )}
-
       {isAdmin && (
         <>
           <Tab.Screen name="RiderView" component={RiderScreen} options={{ tabBarButton: () => null }} />
@@ -146,14 +143,12 @@ const MainTabs = () => {
           <Tab.Screen name="AdminStaff" component={AdminStaffScreen} options={{ tabBarButton: () => null }} />
         </>
       )}
-
     </Tab.Navigator>
   );
 };
 
 const DrawerNavigator = () => {
   const { colors } = useTheme();
-
   return (
     <Drawer.Navigator
       drawerContent={(props) => <ProfileDrawerContent {...props} />}
@@ -171,30 +166,25 @@ const DrawerNavigator = () => {
 const AppNavigator = () => {
   const { darkMode } = useTheme();
   const { isAuthenticated, user, loading: authLoading } = useAuth();
-  const { syncUserRole } = useUser();
+  const { syncUserRole, isClientMode, role } = useUser(); // 👈 Añadido 'role'
   const { isLoading: productsLoading } = useProducts();
   const [roleReady, setRoleReady] = useState(false);
+  
+  const roleLow = role ? role.toLowerCase() : '';
+  const isAdmin = roleLow.includes('admin');
 
-  // Espera el rol sin timeout agresivo para asegurar que el Admin vea lo que corresponde
   useEffect(() => {
     if (authLoading) return;
     if (!isAuthenticated) {
       setRoleReady(true);
       return;
     }
-    
-    // Solo sincronizar si el rol aún no está definido o es el 'Invitado' por defecto
-    syncUserRole(user?.email).finally(() => {
-      setRoleReady(true);
-    });
+    syncUserRole(user?.email).finally(() => setRoleReady(true));
   }, [authLoading, isAuthenticated, user?.email]);
 
-  // Espera real: Firebase auth + rol de usuario + productos si está autenticado
   const isLoading = authLoading || !roleReady || (isAuthenticated && productsLoading);
 
-  if (isLoading) {
-    return <FullLoadingScreen />;
-  }
+  if (isLoading) return <FullLoadingScreen />;
 
   return (
     <NavigationContainer theme={darkMode ? DarkTheme : DefaultTheme}>
@@ -208,7 +198,8 @@ const AppNavigator = () => {
           <Stack.Screen name="Main" component={DrawerNavigator} />
         )}
       </Stack.Navigator>
-      {isAuthenticated && <FloatingCartButton />}
+      {/* 🛒 Botón flotante ahora visible para Modo Cliente O para el Admin */}
+      {isAuthenticated && (isClientMode || isAdmin) && <FloatingCartButton />}
     </NavigationContainer>
   );
 };

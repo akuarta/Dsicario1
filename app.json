@@ -7,6 +7,11 @@
       "bundler": "metro",
       "favicon": "./assets/favicon.png"
     },
+    "notification": {
+      "vapidPublicKey": "BH5kWZBL9T2ZzA5SLF6SgxX_dAkfXZCKQvJhdUBNV3BKH5yZAviSBXS4YVwUyz6qmtwrJ99L-5sxpTfkcYNePxo",
+      "color": "#FF6B35",
+      "androidMode": "default"
+    },
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

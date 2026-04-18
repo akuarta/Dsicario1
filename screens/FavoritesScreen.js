@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -42,43 +42,7 @@ const FavoritesScreen = ({ navigation }) => {
     );
   }, [clearFavorites]);
 
-  const renderFavoriteItem = useCallback(({ item }) => (
-    <View style={styles.itemContainer}>
-      <ProductItem 
-        product={item} 
-        onPress={handleProductPress} 
-        showBadges 
-        showRating 
-      />
-      <TouchableOpacity 
-        style={styles.removeButton}
-        onPress={() => handleRemoveFavorite(item)}
-      >
-        <FontAwesome5 name="heart-broken" size={18} color={colors.error} />
-      </TouchableOpacity>
-    </View>
-  ), [handleProductPress, handleRemoveFavorite]);
-
-  const renderEmptyFavorites = useCallback(() => (
-    <View style={globalStyles.emptyContainer}>
-      <TouchableOpacity onPress={() => navigation.goBack()} style={{ position: 'absolute', top: spacing.md, left: spacing.md, padding: spacing.sm, zIndex: 10 }}>
-         <FontAwesome5 name="arrow-left" size={20} color={colors.text.primary} />
-      </TouchableOpacity>
-      <FontAwesome5 name="heart" size={64} color={colors.text.light} />
-      <Text style={globalStyles.emptyTitle}>Sin favoritos aún</Text>
-      <Text style={globalStyles.emptyText}>
-        Explora nuestros productos y marca tus favoritos para acceder rápidamente
-      </Text>
-      <TouchableOpacity 
-        style={globalStyles.primaryButton}
-        onPress={() => navigation.navigate('Explorar')}
-      >
-        <Text style={globalStyles.primaryButtonText}>Explorar Productos</Text>
-      </TouchableOpacity>
-    </View>
-  ), [navigation]);
-
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: colors.background,
@@ -118,7 +82,43 @@ const FavoritesScreen = ({ navigation }) => {
       zIndex: 10,
       ...shadows.small,
     },
-  });
+  }), [colors, darkMode]);
+
+  const renderFavoriteItem = useCallback(({ item }) => (
+    <View style={styles.itemContainer}>
+      <ProductItem 
+        product={item} 
+        onPress={handleProductPress} 
+        showBadges 
+        showRating 
+      />
+      <TouchableOpacity 
+        style={styles.removeButton}
+        onPress={() => handleRemoveFavorite(item)}
+      >
+        <FontAwesome5 name="heart-broken" size={18} color={colors.error} />
+      </TouchableOpacity>
+    </View>
+  ), [handleProductPress, handleRemoveFavorite, styles, colors.error]);
+
+  const renderEmptyFavorites = useCallback(() => (
+    <View style={globalStyles.emptyContainer}>
+      <TouchableOpacity onPress={() => navigation.goBack()} style={{ position: 'absolute', top: spacing.md, left: spacing.md, padding: spacing.sm, zIndex: 10 }}>
+         <FontAwesome5 name="arrow-left" size={20} color={colors.text.primary} />
+      </TouchableOpacity>
+      <FontAwesome5 name="heart" size={64} color={colors.text.light} />
+      <Text style={globalStyles.emptyTitle}>Sin favoritos aún</Text>
+      <Text style={globalStyles.emptyText}>
+        Explora nuestros productos y marca tus favoritos para acceder rápidamente
+      </Text>
+      <TouchableOpacity 
+        style={globalStyles.primaryButton}
+        onPress={() => navigation.navigate('Explorar')}
+      >
+        <Text style={globalStyles.primaryButtonText}>Explorar Productos</Text>
+      </TouchableOpacity>
+    </View>
+  ), [navigation, globalStyles, colors.text.primary, colors.text.light]);
 
   if (favorites.length > 0) {
     return (

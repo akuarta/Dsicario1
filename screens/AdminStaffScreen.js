@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,22 +10,36 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
-  Switch
+  Switch,
+  Platform,
+  StatusBar
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import GlassPanel from '../components/GlassPanel';
-import { fetchAllUsers, saveUser } from '../utils/api';
+import { fetchAllUsers, saveUser, deleteUser } from '../utils/api';
 import { useDataSync } from '../contexts/AppContext';
+
+const getRoleColor = (role) => {
+  switch(role) {
+    case 'Admin': return '#E63946';
+    case 'Mesero': return '#FF8C00';
+    case 'Cocina': return '#2A9D8F';
+    case 'Delivery': return '#457B9D';
+    default: return '#666';
+  }
+};
 
 const AdminStaffScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
-  
+
   const { users, isSyncing, syncAllData, setUsers } = useDataSync();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [filterType, setFilterType] = useState('staff'); // 'all', 'staff', 'clients'
   
   // Form State
   const [editingUser, setEditingUser] = useState(null);
@@ -34,15 +48,19 @@ const AdminStaffScreen = ({ navigation }) => {
   const [role, setRole] = useState('Mesero');
   const [isActive, setIsActive] = useState(true);
 
+  // Registered Users Picker State
+  const [isPickerVisible, setIsPickerVisible] = useState(false);
+  const [pickerSearch, setPickerSearch] = useState('');
+
   const roles = ['Admin', 'Mesero', 'Cocina', 'Delivery', 'Cliente'];
 
   const handleOpenModal = (user = null) => {
     if (user) {
       setEditingUser(user);
-      setUsername(user.username);
-      setEmail(user.email);
-      setRole(user.role);
-      setIsActive(user.active);
+      setUsername(user.NombreUser || user.nombreuser || user.username || '');
+      setEmail(user.EmailUser || user.emailuser || user.email || '');
+      setRole(user.Rol || user.rol || user.UserType || user.usertype || user.role || 'Mesero');
+      setIsActive(user.Activo !== undefined ? user.Activo : (user['activo?'] !== undefined ? user['activo?'] : (user.active !== undefined ? user.active : true)));
     } else {
       setEditingUser(null);
       setUsername('');
@@ -53,35 +71,90 @@ const AdminStaffScreen = ({ navigation }) => {
     setIsModalVisible(true);
   };
 
+  const filteredUsers = useMemo(() => {
+    let result = (users || []);
+    
+    // Filter by type
+    if (filterType === 'staff') {
+      result = result.filter(u => {
+        const r = (u.Rol || u.rol || u.UserType || u.usertype || u.role || '').toLowerCase();
+        const isEmp = u['Empleado?'] === true || u['empleado?'] === true || u['Empleado?'] === 'SI' || u['Empleado?'] === 'si';
+        return isEmp || (r && r !== 'cliente' && r !== 'customer' && r !== '');
+      });
+    } else if (filterType === 'clients') {
+      result = result.filter(u => {
+        const r = (u.Rol || u.rol || u.UserType || u.usertype || u.role || '').toLowerCase();
+        const isEmp = u['Empleado?'] === true || u['empleado?'] === true || u['Empleado?'] === 'SI' || u['Empleado?'] === 'si';
+        return !isEmp && (!r || r === 'cliente' || r === 'customer' || r === '');
+      });
+    }
+    
+    // Search
+    if (searchText) {
+      const search = searchText.toLowerCase();
+      result = result.filter(u => 
+        (u.NombreUser || u.nombreuser || u.username || '').toLowerCase().includes(search) || 
+        (u.EmailUser || u.emailuser || u.email || '').toLowerCase().includes(search)
+      );
+    }
+    
+    return result;
+  }, [users, searchText, filterType]);
+
+  const registeredClients = useMemo(() => {
+    let result = (users || []);
+    if (pickerSearch) {
+      const search = pickerSearch.toLowerCase();
+      result = result.filter(u => 
+        (u.NombreUser || u.nombreuser || u.username || '').toLowerCase().includes(search) || 
+        (u.EmailUser || u.emailuser || u.email || '').toLowerCase().includes(search)
+      );
+    }
+    return result;
+  }, [users, pickerSearch]);
+
+  const handleSelectFromRegistered = (user) => {
+    setUsername(user.NombreUser || user.nombreuser || user.username || '');
+    setEmail(user.EmailUser || user.emailuser || user.email || '');
+    setIsPickerVisible(false);
+  };
+
   const handleSave = async () => {
     if (!username || !email) {
       Alert.alert('Error', 'Nombre y Email son obligatorios');
       return;
     }
-
     setIsSaving(true);
     try {
-      const newUser = {
-        id: editingUser ? editingUser.id : `user_${Date.now()}`,
-        username,
-        email,
-        role,
-        active: isActive
+      const existing = (users || []).find(u => (u.EmailUser || u.emailuser || u.email) === email);
+      const userToSave = {
+        ...(editingUser || existing || {}),
+        NombreUser: username,
+        nombreuser: username,
+        EmailUser: email,
+        emailuser: email,
+        Rol: role,
+        rol: role,
+        UserType: role,
+        usertype: role,
+        'Activo': isActive,
+        'activo?': isActive,
+        'empleado?': true,
+        ID_User: editingUser ? (editingUser.ID_User || editingUser.id_user || editingUser.id) : (existing ? (existing.ID_User || existing.id_user || existing.id) : `user_${Date.now()}`),
+        id_user: editingUser ? (editingUser.ID_User || editingUser.id_user || editingUser.id) : (existing ? (existing.ID_User || existing.id_user || existing.id) : `user_${Date.now()}`)
       };
-      
-      await saveUser(newUser);
-
-      // Optimistic update
-      if (editingUser) {
-        setUsers(prev => prev.map(u => u.email === email ? newUser : u));
-      } else {
-        setUsers(prev => [...prev, newUser]);
-      }
-
+      await saveUser(userToSave);
+      setUsers(prev => {
+        const index = prev.findIndex(u => (u.ID_User || u.id_user || u.id) === (userToSave.ID_User || userToSave.id_user));
+        if (index >= 0) {
+          const updatedUsers = [...prev];
+          updatedUsers[index] = userToSave;
+          return updatedUsers;
+        }
+        return [userToSave, ...prev];
+      });
       Alert.alert('Éxito', 'Personal actualizado');
       setIsModalVisible(false);
-      
-      // Sincronizar todo en segundo plano
       syncAllData();
     } catch (error) {
       Alert.alert('Error', 'No se pudo guardar el usuario');
@@ -90,57 +163,362 @@ const AdminStaffScreen = ({ navigation }) => {
     }
   };
 
-  const renderUserItem = ({ item }) => (
-    <TouchableOpacity onPress={() => handleOpenModal(item)}>
-      <GlassPanel intensity={10} style={styles.userCard}>
-        <View style={styles.userIcon}>
-          <FontAwesome5 
-            name={item.role === 'Admin' ? 'user-shield' : 'user-tie'} 
-            size={20} 
-            color={item.active ? colors.primary : '#999'} 
-          />
-        </View>
-        <View style={styles.userInfo}>
-          <Text style={[styles.userName, { color: colors.text.primary }]}>{item.username}</Text>
-          <Text style={styles.userEmail}>{item.email}</Text>
-          <View style={[styles.roleBadge, { backgroundColor: getRoleColor(item.role) }]}>
-            <Text style={styles.roleText}>{item.role}</Text>
-          </View>
-        </View>
-        <FontAwesome5 name="chevron-right" size={12} color="#CCC" />
-      </GlassPanel>
-    </TouchableOpacity>
-  );
+  const handleDelete = () => {
+    if (!editingUser) return;
+    const staffDisplayName = editingUser.NombreUser || editingUser.nombreuser || editingUser.username || 'este usuario';
+    Alert.alert(
+      '¿Quitar de Personal?',
+      `¿Deseas quitar a ${staffDisplayName} como empleado? Seguirá siendo usuario (Cliente) pero ya no tendrá acceso administrativo o de staff.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { 
+          text: 'Quitar de Staff', 
+          style: 'destructive',
+          onPress: async () => {
+            setIsSaving(true);
+            try {
+              const updatedUser = {
+                ...editingUser,
+                usertype: 'Cliente',
+                'empleado?': false,
+                'activo?': false
+              };
+              await saveUser(updatedUser);
+              setUsers(prev => prev.map(u => (u.ID_User || u.id_user || u.id) === (editingUser.ID_User || editingUser.id_user || editingUser.id) ? updatedUser : u));
+              Alert.alert('Éxito', 'Se ha reasignado como Cliente.');
+              setIsModalVisible(false);
+            } catch (err) {
+              Alert.alert('Error', 'No se pudo actualizar el rol: ' + err.message);
+            } finally {
+              setIsSaving(false);
+            }
+          }
+        }
+      ]
+    );
+  };
 
-  const getRoleColor = (role) => {
-    switch(role) {
-      case 'Admin': return '#E63946';
-      case 'Mesero': return '#FF8C00';
-      case 'Cocina': return '#2A9D8F';
-      case 'Delivery': return '#457B9D';
-      default: return '#666';
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: spacing.md,
+      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight + 20) : 45,
+      justifyContent: 'space-between',
+    },
+    headerTitle: { color: colors.text.white, fontSize: 18, fontWeight: 'bold' },
+    backBtn: { padding: 5 },
+    list: { padding: spacing.md, paddingBottom: 100 },
+    userCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: spacing.md,
+      borderRadius: 15,
+      marginBottom: spacing.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      ...shadows.small,
+    },
+    userIcon: {
+      width: 45,
+      height: 45,
+      borderRadius: 22.5,
+      backgroundColor: colors.primary + '20',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: spacing.md,
+    },
+    userInfo: { flex: 1 },
+    userName: { fontSize: 16, fontWeight: 'bold', color: colors.text.primary },
+    userEmail: { fontSize: 12, color: colors.text.secondary, marginBottom: 5 },
+    roleBadge: {
+      alignSelf: 'flex-start',
+      paddingHorizontal: 10,
+      paddingVertical: 2,
+      borderRadius: 10,
+    },
+    roleText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
+    fab: {
+      position: 'absolute',
+      bottom: 30,
+      right: 30,
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+      backgroundColor: colors.primary,
+      justifyContent: 'center',
+      alignItems: 'center',
+      elevation: 8,
+      ...shadows.medium,
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      justifyContent: 'center',
+      padding: spacing.lg,
+    },
+    modalContent: {
+      padding: spacing.lg,
+      borderRadius: 25,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    modalTitle: { 
+      fontSize: 20, 
+      fontWeight: 'bold', 
+      marginBottom: 20, 
+      textAlign: 'center',
+      color: colors.text.primary 
+    },
+    input: {
+      borderWidth: 1,
+      borderRadius: 12,
+      padding: 12,
+      marginBottom: 15,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      color: colors.text.primary,
+    },
+    label: { fontSize: 14, marginBottom: 10, color: colors.text.secondary },
+    rolesContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
+    roleOption: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    roleOptionText: { fontSize: 12, color: colors.text.secondary },
+    switchRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 20,
+    },
+    modalActions: { flexDirection: 'row', gap: 10 },
+    modalBtn: {
+      flex: 1,
+      paddingVertical: 12,
+      borderRadius: 12,
+      alignItems: 'center',
+    },
+    searchContainer: {
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.sm,
+    },
+    searchBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+      height: 45,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      marginBottom: spacing.sm,
+    },
+    searchInput: {
+      flex: 1,
+      fontSize: 16,
+      color: colors.text.primary,
+      paddingVertical: 8,
+    },
+    filterTabs: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    filterTab: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    filterTabText: {
+      fontSize: 12,
+      fontWeight: 'bold',
+      color: colors.text.secondary,
+    },
+    emptyContainer: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 50,
+      opacity: 0.6,
+    },
+    emptyText: {
+      marginTop: 10,
+      fontSize: 14,
+      fontWeight: 'bold',
+      color: colors.text.secondary,
+    },
+    pickUserBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      borderStyle: 'dashed',
+      marginBottom: 15,
+      backgroundColor: colors.primary + '10',
+    },
+    pickerContent: {
+      width: '100%',
+      padding: spacing.md,
+      borderRadius: 20,
+      backgroundColor: colors.surface,
+    },
+    pickerHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 10,
+    },
+    pickerItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    pickerItemIcon: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      backgroundColor: colors.primary + '15',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 10,
+    },
+    pickerItemName: {
+      fontSize: 14,
+      fontWeight: 'bold',
+      color: colors.text.primary,
+    },
+    pickerItemEmail: {
+      fontSize: 11,
+      color: colors.text.secondary,
+    },
+    emptyPickerText: {
+      textAlign: 'center',
+      padding: 20,
+      color: colors.text.secondary,
+      fontSize: 12,
     }
+  }), [colors, darkMode]);
+
+  const renderUserItem = ({ item }) => {
+    // 🔍 Log temporal para depuración solicitado por el usuario
+    console.log('Rendering user:', JSON.stringify(item, null, 2));
+
+    const userRole = item.Rol || item.rol || item.usertype || item.role || item.UserType || 'Cliente';
+    const isActiveUser = item.Activo !== undefined ? item.Activo : (item['activo?'] !== undefined ? item['activo?'] : (item.active !== undefined ? item.active : true));
+    const displayName = item.NombreUser || item.nombreuser || item.username || 'Usuario';
+    const displayEmail = item.EmailUser || item.emailuser || item.email || '';
+
+    return (
+      <TouchableOpacity onPress={() => handleOpenModal(item)}>
+        <GlassPanel intensity={10} style={styles.userCard}>
+          <View style={styles.userIcon}>
+            <FontAwesome5 
+              name={userRole === 'Admin' ? 'user-shield' : 'user-tie'} 
+              size={20} 
+              color={isActiveUser ? colors.primary : '#999'} 
+            />
+          </View>
+          <View style={styles.userInfo}>
+            <Text style={[styles.userName, { color: colors.text.primary }]}>{displayName}</Text>
+            <Text style={styles.userEmail}>{displayEmail}</Text>
+            <View style={[styles.roleBadge, { backgroundColor: getRoleColor(userRole) }]}>
+              <Text style={styles.roleText}>{userRole}</Text>
+            </View>
+          </View>
+          <FontAwesome5 name="chevron-right" size={12} color="#CCC" />
+        </GlassPanel>
+      </TouchableOpacity>
+    );
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { backgroundColor: colors.primary }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <TouchableOpacity 
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('InicioTab')} 
+          style={styles.backBtn}
+        >
           <FontAwesome5 name="arrow-left" size={20} color="#FFF" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Gestión de Personal</Text>
+        <View>
+          <Text style={styles.headerTitle}>Gestión de Personal</Text>
+          <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10 }}>Total: {users.length} usuarios</Text>
+        </View>
         <TouchableOpacity onPress={syncAllData}>
           <FontAwesome5 name="sync" size={18} color="#FFF" />
         </TouchableOpacity>
       </View>
 
+      <View style={styles.searchContainer}>
+        <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <FontAwesome5 name="search" size={14} color="#999" style={{ marginRight: 10 }} />
+          <TextInput
+            placeholder="Buscar por nombre o email..."
+            placeholderTextColor="#999"
+            style={[styles.searchInput, { color: colors.text.primary }]}
+            value={searchText}
+            onChangeText={setSearchText}
+          />
+          {searchText ? (
+            <TouchableOpacity onPress={() => setSearchText('')}>
+              <FontAwesome5 name="times-circle" size={16} color="#999" />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        
+        <View style={styles.filterTabs}>
+          {['all', 'staff', 'clients'].map((type) => (
+            <TouchableOpacity
+              key={type}
+              style={[
+                styles.filterTab,
+                filterType === type && { backgroundColor: colors.primary, borderColor: colors.primary }
+              ]}
+              onPress={() => setFilterType(type)}
+            >
+              <Text style={[
+                styles.filterTabText,
+                { color: colors.text.secondary },
+                filterType === type && { color: '#FFF' }
+              ]}>
+                {type === 'all' ? 'Todos' : type === 'staff' ? 'Personal' : 'Clientes'}
+              </Text>
+            </TouchableOpacity>
+          ) || null)}
+        </View>
+      </View>
+
       <FlatList
-        data={users}
+        data={filteredUsers}
         renderItem={renderUserItem}
-        keyExtractor={item => `${item.email || ''}-${item.id || ''}`}
+        keyExtractor={(item, index) => {
+          const id = item.id_user || item.ID_User || item.id;
+          return id ? String(id) : `user-${index}`;
+        }}
         contentContainerStyle={styles.list}
         refreshing={isSyncing}
         onRefresh={syncAllData}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <FontAwesome5 name="users-slash" size={40} color={colors.border} />
+            <Text style={[styles.emptyText, { color: colors.text.secondary }]}>
+              {searchText ? 'Sin resultados para la búsqueda' : 'No hay personal registrado'}
+            </Text>
+          </View>
+        }
       />
 
       <TouchableOpacity 
@@ -157,6 +535,16 @@ const AdminStaffScreen = ({ navigation }) => {
               {editingUser ? 'Editar Empleado' : 'Nuevo Empleado'}
             </Text>
             
+            {!editingUser && (
+              <TouchableOpacity 
+                style={[styles.pickUserBtn, { borderColor: colors.primary }]}
+                onPress={() => setIsPickerVisible(true)}
+              >
+                <FontAwesome5 name="users" size={14} color={colors.primary} style={{ marginRight: 8 }} />
+                <Text style={{ color: colors.primary, fontWeight: 'bold' }}>Seleccionar de Usuarios Registrados</Text>
+              </TouchableOpacity>
+            )}
+
             <TextInput
               style={[styles.input, { color: colors.text.primary, borderColor: colors.border }]}
               placeholder="Nombre Completo"
@@ -190,7 +578,7 @@ const AdminStaffScreen = ({ navigation }) => {
                 >
                   <Text style={[styles.roleOptionText, role === r && { color: '#FFF' }]}>{r}</Text>
                 </TouchableOpacity>
-              ))}
+              ) || null)}
             </View>
 
             <View style={styles.switchRow}>
@@ -199,6 +587,15 @@ const AdminStaffScreen = ({ navigation }) => {
             </View>
 
             <View style={styles.modalActions}>
+              {editingUser && editingUser.role !== 'Cliente' && (
+                <TouchableOpacity 
+                  style={[styles.modalBtn, { backgroundColor: '#FFEEED', flex: 0.3 }]}
+                  onPress={handleDelete}
+                  disabled={isSaving}
+                >
+                  <FontAwesome5 name="user-minus" size={14} color="#E63946" />
+                </TouchableOpacity>
+              )}
               <TouchableOpacity 
                 style={[styles.modalBtn, { backgroundColor: colors.border }]}
                 onPress={() => setIsModalVisible(false)}
@@ -216,101 +613,63 @@ const AdminStaffScreen = ({ navigation }) => {
           </GlassPanel>
         </View>
       </Modal>
+
+      {/* Picker Modal for Registered Users */}
+      <Modal visible={isPickerVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <GlassPanel intensity={50} style={styles.pickerContent}>
+            <View style={styles.pickerHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text.primary, marginBottom: 0 }]}>Seleccionar Usuario</Text>
+              <TouchableOpacity onPress={() => { setIsPickerVisible(false); setPickerSearch(''); }}>
+                <FontAwesome5 name="times" size={20} color={colors.text.secondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.border, marginVertical: 15 }]}>
+              <FontAwesome5 name="search" size={12} color="#999" style={{ marginRight: 8 }} />
+              <TextInput
+                placeholder="Buscar usuario..."
+                placeholderTextColor="#999"
+                style={[styles.searchInput, { color: colors.text.primary, fontSize: 14 }]}
+                value={pickerSearch}
+                onChangeText={setPickerSearch}
+              />
+            </View>
+
+            <FlatList
+              data={registeredClients}
+              keyExtractor={(item, index) => {
+                const id = item.id_user || item.ID_User || item.id;
+                return id ? `picker-${id}` : `picker-${index}`;
+              }}
+              style={{ maxHeight: 300 }}
+              renderItem={({ item }) => {
+                const displayName = item.nombreuser || item.NombreUser || item.username || 'Usuario';
+                const displayEmail = item.emailuser || item.EmailUser || item.email || '';
+                return (
+                  <TouchableOpacity 
+                    style={styles.pickerItem}
+                    onPress={() => handleSelectFromRegistered(item)}
+                  >
+                    <View style={styles.pickerItemIcon}>
+                      <FontAwesome5 name="user" size={14} color={colors.primary} />
+                    </View>
+                    <View>
+                      <Text style={[styles.pickerItemName, { color: colors.text.primary }]}>{displayName}</Text>
+                      <Text style={styles.pickerItemEmail}>{displayEmail}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              }}
+              ListEmptyComponent={
+                <Text style={styles.emptyPickerText}>No se encontraron usuarios registrados.</Text>
+              }
+            />
+          </GlassPanel>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
-    paddingTop: spacing.lg,
-    justifyContent: 'space-between',
-  },
-  headerTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
-  backBtn: { padding: 5 },
-  list: { padding: spacing.md, paddingBottom: 100 },
-  userCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
-    borderRadius: 15,
-    marginBottom: spacing.md,
-  },
-  userIcon: {
-    width: 45,
-    height: 45,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: spacing.md,
-  },
-  userInfo: { flex: 1 },
-  userName: { fontSize: 16, fontWeight: 'bold' },
-  userEmail: { fontSize: 12, color: '#999', marginBottom: 5 },
-  roleBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  roleText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
-  fab: {
-    position: 'absolute',
-    bottom: 30,
-    right: 30,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 8,
-    ...shadows.medium,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    padding: spacing.lg,
-  },
-  modalContent: {
-    padding: spacing.lg,
-    borderRadius: 25,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-  },
-  modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
-  input: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 15,
-  },
-  label: { fontSize: 14, marginBottom: 10 },
-  rolesContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
-  roleOption: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  roleOptionText: { fontSize: 12 },
-  switchRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  modalActions: { flexDirection: 'row', gap: 10 },
-  modalBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-  }
-});
 
 export default AdminStaffScreen;

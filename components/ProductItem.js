@@ -1,5 +1,5 @@
 // Product Item Component - DSicario Branding
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,9 +10,8 @@ import {
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-// import ProductBadges from './ProductBadges'; // Eliminado por limpieza de componentes huérfanos
-import { useGlobalStyles } from '../hooks/useGlobalStyles';
 import { useCart } from '../contexts/AppContext';
+import { useUser } from '../contexts/UserContext';
 import { formatPrice, calculateDiscountedPrice } from '../utils/api';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
@@ -34,21 +33,17 @@ const ProductItem = memo(({
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const { cart, addToCart, updateCartItemQuantity } = useCart();
+  const { role, isClientMode } = useUser(); // 🛡️ Seguridad
   
   const originalPrice = parseFloat(product.precio) || 0;
   const finalPrice = product.descuento > 0 
     ? calculateDiscountedPrice(originalPrice, product.descuento)
     : originalPrice;
 
-  const handlePress = () => {
-    if (product.agotado) return;
-    onPress?.(product);
-  };
+  // 🛡️ Determinamos si este usuario tiene permiso para comprar
+  const canPurchase = isClientMode || role === 'Cliente' || role === 'Admin';
 
-  const styles = StyleSheet.create({
-    /* =========================================
-       GRILLA (EXPLORAR) - Adaptativo en Columnas
-       ========================================= */
+  const styles = useMemo(() => StyleSheet.create({
     gridCard: {
       flex: 1,
       backgroundColor: colors.surface,
@@ -63,10 +58,6 @@ const ProductItem = memo(({
       aspectRatio: 1,
       position: 'relative',
     },
-
-    /* =========================================
-       CARRUSEL (INICIO) - Tamaos estrictos fijos
-       ========================================= */
     compactCard: {
       width: 180,
       marginRight: spacing.md,
@@ -77,13 +68,9 @@ const ProductItem = memo(({
     },
     compactImageContainer: {
       width: 180,
-      height: 180, // Explicit height solves horizontal flex collapse
+      height: 180, 
       position: 'relative',
     },
-
-    /* =========================================
-       ESTILOS COMPARTIDOS
-       ========================================= */
     image: {
       width: '100%',
       height: '100%',
@@ -102,16 +89,8 @@ const ProductItem = memo(({
       ...typography.bodyMedium,
       fontWeight: 'bold',
       color: '#FFFFFF',
-      textShadowColor: 'rgba(0, 0, 0, 0.75)',
-      textShadowOffset: { width: 0, height: 1 },
-      textShadowRadius: 3,
+      textShadow: '0px 1px 3px rgba(0, 0, 0, 0.75)',
       lineHeight: 20,
-    },
-    topLeftBadges: {
-      position: 'absolute',
-      top: 6,
-      left: 6,
-      zIndex: 10,
     },
     topRightBadge: {
       position: 'absolute',
@@ -131,12 +110,8 @@ const ProductItem = memo(({
       color: '#FFFFFF',
       marginLeft: 4,
     },
-    outOfStockContainer: {
-      opacity: 0.8,
-    },
-    outOfStockImage: {
-      opacity: 0.5,
-    },
+    outOfStockContainer: { opacity: 0.8 },
+    outOfStockImage: { opacity: 0.5 },
     outOfStockOverlay: {
       position: 'absolute',
       ...StyleSheet.absoluteFillObject,
@@ -145,9 +120,7 @@ const ProductItem = memo(({
       alignItems: 'center',
       zIndex: 2,
     },
-    outOfStockText: {
-      color: '#DDDDDD',
-    },
+    outOfStockText: { color: '#DDDDDD' },
     infoContainer: {
       padding: spacing.sm,
       paddingTop: spacing.xs,
@@ -171,7 +144,7 @@ const ProductItem = memo(({
     priceContainer: {
       flexDirection: 'row',
       alignItems: 'baseline',
-      height: 24, // Fix height so all cards align nicely
+      height: 24, 
     },
     priceText: {
       fontSize: 18,
@@ -193,9 +166,28 @@ const ProductItem = memo(({
       fontWeight: '900',
       letterSpacing: -0.5,
     },
-  });
+    quickAddBtn: {
+      position: 'absolute',
+      bottom: 12,
+      right: 12,
+      backgroundColor: colors.primary,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 30,
+      ...shadows.medium,
+      borderWidth: 1.5,
+      borderColor: 'rgba(255,255,255,0.3)',
+    }
+  }), [colors, darkMode]);
 
-  // Reusable blocks for both layouts
+  const handlePress = () => {
+    if (product.agotado) return;
+    onPress?.(product);
+  };
+
   const renderSharedImageContent = () => (
     <>
       <Image 
@@ -206,14 +198,7 @@ const ProductItem = memo(({
           product.agotado && styles.outOfStockImage,
           !product.imagen && { opacity: 0.8 }
         ]}
-        defaultSource={placeholderSource || { uri: 'https://picsum.photos/300/200?random=999' }}
       />
-      {/* Badges eliminados por limpieza de componentes huérfanos */}
-      {/* {showBadges && (
-        <View style={styles.topLeftBadges}>
-          <ProductBadges product={product} size="micro" maxBadges={3} />
-        </View>
-      )} */}
       {showRating && product.rating > 0 && (
         <View style={styles.topRightBadge}>
           <FontAwesome5 name="star" size={8} color={colors.accent} solid />
@@ -230,31 +215,20 @@ const ProductItem = memo(({
           {product.nombre}
         </Text>
       </LinearGradient>
-      {!product.agotado && (
+      {!product.agotado && canPurchase && (
         <TouchableOpacity 
-          style={{
-            position: 'absolute',
-            bottom: 8,
-            right: 8,
-            backgroundColor: colors.primary,
-            width: 32,
-            height: 32,
-            borderRadius: 16,
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 20,
-            ...shadows.medium,
-          }}
+          style={styles.quickAddBtn}
           onPress={(e) => {
             if (e && e.stopPropagation) e.stopPropagation();
-            const cartItem = cart?.find(item => item.id === product.id);
-            if (cartItem) {
-              updateCartItemQuantity(product.id, cartItem.quantity + 1);
+            // 🛡️ Siempre permitimos añadir al carrito si tiene permiso
+            const currentQuantity = cart?.find(item => item.id === product.id)?.quantity || 0;
+            if (currentQuantity > 0) {
+              updateCartItemQuantity(product.id, currentQuantity + 1);
             } else {
               addToCart(product);
             }
           }}
-          activeOpacity={0.8}
+          activeOpacity={0.7}
         >
           <FontAwesome5 name="plus" size={14} color="#FFF" />
         </TouchableOpacity>
@@ -299,7 +273,6 @@ const ProductItem = memo(({
     </View>
   );
 
-  /* Layout 1: Carrusel Horizontal (Inicio) */
   if (compact) {
     return (
       <TouchableOpacity
@@ -316,7 +289,6 @@ const ProductItem = memo(({
     );
   }
 
-  /* Layout 2: Grilla Flexible (Explorar) */
   return (
     <TouchableOpacity
       style={[styles.gridCard, product.agotado && styles.outOfStockContainer, style]}

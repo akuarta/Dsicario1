@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   View,
   Text, 
@@ -8,592 +8,312 @@ import {
   ScrollView,
   SafeAreaView,
   Alert,
-  TextInput
+  TextInput,
+  Dimensions
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { Button } from 'react-native-elements';
 import { useCart, useProducts } from '../contexts/AppContext';
 import { useUser } from '../contexts/UserContext';
 import ProductItem from '../components/ProductItem';
-import globalStyles from '../styles/globalStyles';
-import theme from '../theme';
 import { showAlert } from '../utils/showAlert';
-import { showConfirm } from '../utils/showConfirm';
 import { formatPrice, calculateDiscountedPrice, submitReview, fetchReviews } from '../utils/api';
 import ProductBadges from '../components/ProductBadges';
 import { CustomHeader } from '../components/CustomHeader';
-import { AirbnbRating } from '@rneui/themed';
+import GlassPanel from '../components/GlassPanel';
+import { useThemeMode } from '../contexts/ThemeContext';
+import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 
-const { colors, spacing, typography, borders } = theme;
+const { width } = Dimensions.get('window');
+
+const SimpleRating = ({ defaultRating = 5, onFinishRating, isDisabled = false, size = 20, selectedColor = '#f1c40f' }) => {
+  const [rating, setRating] = useState(defaultRating);
+
+  const handlePress = (idx) => {
+    if (isDisabled) return;
+    setRating(idx);
+    if (onFinishRating) onFinishRating(idx);
+  };
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      {[1, 2, 3, 4, 5].map((star) => (
+        <TouchableOpacity 
+          key={star} 
+          disabled={isDisabled} 
+          onPress={() => handlePress(star)}
+          activeOpacity={isDisabled ? 1 : 0.7}
+          style={{ paddingHorizontal: 2 }}
+        >
+          <FontAwesome5 
+            name="star" 
+            solid={star <= rating} 
+            size={size} 
+            color={star <= rating ? selectedColor : '#DDDDDD'} 
+          />
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+};
 
 const ProductDetailScreen = ({ navigation, route }) => {
+  const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
   const { product } = route.params;
   const { addToCart } = useCart();
   const { products } = useProducts();
-  const { username, email } = useUser();
+  const { username, email, isClientMode } = useUser();
   
   const [quantity, setQuantity] = useState(1);
   const [subtotal, setSubtotal] = useState(0);
-  // Nota privada para cocina (va al carrito)
   const [kitchenNote, setKitchenNote] = useState('');
-  // Reseña pública (se guarda en Google Sheets)
   const [reviewText, setReviewText] = useState('');
   const [reviewRating, setReviewRating] = useState(5);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [submittedReview, setSubmittedReview] = useState(null);
-  // Reseñas públicas cargadas desde Sheets
   const [publicReviews, setPublicReviews] = useState([]);
 
-  const suggestedProducts = React.useMemo(() => {
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    scrollContent: { paddingBottom: 160 },
+    fixedFooter: { 
+      backgroundColor: colors.surface, 
+      paddingHorizontal: spacing.md, 
+      paddingTop: spacing.sm, 
+      paddingBottom: spacing.lg, 
+      borderTopWidth: 1, 
+      borderTopColor: colors.border,
+      elevation: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -5 },
+      shadowOpacity: 0.2,
+      shadowRadius: 10,
+    },
+    imageContainer: { position: 'relative', height: 300, backgroundColor: colors.surface },
+    productImage: { width: '100%', height: '100%' },
+    imageOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 120, justifyContent: 'flex-end', padding: spacing.md },
+    priceOverlay: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    subtotalOverlay: { fontSize: 24, fontWeight: 'bold', color: colors.primary },
+    contentContainer: { padding: spacing.md },
+    productTitle: { fontSize: 28, fontWeight: 'bold', color: colors.text.primary, marginBottom: spacing.xs },
+    categoryText: { fontSize: 12, fontWeight: 'bold', color: colors.primary, textTransform: 'uppercase', letterSpacing: 1 },
+    priceText: { fontSize: 24, fontWeight: 'bold', color: colors.success },
+    originalPrice: { fontSize: 16, textDecorationLine: 'line-through', color: colors.text.disabled, marginRight: 10 },
+    sectionTitle: { fontSize: 18, fontWeight: 'bold', color: colors.text.primary, marginTop: spacing.lg, marginBottom: spacing.sm },
+    descriptionText: { fontSize: 15, color: colors.text.secondary, lineHeight: 22 },
+    noteInput: { backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 15, padding: 15, color: colors.text.primary, minHeight: 60, textAlignVertical: 'top' },
+    quantityControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginVertical: spacing.md },
+    quantityBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' },
+    quantityText: { fontSize: 22, fontWeight: 'bold', color: colors.text.primary, marginHorizontal: 30 },
+    addToCartBtn: { backgroundColor: colors.primary, height: 55, borderRadius: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: spacing.md },
+    addToCartText: { color: '#FFF', fontSize: 18, fontWeight: 'bold', marginLeft: 10 },
+    reviewCard: { backgroundColor: colors.background, padding: 15, borderRadius: 15, borderWidth: 1, borderColor: colors.border, marginBottom: 10 },
+    reviewUser: { fontWeight: 'bold', color: colors.text.primary, fontSize: 14 },
+    reviewComment: { color: colors.text.secondary, fontStyle: 'italic', marginTop: 5 },
+    reviewDate: { fontSize: 10, color: colors.text.disabled, marginTop: 5 }
+  }), [colors, darkMode]);
+
+  const suggestedProducts = useMemo(() => {
     if (!products) return [];
     const currentId = product.id || product.ID_Producto || product.id_producto;
-    return products
-      .filter(p => {
-        const pId = p.id || p.ID_Producto || p.id_producto;
-        return p.categoria === product.categoria && pId !== currentId;
-      })
-      .slice(0, 3);
+    return products.filter(p => (p.id || p.ID_Producto || p.id_producto) !== currentId && p.categoria === product.categoria).slice(0, 4);
   }, [products, product]);
 
-  // Cargar reseñas públicas al montar
   useEffect(() => {
     const productId = product.id || product.ID_Producto || product.id_producto;
     if (productId) {
-      fetchReviews(productId)
-        .then(setPublicReviews)
-        .catch(() => setPublicReviews([]));
+      fetchReviews(productId).then(setPublicReviews).catch(() => setPublicReviews([]));
     }
   }, [product]);
 
-  // 🎨 ESTADOS PARA LÓGICA TRICOLOR (ROJO -> GRIS -> NARANJA)
-  const [lastAddedValues, setLastAddedValues] = useState({ quantity: 0, note: null });
-  const [hasAddedOnce, setHasAddedOnce] = useState(false);
+  const finalPrice = product.descuento > 0 ? calculateDiscountedPrice(product.precio, product.descuento) : product.precio;
 
-  const originalPrice = parseFloat(product.precio || 0);
-  const finalPrice = product.descuento > 0 
-    ? calculateDiscountedPrice(originalPrice, product.descuento)
-    : originalPrice;
-
-  // Calcular subtotal cuando cambie la cantidad
   useEffect(() => {
     setSubtotal(finalPrice * quantity);
   }, [quantity, finalPrice]);
 
-  // Determinar estado actual de la acción
-  const isMatchWithLastAdded = hasAddedOnce && 
-                               quantity === lastAddedValues.quantity && 
-                               kitchenNote === lastAddedValues.note;
-  
-  const isUpdateMode = hasAddedOnce && !isMatchWithLastAdded;
-
-  // Incrementar cantidad
-  const incrementQuantity = useCallback(() => {
-    setQuantity(prev => prev + 1);
-  }, []);
-
-  // Decrementar cantidad
-  const decrementQuantity = useCallback(() => {
-    setQuantity(prev => prev > 1 ? prev - 1 : 1);
-  }, []);
-
-  // Agregar al carrito (usa kitchenNote, NO la reseña)
   const handleAddToCart = useCallback(() => {
-    const productWithQuantity = { 
-      ...product, 
-      quantity,
-      subtotal,
-      orderNote: kitchenNote, // Nota privada de cocina
-    };
+    console.log(`[🛒 AÑADIR AL CARRITO] Botón presionado para: ${product.nombre}`);
+    console.log(`- ID Producto: ${product.id || product.ID_Producto}`);
+    console.log(`- Cantidad Seleccionada: ${quantity}`);
+    console.log(`- Precio Unitario: $${finalPrice}`);
+    console.log(`- Subtotal a registrar: $${subtotal}`);
     
-    addToCart(productWithQuantity);
-    
-    setLastAddedValues({ quantity, note: kitchenNote });
-    setHasAddedOnce(true);
-    
-    showAlert(
-      isUpdateMode ? 'Pedido actualizado' : 'Producto agregado',
-      `${product.nombre} ha sido ${isUpdateMode ? 'actualizado' : 'agregado'} en el carrito`,
-      [
-        { text: 'Seguir comprando', style: 'cancel' },
-        { 
-          text: 'Ver carrito', 
-          onPress: () => navigation.navigate('Carrito')
-        }
-      ]
-    );
-  }, [product, quantity, subtotal, kitchenNote, addToCart, navigation, isUpdateMode]);
+    addToCart({ ...product, quantity, subtotal, orderNote: kitchenNote });
+    showAlert('¡Listo!', `${product.nombre} se agregó al carrito.`);
+  }, [product, quantity, subtotal, kitchenNote, addToCart, finalPrice]);
 
-  // Enviar reseña pública a Google Sheets
-  const handleSubmitReview = useCallback(async () => {
-    if (reviewText.trim() === '') return;
+  const handleSubmitReview = async () => {
+    if (!reviewText.trim()) return;
     setIsSubmittingReview(true);
     try {
-      const productId = product.id || product.ID_Producto || product.id_producto;
       await submitReview({
-        productId,
+        productId: product.id || product.ID_Producto,
         productName: product.nombre,
         rating: reviewRating,
         comment: reviewText.trim(),
         userName: username,
-        userEmail: email,
+        userEmail: email
       });
-      const saved = { note: reviewText, rating: reviewRating, userName: username };
-      setSubmittedReview(saved);
-      setPublicReviews(prev => [{
-        ID_Producto: String(productId),
-        Comentario: reviewText.trim(),
-        Calificacion: reviewRating,
-        Usuario: username,
-        Fecha: new Date().toLocaleDateString('es-DO'),
-      }, ...prev]);
+      setSubmittedReview({ note: reviewText, rating: reviewRating });
       setReviewText('');
     } catch (e) {
-      showAlert('Error', 'No se pudo guardar la reseña. Inténtalo de nuevo.');
+      Alert.alert('Error', 'No se pudo enviar la reseña');
     } finally {
       setIsSubmittingReview(false);
     }
-  }, [reviewText, reviewRating, product, username, email]);
+  };
+
   return (
-    <SafeAreaView style={globalStyles.container}>
-      <CustomHeader title="Detalles del Producto" showBack={true} />
-      
-      <ScrollView style={styles.scrollHeight} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* Imagen del producto */}
+    <SafeAreaView style={styles.container}>
+      <CustomHeader title={product.nombre} showBack={true} />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <View style={styles.imageContainer}>
-          <Image 
-            source={{ uri: product.imagen }} 
-            style={styles.productImage}
-            resizeMode="cover"
-          />
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.7)']}
-            style={styles.imageOverlay}
-          >
+          <Image source={{ uri: product.imagen }} style={styles.productImage} />
+          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.imageOverlay}>
             <View style={styles.priceOverlay}>
-              <Text style={styles.quantityOverlay}>
-                Cantidad: {quantity}
-              </Text>
-              <Text style={styles.subtotalOverlay}>
-                RD${subtotal.toFixed(2)}
-              </Text>
+              <Text style={{ color: '#FFF' }}>{quantity} unidad(es)</Text>
+              <Text style={styles.subtotalOverlay}>RD${subtotal.toFixed(2)}</Text>
             </View>
           </LinearGradient>
         </View>
 
-        {/* Información del producto */}
         <View style={styles.contentContainer}>
-          <View style={styles.headerInfo}>
-            <View style={styles.categoryRow}>
-              <Text style={styles.categoryText}>
-                {product.categoria}
-              </Text>
-              {product.subcategoria ? (
-                <Text style={[styles.categoryText, { color: colors.text.secondary, marginLeft: spacing.sm }]}>
-                  • {product.subcategoria}
-                </Text>
-              ) : null}
-            </View>
-            <Text style={styles.productTitle}>
-              {product.nombre}
-            </Text>
-            
-            <View style={styles.priceContainer}>
-              {product.descuento > 0 ? (
-                <View style={styles.discountPriceContainer}>
-                  <Text style={[styles.originalPrice, { color: colors.text.light }]}>
-                    {formatPrice(originalPrice)}
-                  </Text>
-                  <Text style={[styles.priceText, { color: colors.error }]}>
-                    {formatPrice(finalPrice)}
-                  </Text>
-                </View>
-              ) : (
-                <Text style={styles.priceText}>
-                  {formatPrice(finalPrice)}
-                </Text>
-              )}
-            </View>
-            <View style={{ marginTop: spacing.sm, alignItems: 'center' }}>
-              <ProductBadges product={product} size="large" />
+          <Text style={styles.categoryText}>{product.categoria}</Text>
+          <Text style={styles.productTitle}>{product.nombre}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 15 }}>
+            {product.descuento > 0 && <Text style={styles.originalPrice}>{formatPrice(product.precio)}</Text>}
+            <Text style={styles.priceText}>{formatPrice(finalPrice)}</Text>
+          </View>
+          
+          <ProductBadges product={product} size="large" />
+
+          <Text style={styles.sectionTitle}>Descripción</Text>
+          <Text style={styles.descriptionText}>{product.descripcion || 'Sin descripción disponible.'}</Text>
+
+          <Text style={styles.sectionTitle}>Instrucciones Especiales</Text>
+          <TextInput 
+            style={styles.noteInput} 
+            placeholder="Ej: Sin cebolla, término medio..." 
+            placeholderTextColor={colors.text.disabled} 
+            value={kitchenNote} 
+            onChangeText={setKitchenNote} 
+            multiline 
+          />
+
+          <View style={styles.quantitySection}>
+            <Text style={styles.sectionTitle}>Seleccionar Cantidad</Text>
+            <View style={styles.quantityControls}>
+              <TouchableOpacity style={styles.quantityBtn} onPress={() => {
+                console.log(`[-] Disminuyendo cantidad de ${quantity} a ${quantity > 1 ? quantity - 1 : 1}`);
+                setQuantity(q => q > 1 ? q - 1 : 1);
+              }}>
+                <FontAwesome5 name="minus" size={16} color="#FFF" />
+              </TouchableOpacity>
+              <Text style={styles.quantityText}>{quantity}</Text>
+              <TouchableOpacity style={styles.quantityBtn} onPress={() => {
+                console.log(`[+] Aumentando cantidad de ${quantity} a ${quantity + 1}`);
+                setQuantity(q => q + 1);
+              }}>
+                <FontAwesome5 name="plus" size={16} color="#FFF" />
+              </TouchableOpacity>
             </View>
           </View>
 
-          {/* Descripción */}
-          {product.descripcion && (
-            <View style={styles.descriptionContainer}>
-              <Text style={styles.sectionTitle}>Descripción</Text>
-              <Text style={styles.descriptionText}>
-                {product.descripcion}
-              </Text>
+          <Text style={styles.sectionTitle}>Reseñas ({publicReviews.length})</Text>
+          {publicReviews.length === 0 ? (
+            <Text style={{ color: colors.text.disabled, fontStyle: 'italic' }}>Aún no hay reseñas para este producto.</Text>
+          ) : (
+            publicReviews.map((rev, i) => (
+              <View key={i} style={styles.reviewCard}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={styles.reviewUser}>{rev.Usuario || 'Cliente'}</Text>
+                  <SimpleRating isDisabled defaultRating={Number(rev.Calificacion || 5)} size={12} selectedColor={colors.warning} />
+                </View>
+                <Text style={styles.reviewComment}>"{rev.Comentario}"</Text>
+                <Text style={styles.reviewDate}>{rev.Fecha}</Text>
+              </View>
+            ))
+          )}
+
+          {isClientMode && !submittedReview && (
+            <View style={{ marginTop: 20, backgroundColor: colors.background, padding: 15, borderRadius: 15, borderWidth: 1, borderColor: colors.border }}>
+              <Text style={[styles.sectionTitle, { fontSize: 16, marginBottom: 10 }]}>Escribe tu Reseña</Text>
+              <SimpleRating defaultRating={5} size={25} onFinishRating={setReviewRating} selectedColor={colors.warning} />
+              <View style={{ flexDirection: 'row', marginTop: 15 }}>
+                <TextInput style={[styles.noteInput, { flex: 1, minHeight: 50 }]} placeholder="¿Qué te pareció este producto?" placeholderTextColor={colors.text.disabled} value={reviewText} onChangeText={setReviewText} />
+                <TouchableOpacity style={[styles.quantityBtn, { marginLeft: 10, width: 50, height: 50, opacity: reviewText.trim() ? 1 : 0.5 }]} disabled={!reviewText.trim() || isSubmittingReview} onPress={handleSubmitReview}>
+                  <FontAwesome5 name="paper-plane" size={16} color="#FFF" />
+                </TouchableOpacity>
+              </View>
             </View>
           )}
 
-          {/* Control de cantidad */}
-          <View style={styles.quantitySection}>
-            <Text style={styles.sectionTitle}>Cantidad</Text>
-            <View style={styles.quantityControls}>
-              <TouchableOpacity 
-                style={styles.quantityButton}
-                onPress={decrementQuantity}
-                activeOpacity={0.7}
-              >
-                <FontAwesome5 name="minus" size={16} color={colors.text.white} />
-              </TouchableOpacity>
-              
-              <View style={styles.quantityDisplay}>
-                <Text style={styles.quantityText}>{quantity}</Text>
-              </View>
-              
-              <TouchableOpacity 
-                style={[styles.quantityButton, styles.incrementButton]}
-                onPress={incrementQuantity}
-                activeOpacity={0.7}
-              >
-                <FontAwesome5 name="plus" size={16} color={colors.text.white} />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Sección: Reseñas Públicas */}
-          <View style={{ marginTop: spacing.md }}>
-            <Text style={styles.sectionTitle}>Reseñas del Producto</Text>
-
-            {/* Reseñas cargadas */}
-            {publicReviews.length === 0 ? (
-              <Text style={{ color: colors.text.light, fontStyle: 'italic', marginBottom: spacing.sm }}>
-                Aún no hay reseñas. ¡Sé el primero!
-              </Text>
-            ) : (
-              publicReviews.slice(0, 5).map((rev, i) => (
-                <View key={i} style={{ backgroundColor: colors.surface, padding: spacing.md, borderRadius: borders.radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
-                    <Text style={{ fontWeight: 'bold', color: colors.text.primary }}>{rev.Usuario || rev.usuario || 'Anónimo'}</Text>
-                    <AirbnbRating isDisabled showRating={false} defaultRating={Number(rev.Calificacion || rev.calificacion || 5)} size={12} selectedColor={colors.warning} />
-                  </View>
-                  <Text style={{ color: colors.text.secondary, fontStyle: 'italic' }}>"{rev.Comentario || rev.comentario}"</Text>
-                  {rev.Fecha ? <Text style={{ color: colors.text.light, fontSize: 11, marginTop: 4 }}>{rev.Fecha}</Text> : null}
-                </View>
-              ))
-            )}
-
-            {/* Mi reseña enviada (preview) */}
-            {submittedReview && (
-              <View style={{ backgroundColor: colors.surface, padding: spacing.md, borderRadius: borders.radius.md, borderWidth: 1, borderColor: colors.primary, marginBottom: spacing.sm }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
-                  <Text style={{ fontWeight: 'bold', color: colors.primary }}>✓ Tu reseña fue enviada</Text>
-                  <AirbnbRating isDisabled showRating={false} defaultRating={submittedReview.rating} size={12} selectedColor={colors.warning} />
-                </View>
-                <Text style={{ color: colors.text.secondary, fontStyle: 'italic' }}>"{submittedReview.note}"</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Productos Sugeridos */}
           {suggestedProducts.length > 0 && (
-            <View style={{ marginTop: spacing.xl, marginBottom: spacing.md }}>
+            <View style={{ marginTop: spacing.xl }}>
               <Text style={styles.sectionTitle}>También te podría gustar</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: spacing.sm, paddingHorizontal: 2 }}>
-                {suggestedProducts.map(p => (
-                  <View key={p.id || p.ID_Producto} style={{ width: 160, marginRight: spacing.md }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -spacing.md }} contentContainerStyle={{ paddingHorizontal: spacing.md }}>
+                {suggestedProducts.map((p, i) => (
+                  <View key={i} style={{ width: 160, marginRight: 15 }}>
                     <ProductItem
                       product={p}
                       compact={true}
-                      onPress={() => navigation.push('ProductDetail', { product: p })}
+                      showCategory={false}
+                      onPress={(prod) => navigation.push('ProductDetail', { product: prod })}
                     />
                   </View>
                 ))}
               </ScrollView>
             </View>
           )}
-
         </View>
       </ScrollView>
 
-      {/* Caja Fija: Reseña Pública + Nota de Cocina + Botón */}
-      <View style={styles.fixedFooter}>
-
-        {/* --- Reseña Pública --- */}
-        {!submittedReview && (
-          <View>
-            <View style={styles.ratingContainer}>
-              <Text style={styles.ratingLabel}>Califica este producto</Text>
-              <AirbnbRating
-                count={5}
-                defaultRating={reviewRating}
-                size={20}
-                showRating={false}
-                onFinishRating={setReviewRating}
-                selectedColor={colors.warning}
-                unSelectedColor={colors.border}
-              />
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm }}>
-              <TextInput
-                style={[styles.noteInput, { flex: 1, marginBottom: 0 }]}
-                placeholder="Reseña pública: ¿Cómo estuvo? (lo verán todos)"
-                placeholderTextColor={colors.text.light}
-                value={reviewText}
-                onChangeText={setReviewText}
-                multiline
-                numberOfLines={2}
-              />
-              <TouchableOpacity 
-                style={{ padding: spacing.md, paddingHorizontal: 18, marginLeft: spacing.sm, backgroundColor: colors.primary, borderRadius: borders.radius.md, flexDirection: 'row', alignItems: 'center', opacity: reviewText.trim() !== '' && !isSubmittingReview ? 1 : 0.5 }}
-                onPress={handleSubmitReview}
-                disabled={reviewText.trim() === '' || isSubmittingReview}
-              >
-                <FontAwesome5 name={isSubmittingReview ? 'spinner' : 'paper-plane'} size={14} color="#FFF" />
-              </TouchableOpacity>
-            </View>
+      <GlassPanel intensity={30} style={styles.fixedFooter}>
+        {/* 🛒 Botón exclusivo para Clientes, Modo Cliente o el ADMIN */}
+        {(isClientMode || role === 'Cliente' || role === 'Admin') ? (
+          <TouchableOpacity 
+            activeOpacity={0.8}
+            onPress={handleAddToCart}
+            style={{ 
+              shadowColor: colors.primary, 
+              shadowOffset: { width: 0, height: 5 }, 
+              shadowOpacity: 0.4, 
+              shadowRadius: 10, 
+              elevation: 8 
+            }}
+          >
+            <LinearGradient
+              colors={[colors.primary, colors.primary + 'DD']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[styles.addToCartBtn, { marginTop: 0 }]}
+            >
+              <FontAwesome5 name="shopping-cart" size={20} color="#FFF" style={{ marginRight: 8 }} />
+              <Text style={[styles.addToCartText, { flex: 1 }]}>Agregar</Text>
+              <View style={{ 
+                backgroundColor: 'rgba(255,255,255,0.25)', 
+                paddingHorizontal: 16, 
+                paddingVertical: 8, 
+                borderRadius: 14 
+              }}>
+                <Text style={{ color: '#FFF', fontWeight: '900', fontSize: 16 }}>
+                  ${subtotal.toFixed(2)}
+                </Text>
+              </View>
+            </LinearGradient>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ alignItems: 'center', paddingVertical: 10 }}>
+            <Text style={{ color: colors.text.secondary, fontWeight: 'bold' }}>
+              Modo Personal: Consulta de Productos
+            </Text>
           </View>
         )}
-
-        {/* --- Botón Agregar al Carrito --- */}
-        <TouchableOpacity 
-          style={[
-            styles.addToCartButton,
-            isMatchWithLastAdded && { backgroundColor: '#999' },
-            isUpdateMode && { backgroundColor: '#FFA500' }
-          ]}
-          onPress={handleAddToCart}
-          activeOpacity={0.8}
-          disabled={isMatchWithLastAdded}
-        >
-          <FontAwesome5 
-            name={isMatchWithLastAdded ? "check-circle" : (isUpdateMode ? "sync-alt" : "shopping-cart")} 
-            size={20} 
-            color={colors.text.white} 
-          />
-          <Text style={styles.addToCartText}>
-            {isMatchWithLastAdded ? 'Agregado' : (isUpdateMode ? 'Actualizar pedido' : 'Agregar al Carrito')}
-          </Text>
-        </TouchableOpacity>
-      </View>
+      </GlassPanel>
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  scrollHeight: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 160, // Espacio extra para que el scroll llegue al final sin que el footer tape el contenido
-  },
-  fixedFooter: {
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-  },
-  
-  imageContainer: {
-    position: 'relative',
-    height: 250,
-    backgroundColor: colors.surface,
-  },
-  
-  productImage: {
-    width: '100%',
-    height: '100%',
-  },
-  
-  imageOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 80,
-    justifyContent: 'flex-end',
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-  },
-  
-  priceOverlay: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  
-  quantityOverlay: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.medium,
-    color: colors.text.white,
-  },
-  
-  subtotalOverlay: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
-    color: colors.accent,
-  },
-  
-  contentContainer: {
-    padding: spacing.md,
-    paddingBottom: 150, // Espacio para la caja fija
-  },
-  
-  headerInfo: {
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  
-  categoryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
-  },
-  
-  categoryText: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.medium,
-    color: colors.primary,
-    textTransform: 'uppercase',
-  },
-  
-  productTitle: {
-    fontSize: typography.sizes.xxl,
-    fontWeight: typography.weights.bold,
-    color: colors.text.primary,
-    textAlign: 'center',
-    marginBottom: spacing.sm,
-  },
-  
-  priceContainer: {
-    alignItems: 'center',
-    marginVertical: spacing.xs,
-  },
-  
-  discountPriceContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  
-  originalPrice: {
-    fontSize: typography.sizes.md,
-    textDecorationLine: 'line-through',
-    marginRight: spacing.sm,
-    fontWeight: typography.weights.medium,
-  },
-  
-  priceText: {
-    fontSize: typography.sizes.xl,
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
-  },
-  
-  descriptionContainer: {
-    marginBottom: spacing.lg,
-  },
-  
-  sectionTitle: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
-    color: colors.text.primary,
-    marginBottom: spacing.sm,
-  },
-  
-  descriptionText: {
-    fontSize: typography.sizes.md,
-    color: colors.text.secondary,
-    lineHeight: 22,
-  },
-  
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-    paddingHorizontal: spacing.xs,
-  },
-  
-  ratingLabel: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.bold,
-    color: colors.text.primary,
-  },
-  
-  noteInput: {
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: borders.radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontSize: typography.sizes.sm,
-    color: colors.text.primary,
-    height: 50,
-    textAlignVertical: 'top',
-    marginBottom: spacing.md,
-  },
-  
-  quantitySection: {
-    marginBottom: spacing.xl,
-  },
-  
-  quantityControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  
-  quantityButton: {
-    backgroundColor: colors.error,
-    width: 40,
-    height: 40,
-    borderRadius: borders.radius.round,
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...theme.shadows.small,
-  },
-  
-  incrementButton: {
-    backgroundColor: colors.primary,
-  },
-  
-  quantityDisplay: {
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    marginHorizontal: spacing.md,
-    borderRadius: borders.radius.md,
-    minWidth: 60,
-    alignItems: 'center',
-  },
-  
-  quantityText: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
-    color: colors.text.primary,
-  },
-  
-  addToCartButton: {
-    backgroundColor: colors.primary,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.md,
-    borderRadius: borders.radius.lg,
-    ...theme.shadows.medium,
-  },
-  
-  addToCartText: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
-    color: colors.text.white,
-    marginLeft: spacing.sm,
-  },
-});
 
 export default ProductDetailScreen;

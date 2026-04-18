@@ -112,7 +112,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
     return result;
   }, [products, searchTerm, selectedFilter, hasActiveSearch]);
 
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     headerContainer: {
       paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0,
       paddingBottom: spacing.sm,
@@ -120,7 +120,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       ...shadows.medium,
     },
     homeLogoSection: {
-      backgroundColor: colors.primary, // RED
+      backgroundColor: colors.primary,
       alignItems: 'center',
       paddingVertical: spacing.md,
     },
@@ -199,7 +199,35 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       fontWeight: 'bold',
       fontSize: 14,
     },
-  });
+    // Missing Styles Added
+    sortChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.card,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs + 2,
+      borderRadius: borders.radius.round,
+      marginRight: spacing.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+      ...shadows.small,
+    },
+    activeSortChip: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    filterIcon: {
+      marginRight: spacing.xs,
+    },
+    filterText: {
+      ...typography.bodySmall,
+      color: colors.text.secondary,
+      fontWeight: '500',
+    },
+    activeFilterText: {
+      color: '#FFFFFF',
+    },
+  }), [colors, darkMode]);
 
   const renderFilterChip = useCallback((filter) => (
     <TouchableOpacity
@@ -219,13 +247,12 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       />
       <Text style={[
         styles.filterText, 
-        { color: colors.text.primary },
         selectedFilter === filter.key && styles.activeFilterText
       ]}>
         {filter.label}
       </Text>
     </TouchableOpacity>
-  ), [selectedFilter, colors]);
+  ), [selectedFilter, colors, styles]);
 
   const filterOptions = [
     { key: 'all', label: 'Todos', icon: 'th-large' },
@@ -265,7 +292,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
             showFilterButton={false}
             onMenuPress={() => navigation.openDrawer()}
             placeholder="Buscar productos..."
-            style={{ backgroundColor: 'rgba(255,255,255,0.95)' }} // Input casi blanco
+            style={{ backgroundColor: 'rgba(255,255,255,0.95)' }}
           />
         </View>
 

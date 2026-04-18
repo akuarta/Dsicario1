@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -23,43 +23,43 @@ import { getThemeColors, spacing, typography, borders, shadows } from '../theme/
 import { useThemeMode } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 
-GoogleSignin.configure({
-  webClientId: '758740272138-77lhol13d82jds53656573ijqi0u766k.apps.googleusercontent.com',
-});
-
-const { width } = Dimensions.get('window');
+if (Platform.OS !== 'web') {
+  GoogleSignin.configure({
+    webClientId: '758740272138-77lhol13d82jds53656573ijqi0u766k.apps.googleusercontent.com',
+    offlineAccess: true,
+    forceCodeForRefreshToken: true,
+  });
+}
 
 const LoginScreen = () => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const navigation = useNavigation();
-  const { signIn, signInWithGoogle, isAuthenticating, error, clearError } = useAuth();
+  const { signIn, signInWithGoogle, signInWithGoogleWeb, isAuthenticating } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  const handleGoogleLogin = async () => {
-    try {
-      await GoogleSignin.hasPlayServices();
-      
-      // Intentamos cerrar sesión previa para forzar el selector de cuentas
-      try {
-        await GoogleSignin.signOut();
-      } catch (e) {
-        // No hay sesión activa para cerrar, procedemos normal
-      }
-
-      const response = await GoogleSignin.signIn();
-      const idToken = response.data?.idToken || response.idToken;
-      if (idToken) {
-        await signInWithGoogle(idToken);
-      }
-    } catch (error) {
-      console.warn('Google Signin Error:', error);
-      Alert.alert('Error', 'Hubo un problema al iniciar sesión con Google.');
-    }
-  };
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    content: { flex: 1, justifyContent: 'center', padding: spacing.xl },
+    logoContainer: { alignItems: 'center', marginBottom: spacing.xxl },
+    logo: { width: 100, height: 100, borderRadius: 20 },
+    title: { fontSize: 36, fontWeight: 'bold', color: colors.primary, textAlign: 'center', marginBottom: spacing.xs },
+    subtitle: { fontSize: 16, color: colors.text.secondary, textAlign: 'center', marginBottom: spacing.xxl },
+    inputCard: { backgroundColor: colors.surface, borderRadius: borders.radius.xl, padding: spacing.lg, ...shadows.medium, borderWidth: 1, borderColor: colors.border },
+    inputContainer: { marginBottom: spacing.md },
+    inputField: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, borderRadius: borders.radius.md, paddingHorizontal: spacing.md, height: 55, borderWidth: 1, borderColor: colors.border },
+    input: { flex: 1, color: colors.text.primary, marginLeft: spacing.sm },
+    loginButton: { height: 55, borderRadius: borders.radius.md, overflow: 'hidden', marginTop: spacing.md },
+    gradient: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    buttonText: { color: '#FFF', fontWeight: 'bold', fontSize: 18 },
+    googleButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 55, borderRadius: borders.radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginTop: spacing.xl },
+    googleText: { marginLeft: 10, color: colors.text.primary, fontWeight: 'bold' },
+    registerPrompt: { marginTop: 30, alignItems: 'center' },
+    registerLink: { color: colors.primary, fontWeight: 'bold' }
+  }), [colors, darkMode]);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -67,184 +67,74 @@ const LoginScreen = () => {
        return;
     }
     try {
-      console.log('--- INTENTO DE LOGIN ---');
-      console.log('Email:', email);
-      const result = await signIn(email, password);
-      console.log('Login exitoso en Interfaz para:', result.email);
+      await signIn(email, password);
     } catch (err) {
-      console.log('--- ERROR DE LOGIN EN INTERFAZ ---');
-      console.log('Mensaje:', err.message);
+      console.log('Login Error:', err.message);
     }
   };
 
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    content: {
-      flex: 1,
-      justifyContent: 'center',
-      padding: spacing.xl,
-    },
-    logoContainer: {
-      alignItems: 'center',
-      marginBottom: spacing.xxl,
-    },
-    logo: {
-      width: 100,
-      height: 100,
-      borderRadius: 20,
-    },
-    title: {
-      fontSize: 36,
-      fontWeight: 'bold',
-      color: colors.primary,
-      textAlign: 'center',
-      marginBottom: spacing.xs,
-    },
-    subtitle: {
-      fontSize: 16,
-      color: colors.text.secondary,
-      textAlign: 'center',
-      marginBottom: spacing.xxl,
-    },
-    inputCard: {
-      backgroundColor: colors.surface,
-      borderRadius: borders.radius.xl,
-      padding: spacing.lg,
-      ...shadows.medium,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    inputContainer: {
-      marginBottom: spacing.md,
-    },
-    inputField: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: colors.background,
-      borderRadius: borders.radius.md,
-      paddingHorizontal: spacing.md,
-      height: 55,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    input: {
-      flex: 1,
-      color: colors.text.primary,
-      marginLeft: spacing.sm,
-    },
-    loginButton: {
-      height: 55,
-      borderRadius: borders.radius.md,
-      overflow: 'hidden',
-      marginTop: spacing.md,
-    },
-    gradient: {
-      flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    buttonText: {
-      color: '#FFF',
-      fontWeight: 'bold',
-      fontSize: 18,
-    },
-    googleButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      height: 55,
-      borderRadius: borders.radius.md,
-      borderWidth: 1,
-      borderColor: '#DDD',
-      backgroundColor: '#FFF',
-      marginTop: spacing.xl,
-    },
-    googleText: {
-      marginLeft: 10,
-      color: '#555',
-      fontWeight: 'bold',
+  const handleGoogleLogin = async () => {
+    if (Platform.OS === 'web') {
+      try {
+        await signInWithGoogleWeb();
+      } catch (error) {
+        if (error.code !== 'auth/popup-closed-by-user') {
+          Alert.alert('Error', 'Hubo un problema al iniciar sesión con Google.');
+        }
+      }
+      return;
     }
-  });
+    
+    // Flujo Nativo (Android/iOS)
+    try {
+      await GoogleSignin.hasPlayServices();
+      try { await GoogleSignin.signOut(); } catch (e) {}
+      const response = await GoogleSignin.signIn();
+      const idToken = response.data?.idToken || response.idToken;
+      if (idToken) await signInWithGoogle(idToken);
+    } catch (error) {
+      Alert.alert('Error', 'Hubo un problema al iniciar sesión con Google en el dispositivo.');
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{flex:1}}>
         <ScrollView contentContainerStyle={styles.content}>
-          
           <View style={styles.logoContainer}>
-            {/* Logo simplificado para evitar error 500 de assets */}
-            <Image 
-              source={require('../assets/logo.png')} 
-              style={styles.logo}
-              resizeMode="contain"
-            />
+            <Image source={require('../assets/logo.png')} style={styles.logo} resizeMode="contain" />
           </View>
-
           <Text style={styles.title}>DSICARIO</Text>
           <Text style={styles.subtitle}>Sabor que impone su ley</Text>
-
           <View style={styles.inputCard}>
             <View style={styles.inputContainer}>
               <View style={styles.inputField}>
                 <FontAwesome5 name="envelope" size={18} color={colors.primary} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Email"
-                  placeholderTextColor={colors.text.light}
-                  value={email}
-                  onChangeText={setEmail}
-                  autoCapitalize="none"
-                />
+                <TextInput style={styles.input} placeholder="Email" placeholderTextColor={colors.text.light} value={email} onChangeText={setEmail} autoCapitalize="none" />
               </View>
             </View>
-
             <View style={styles.inputContainer}>
               <View style={styles.inputField}>
                 <FontAwesome5 name="lock" size={18} color={colors.primary} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Contraseña"
-                  placeholderTextColor={colors.text.light}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                />
+                <TextInput style={styles.input} placeholder="Contraseña" placeholderTextColor={colors.text.light} value={password} onChangeText={setPassword} secureTextEntry={!showPassword} />
                 <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
                    <FontAwesome5 name={showPassword ? "eye-slash" : "eye"} size={16} color={colors.text.secondary} />
                 </TouchableOpacity>
               </View>
             </View>
-
             <TouchableOpacity style={styles.loginButton} onPress={handleLogin} disabled={isAuthenticating}>
               <LinearGradient colors={[colors.primary, '#D62828']} style={styles.gradient}>
                 {isAuthenticating ? <ActivityIndicator color="#FFF" /> : <Text style={styles.buttonText}>INICIAR SESIÓN</Text>}
               </LinearGradient>
             </TouchableOpacity>
           </View>
-
-          <TouchableOpacity 
-            style={styles.googleButton} 
-            onPress={handleGoogleLogin}
-            disabled={isAuthenticating}
-          >
+          <TouchableOpacity style={styles.googleButton} onPress={handleGoogleLogin} disabled={isAuthenticating}>
             <FontAwesome5 name="google" size={18} color="#EA4335" />
             <Text style={styles.googleText}>Continuar con Google</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={{marginTop: 30, alignItems: 'center'}}
-            onPress={() => navigation.navigate('Register')}
-          >
-            <Text style={{color: colors.text.secondary}}>
-              ¿No tienes cuenta? <Text style={{color: colors.primary, fontWeight: 'bold'}}>Regístrate aquí</Text>
-            </Text>
+          <TouchableOpacity style={styles.registerPrompt} onPress={() => navigation.navigate('Register')}>
+            <Text style={{color: colors.text.secondary}}>¿No tienes cuenta? <Text style={styles.registerLink}>Regístrate aquí</Text></Text>
           </TouchableOpacity>
-
-
-
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
 import { fetchProducts, fetchBusinessInfo, saveWaiterCartItem, fetchAllUsers, fetchKitchenOrders, fetchDeliveries, fetchTables } from '../utils/api';
 import { useUser } from './UserContext';
+import { useAuth } from './AuthContext';
 
 // Context para productos
 export const ProductsContext = createContext();
@@ -143,6 +144,7 @@ export const ProductsProvider = ({ children }) => {
 
 // Provider para carrito
 export const CartProvider = ({ children }) => {
+  const { user } = useAuth(); // Importamos useAuth para vigilar el cambio de usuario real
   const { role, username } = useUser();
   const [cart, setCart] = useState([]);
   const [paymentType, setPaymentType] = useState('cash');
@@ -151,10 +153,33 @@ export const CartProvider = ({ children }) => {
   
   // Estado para la sesión activa del mesero (Mesa/Cliente)
   const [waiterActiveSession, setWaiterActiveSession] = useState(null);
+
+  // 🛡️ EFECTO CORTAFUEGOS INTELIGENTE:
+  // Solo limpia si hay un CAMBIO REAL de cuenta (Usuario A -> Usuario B)
+  const prevUserRef = React.useRef(user?.uid);
+  
+  useEffect(() => {
+    const handleUserChange = async () => {
+      // Si antes había un usuario y ahora hay otro DISTINTO, o si se cerró sesión
+      if (prevUserRef.current && prevUserRef.current !== user?.uid) {
+        console.log('🛡️ Cambio de cuenta real detectado. Limpiando datos del usuario anterior...');
+        setCart([]);
+        setWaiterActiveSession(null);
+        setPaymentType('cash');
+        try {
+          await AsyncStorage.removeItem('@dsicario_cart');
+          await AsyncStorage.removeItem('@dsicario_waiter_session');
+        } catch (e) {}
+      }
+      prevUserRef.current = user?.uid;
+    };
+    
+    handleUserChange();
+  }, [user?.uid]);
   
   // Información del Negocio — cargada dinámicamente desde la hoja USUARIOS
   const [businessInfo, setBusinessInfo] = useState({
-    name: 'D�Sicario',
+    name: 'DSicario',
     phone: '809-000-0000',
     email: 'ventas@dsicario.com',
     address: 'República Dominicana',
@@ -201,14 +226,14 @@ export const CartProvider = ({ children }) => {
 
   const addToCart = async (product) => {
     // 🤵 LÓGICA DE MESERO (EN LA NUBE)
-    const isForcedWaiterMode = role === 'Mesero' || (role === 'Admin' && waiterActiveSession);
+    const isForcedWaiterMode = (role === 'Mesero' || role === 'Admin') && waiterActiveSession;
     
     // Obtener campos de forma robusta
     const prodId = product.id || product.ID_Producto || product.id_producto;
     const prodNombre = product.nombre || product.Nombre;
     const prodPrecio = parseFloat(product.precio || product.Precio) || 0;
 
-    if (isForcedWaiterMode) {
+    if (isForcedWaiterMode && (role === 'Mesero' || role === 'Admin')) {
       if (!waiterActiveSession) {
         Alert.alert('⚠️ Sin Sesión', 'Debes abrir una mesa/sesión en el POS antes de agregar productos.');
         return;
@@ -418,10 +443,10 @@ export const DataSyncProvider = ({ children }) => {
     console.log('🔄 Iniciando Sincronización Global...');
     try {
       const [usersData, kitchenData, deliveriesData, tablesData] = await Promise.all([
-        fetchAllUsers().catch(e => []),
-        fetchKitchenOrders().catch(e => []),
-        fetchDeliveries().catch(e => []),
-        fetchTables().catch(e => [])
+        fetchAllUsers().catch(e => { console.error('Error users:', e); return []; }),
+        fetchKitchenOrders().catch(e => { console.error('Error kitchen:', e); return []; }),
+        fetchDeliveries().catch(e => { console.error('Error deliveries:', e); return []; }),
+        fetchTables().catch(e => { console.error('Error tables:', e); return []; })
       ]);
 
       setUsers(usersData);

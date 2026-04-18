@@ -9,6 +9,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { FavoritesProvider } from './contexts/FavoritesContext';
 import { getThemeColors } from './theme/theme';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import RiderProposalOverlay from './components/RiderProposalOverlay';
 
 const AppContent = () => {
   const { darkMode } = useThemeMode();
@@ -16,22 +17,23 @@ const AppContent = () => {
   
   return (
     <SafeAreaProvider>
-        <AuthProvider>
-          <FavoritesProvider>
-            <UserProvider>
-              <DataSyncProvider>
-                <ProductsProvider>
-                  <CartProvider>
-                    <OrderProvider>
-                      <StatusBar style={darkMode ? "light" : "dark"} backgroundColor={colors.primary} />
-                      <AppNavigator />
-                    </OrderProvider>
-                  </CartProvider>
-                </ProductsProvider>
-              </DataSyncProvider>
-            </UserProvider>
-          </FavoritesProvider>
-        </AuthProvider>
+      <AuthProvider>
+        <FavoritesProvider>
+          <UserProvider>
+            <DataSyncProvider>
+              <ProductsProvider>
+                <CartProvider>
+                  <OrderProvider>
+                    <StatusBar style={darkMode ? "light" : "dark"} backgroundColor={colors.primary} />
+                    <AppNavigator />
+                    <RiderProposalOverlay />
+                  </OrderProvider>
+                </CartProvider>
+              </ProductsProvider>
+            </DataSyncProvider>
+          </UserProvider>
+        </FavoritesProvider>
+      </AuthProvider>
     </SafeAreaProvider>
   );
 };
@@ -42,4 +44,4 @@ export default function App() {
       <AppContent />
     </ThemeProvider>
   );
-};
+}

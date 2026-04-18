@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, Alert, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, Alert, Platform, Switch } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -9,14 +9,19 @@ import { useCart } from '../contexts/AppContext';
 const ProfileDrawerContent = (props) => {
   const { colors } = useTheme();
   const { signOut } = useAuth();
-  const { username, email, role } = useUser();
+  const { username, email, role, isClientMode, setIsClientMode } = useUser();
   const { clearCart, getTotalItems } = useCart();
   const totalItems = getTotalItems();
   
-  const isCocina = !!(role && (role.toLowerCase() === 'cocina' || role.toLowerCase() === 'cosina'));
-  const isDelivery = !!(role && role.toLowerCase() === 'delivery');
-  const isMesero = !!(role && role.toLowerCase() === 'mesero');
-  const isAdmin = !!(role && role.toLowerCase() === 'admin');
+  const roleLow = role ? role.toLowerCase() : '';
+  const isAdmin = roleLow.includes('admin');
+  const isDelivery = roleLow.includes('delivery') || roleLow.includes('repartidor');
+  const isCocina = roleLow.includes('cocina') || roleLow.includes('cosina');
+  const isMesero = roleLow.includes('mesero');
+  
+  const isOwner = email?.toLowerCase()?.trim() === 'hairoman28@gmail.com';
+  // Temporalmente habilitamos el switch para más gente si algo falla
+  const isStaff = isCocina || isDelivery || isMesero || isAdmin || isOwner;
 
   const showAlert = (title, message) => Alert.alert(title, message);
 
@@ -43,85 +48,94 @@ const ProfileDrawerContent = (props) => {
   };
 
   const menuItems = [
-    // --- SECCIÓN ADMIN / STAFF (PRIMERO SI ES ADMIN) ---
+    // --- SECCIÓN ADMIN / STAFF (Solo si NO está en modo cliente) ---
     {
       id: 7,
       title: 'Monitor de Cocina',
       icon: 'utensils',
-      onPress: () => props.navigation.navigate('CocinaAdmin'),
-      visible: isAdmin || isCocina,
+      onPress: () => props.navigation.navigate('MainTabs', { screen: 'CocinaAdmin' }),
+      visible: (isAdmin || isCocina) && !isClientMode,
     },
     {
       id: 11,
-      title: 'Panel de Servicios (Mesas)',
+      title: 'Panel de Servicio',
       icon: 'walking',
-      onPress: () => props.navigation.navigate('WaiterHome'),
-      visible: isAdmin || isMesero,
+      onPress: () => props.navigation.navigate('MainTabs', { screen: 'WaiterHome' }),
+      visible: (isAdmin || isMesero) && !isClientMode,
     },
     {
       id: 12,
-      title: 'Vista de Repartidor (Rider)',
+      title: 'Vista de Repartidor',
       icon: 'biking',
-      onPress: () => props.navigation.navigate('RiderView'),
-      visible: isAdmin,
+      onPress: () => props.navigation.navigate('MainTabs', { screen: 'RiderView' }),
+      visible: isAdmin && !isClientMode,
     },
     {
       id: 8,
       title: 'Administrar Repartidores',
       icon: 'motorcycle',
-      onPress: () => props.navigation.navigate('RiderAdmin'),
-      visible: isAdmin,
+      onPress: () => props.navigation.navigate('MainTabs', { screen: 'RiderAdmin' }),
+      visible: isAdmin && !isClientMode,
     },
     {
       id: 9,
       title: 'Gestión de Personal',
       icon: 'users-cog',
-      onPress: () => props.navigation.navigate('AdminStaff'),
-      visible: isAdmin,
+      onPress: () => props.navigation.navigate('MainTabs', { screen: 'AdminStaff' }),
+      visible: isAdmin && !isClientMode,
     },
     {
       id: 10,
       title: 'Centro de Pedidos',
       icon: 'map-marked-alt',
-      onPress: () => props.navigation.navigate('OrderCenter'),
-      visible: isAdmin || isCocina || isDelivery,
+      onPress: () => props.navigation.navigate('MainTabs', { screen: 'OrderCenter' }),
+      visible: (isAdmin || isCocina || isDelivery) && !isClientMode,
     },
     
-    // --- SECCIÓN CLIENTE (PARA TODOS) ---
+    // --- SECCIÓN CLIENTE (PARA TODOS O SI ESTÁ EN MODO CLIENTE) ---
     {
       id: 1,
+      title: 'Comprar / Menú',
+      icon: 'store',
+      onPress: () => props.navigation.navigate('MainTabs', { screen: 'InicioTab' }),
+      visible: isClientMode || !isStaff || isAdmin // 👈 Admin siempre lo ve
+    },
+    {
+      id: 13,
       title: 'Mi Carrito',
       icon: 'shopping-cart',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'Carrito' }),
+      onPress: () => props.navigation.navigate('MainTabs', { screen: 'CarritoTab' }),
       showBadge: totalItems > 0,
-      badgeCount: totalItems
+      badgeCount: totalItems,
+      visible: isClientMode || isAdmin // 👈 Admin siempre lo ve
     },
     {
       id: 2,
       title: 'Historial de Compras',
       icon: 'history',
-      onPress: () => props.navigation.navigate('Historial'),
+      onPress: () => props.navigation.navigate('MainTabs', { screen: 'Historial' }),
+      visible: isClientMode || !isStaff
     },
     {
       id: 3,
       title: 'Favoritos',
       icon: 'heart',
-      onPress: () => props.navigation.navigate('Favoritos'),
+      onPress: () => props.navigation.navigate('MainTabs', { screen: 'Favoritos' }),
+      visible: isClientMode || !isStaff
     },
     {
       id: 4,
-      title: 'Configuración',
+      title: 'Configuraciones',
       icon: 'cog',
-      onPress: () => {
-        props.navigation.navigate('Configuracion');
-      },
+      onPress: () => props.navigation.navigate('MainTabs', { screen: 'Configuracion' }),
     },
     {
       id: 5,
       title: 'Vaciar Carrito',
       icon: 'trash',
       onPress: handleClearCart,
-      isDestructive: true
+      isDestructive: true,
+      visible: isClientMode && totalItems > 0
     },
     {
       id: 6,
@@ -133,26 +147,50 @@ const ProfileDrawerContent = (props) => {
 
   const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background || '#fff' },
-    header: { alignItems: 'center', backgroundColor: colors.primary || '#FF6B35', paddingVertical: 32 },
-    userName: { fontSize: 20, fontWeight: 'bold', color: '#fff', marginTop: 8 },
-    userEmail: { fontSize: 14, color: '#fff', marginBottom: 8 },
-    menuContainer: { marginTop: 24 },
-    menuItem: { flexDirection: 'row', alignItems: 'center', padding: 16 },
-    menuItemTitle: { fontSize: 16, color: colors.text?.primary || '#333', flex: 1 },
+    header: { alignItems: 'center', backgroundColor: colors.primary || '#FF6B35', paddingVertical: 24 },
+    userName: { fontSize: 18, fontWeight: 'bold', color: '#fff', marginTop: 8 },
+    userEmail: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginBottom: 4 },
+    userRole: { fontSize: 10, color: '#fff', backgroundColor: 'rgba(0,0,0,0.2)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, overflow: 'hidden', fontWeight: 'bold' },
+    
+    modeSection: { padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border || '#eee', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    modeText: { fontSize: 14, fontWeight: 'bold', color: colors.text?.primary || '#333' },
+    modeSub: { fontSize: 11, color: colors.text?.secondary || '#666' },
+
+    menuContainer: { marginTop: 12 },
+    menuItem: { flexDirection: 'row', alignItems: 'center', padding: 14 },
+    menuItemTitle: { fontSize: 15, color: colors.text?.primary || '#333', flex: 1 },
     destructiveItem: { backgroundColor: 'rgba(244, 67, 54, 0.05)' },
     destructiveText: { color: colors.error || '#f44336' },
-    badge: { backgroundColor: colors.primary || '#FF6B35', borderRadius: 12, paddingHorizontal: 8, marginLeft: 8 },
-    badgeText: { color: '#fff', fontWeight: 'bold', fontSize: 12 },
+    badge: { backgroundColor: colors.primary || '#FF6B35', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 8 },
+    badgeText: { color: '#fff', fontWeight: 'bold', fontSize: 10 },
   });
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <FontAwesome5 name="user" size={32} color="#fff" />
+          <FontAwesome5 name="user-shield" size={48} color="#fff" />
           <Text style={styles.userName}>{username}</Text>
           <Text style={styles.userEmail}>{email}</Text>
+          <View style={{ flexDirection: 'row', gap: 5 }}>
+            <Text style={styles.userRole}>{role?.toUpperCase() || 'CLIENTE'}</Text>
+            <Text style={[styles.userRole, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>ID: {props.rowId || 'N/A'}</Text>
+          </View>
         </View>
+        {isStaff && (
+          <View style={[styles.modeSection, { backgroundColor: colors.primary + '15', marginTop: 10, borderBottomWidth: 0, borderRadius: 15, marginHorizontal: 10 }]}>
+            <View>
+              <Text style={styles.modeText}>CONTROL DE MODO</Text>
+              <Text style={styles.modeSub}>{isClientMode ? 'Viendo como cliente' : 'Viendo como personal'}</Text>
+            </View>
+            <Switch
+              value={isClientMode}
+              onValueChange={setIsClientMode}
+              trackColor={{ false: '#767577', true: colors.primary + '80' }}
+              thumbColor={isClientMode ? colors.primary : '#f4f3f4'}
+            />
+          </View>
+        )}
         <View style={styles.menuContainer}>
           {menuItems.map(item => {
             if (item.visible === false) return null;

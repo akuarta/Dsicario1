@@ -1,11 +1,10 @@
-import React, { useRef, useEffect, memo } from 'react';
+import React, { useRef, useEffect, useMemo, memo } from 'react';
 import {
   View,
   TextInput,
   TouchableOpacity,
   StyleSheet,
   Animated,
-  StatusBar,
   Platform
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
@@ -16,19 +15,19 @@ import { useThemeMode } from '../contexts/ThemeContext';
  * Optimized Search Bar Component
  * Memoized to prevent unnecessary re-renders
  */
-const SearchBar = React.memo(({
+const SearchBar = memo(({
   value,
   onChangeText,
   onClear,
   onFilterPress,
-  onMenuPress, // New prop
+  onMenuPress,
   placeholder = "Buscar productos...",
   style,
   autoFocus = false,
   editable = true,
   showClearButton = true,
   showFilterButton = true,
-  showMenuButton = true, // New prop
+  showMenuButton = true,
 }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
@@ -37,27 +36,21 @@ const SearchBar = React.memo(({
   const inputRef = useRef(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  // Animate clear button appearance
   useEffect(() => {
     Animated.timing(fadeAnim, {
       toValue: value && value.length > 0 ? 1 : 0,
       duration: 200,
       useNativeDriver: true,
     }).start();
-  }, [value, fadeAnim]);
+  }, [value]);
 
-  const handleClear = () => {
-    onClear?.();
-    inputRef.current?.focus();
-  };
-
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     container: {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: colors.surface,
       borderRadius: 14,
-      paddingHorizontal: spacing.sm, // Slightly tighter
+      paddingHorizontal: spacing.sm,
       height: 48,
       marginHorizontal: spacing.md,
       marginTop: spacing.xs,
@@ -66,16 +59,8 @@ const SearchBar = React.memo(({
       borderWidth: 1,
       borderColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
     },
-    
-    menuButton: {
-      padding: spacing.xs,
-      marginRight: spacing.xs,
-    },
-
-    searchIcon: {
-      marginHorizontal: spacing.xs,
-    },
-    
+    menuButton: { padding: spacing.xs, marginRight: spacing.xs },
+    searchIcon: { marginHorizontal: spacing.xs },
     input: {
       flex: 1,
       fontSize: 15,
@@ -83,17 +68,8 @@ const SearchBar = React.memo(({
       color: colors.text.primary,
       height: '100%',
     },
-    
-    actions: {
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
-
-    clearButton: {
-      padding: spacing.xs,
-      marginRight: spacing.xs,
-    },
-    
+    actions: { flexDirection: 'row', alignItems: 'center' },
+    clearButton: { padding: spacing.xs, marginRight: spacing.xs },
     divider: {
       width: 1,
       height: 20,
@@ -101,39 +77,27 @@ const SearchBar = React.memo(({
       marginHorizontal: spacing.xs,
       opacity: 0.5,
     },
+    filterButton: { padding: spacing.xs, marginLeft: spacing.xs },
+  }), [colors, darkMode]);
 
-    filterButton: {
-      padding: spacing.xs,
-      marginLeft: spacing.xs,
-    },
-  });
+  const handleClear = () => {
+    onClear?.();
+    inputRef.current?.focus();
+  };
 
   return (
     <View style={[styles.container, style]}>
-      {showMenuButton ? (
-        <TouchableOpacity 
-          onPress={onMenuPress}
-          style={styles.menuButton}
-          activeOpacity={0.7}
-        >
-          <FontAwesome5 
-            name="bars" 
-            size={16} 
-            color={colors.text.secondary} 
-          />
+      {showMenuButton && (
+        <TouchableOpacity onPress={onMenuPress} style={styles.menuButton} activeOpacity={0.7}>
+          <FontAwesome5 name="bars" size={16} color={colors.text.secondary} />
         </TouchableOpacity>
-      ) : null}
+      )}
 
-      <FontAwesome5 
-        name="search" 
-        size={14} 
-        color={colors.text.secondary} 
-        style={styles.searchIcon} 
-      />
+      <FontAwesome5 name="search" size={14} color={colors.text.secondary} style={styles.searchIcon} />
       
       <TextInput
         ref={inputRef}
-        style={[styles.input, { color: colors.text.primary }]}
+        style={styles.input}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -146,46 +110,27 @@ const SearchBar = React.memo(({
       />
       
       <View style={styles.actions}>
-        {showClearButton && value && value.length > 0 ? (
+        {showClearButton && value && value.length > 0 && (
           <Animated.View style={{ opacity: fadeAnim }}>
-            <TouchableOpacity 
-              onPress={handleClear}
-              style={styles.clearButton}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              activeOpacity={0.6}
-            >
-              <FontAwesome5 
-                name="times-circle" 
-                size={16} 
-                color={colors.text.secondary} 
-                solid
-              />
+            <TouchableOpacity onPress={handleClear} style={styles.clearButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} activeOpacity={0.6}>
+              <FontAwesome5 name="times-circle" size={16} color={colors.text.secondary} solid />
             </TouchableOpacity>
           </Animated.View>
-        ) : null}
+        )}
 
-        {showFilterButton ? (
+        {showFilterButton && (
           <>
             <View style={styles.divider} />
-            <TouchableOpacity 
-              onPress={onFilterPress}
-              style={styles.filterButton}
-              activeOpacity={0.7}
-            >
-              <FontAwesome5 
-                name="sliders-h" 
-                size={16} 
-                color={colors.primary} 
-              />
+            <TouchableOpacity onPress={onFilterPress} style={styles.filterButton} activeOpacity={0.7}>
+              <FontAwesome5 name="sliders-h" size={16} color={colors.primary} />
             </TouchableOpacity>
           </>
-        ) : null}
+        )}
       </View>
     </View>
   );
 });
 
-// Display name for debugging
 SearchBar.displayName = 'SearchBar';
 
 export default SearchBar;

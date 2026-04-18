@@ -1,235 +1,304 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   SafeAreaView,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
-  RefreshControl,
+  TextInput,
+  Modal,
   ActivityIndicator,
-  Animated,
-  Dimensions
+  Alert,
+  ScrollView,
+  Dimensions,
+  Platform,
+  StatusBar
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useThemeMode } from '../contexts/ThemeContext';
-import { getThemeColors, spacing, typography, borders, shadows, glass } from '../theme/theme';
+import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import GlassPanel from '../components/GlassPanel';
 import { useDataSync } from '../contexts/AppContext';
 import { useUser } from '../contexts/UserContext';
+import { useAuth } from '../contexts/AuthContext';
+import { updateOrderStatus } from '../utils/api';
 
 const { width } = Dimensions.get('window');
 
 const OrderCenterScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
-  const { email, role } = useUser();
-  const { kitchenOrders, isSyncing, syncAllData } = useDataSync();
-
-  const isEmployee = !!(role && ['admin', 'cocina', 'delivery', 'mesero'].includes(role.toLowerCase()));
-  const [refreshing, setRefreshing] = useState(false);
   
-  // Animación para las tarjetas
-  const fadeAnim = new Animated.Value(0);
-
-  useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 800,
-      useNativeDriver: true,
-    }).start();
-  }, []);
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await syncAllData();
-    setRefreshing(false);
-  }, []);
-
-  // Filtrar pedidos según rol
-  const filteredOrders = kitchenOrders.filter(o => 
-    isEmployee || (o.email && o.email.toLowerCase() === email.toLowerCase())
-  );
-
-  // Filtrar pedidos Activos vs Recientes dentro de los filtrados
-  const activeOrders = filteredOrders.filter(o => 
-    ['pending', 'preparing', 'ready', 'on_the_way'].includes((o.estado || '').toLowerCase())
-  );
+  const { kitchenOrders: orders, isSyncing, syncAllData, setKitchenOrders: setOrders } = useDataSync();
+  const { role, contextUserId, contextUserEmail, isClientMode } = useUser();
+  const { user: authUser } = useAuth();
   
-  const completedOrders = filteredOrders.filter(o => 
-    ['delivered'].includes((o.estado || '').toLowerCase())
-  ).slice(0, 5);
+  const isAdmin = role === 'Admin';
+  const isCocina = role === 'Cocina';
+  const isMesero = role === 'Mesero';
+  
+  // 🛡️ El staff solo tiene acceso total si NO está en "Modo Cliente"
+  const isStaff = (isAdmin || isCocina || isMesero) && !isClientMode;
 
-  const getStatusInfo = (status) => {
-    const s = (status || '').toLowerCase();
-    if (s === 'pending') return { label: 'Recibido', color: colors.warning || '#FFC107', icon: 'clock' };
-    if (s === 'preparing') return { label: 'En Cocina', color: colors.primary || '#E63946', icon: 'fire' };
-    if (s === 'ready') return { label: 'Listo p/ Despacho', color: colors.success || '#4CAF50', icon: 'check-circle' };
-    if (s === 'on_the_way') return { label: 'En Camino 🛵', color: '#2196F3', icon: 'motorcycle' };
-    if (s === 'delivered') return { label: '¡Entregado!', color: '#FFD700', icon: 'home' };
-    return { label: 'Procesando', color: colors.text.secondary || '#666', icon: 'ellipsis-h' };
+  const [activeTab, setActiveTab] = useState('pendientes'); // pendientes, preparando, ruta, entregado
+  const [searchText, setSearchText] = useState('');
+
+  const statusMap = {
+    'pendientes': ['pending', 'nuevo'],
+    'preparando': ['preparing', 'preparando'],
+    'ruta': ['shipping', 'transito', 'ruta'],
+    'entregado': ['delivered', 'finalizado', 'entregado']
   };
 
-  const renderActiveOrder = (order) => {
-    const status = getStatusInfo(order.estado);
-    const s = (order.estado || '').toLowerCase();
+  const filteredOrders = useMemo(() => {
+    let result = (orders || []);
     
-    // Calcular paso activo para la visualización
-    let activeStep = 0;
-    if (s === 'preparing') activeStep = 1;
-    if (s === 'ready') activeStep = 2;
-    if (s === 'on_the_way') activeStep = 3;
-    if (s === 'delivered') activeStep = 4;
-    return (
-      <GlassPanel key={order.id} intensity={20} style={styles.activeCard}>
-        <View style={styles.cardHeader}>
-          <View>
-            <Text style={[styles.orderId, { color: colors.text.primary }]}>Orden #{order.id}</Text>
-            <Text style={[styles.statusLabel, { color: status.color }]}>
-              <FontAwesome5 name={status.icon} size={12} /> {status.label}
-            </Text>
-          </View>
-          <TouchableOpacity 
-            style={[styles.trackBtn, { backgroundColor: colors.primary }]}
-            onPress={() => navigation.navigate('DeliveryTracking', { orderId: order.id })}
-          >
-            <Text style={styles.trackBtnText}>Ver Mapa</Text>
-          </TouchableOpacity>
-        </View>
+    // 🛡️ FILTRO DE SEGURIDAD POR ROL
+    if (!isStaff) {
+      // Si no es personal, solo ve sus propios pedidos
+      const myId = String(contextUserId || '').trim();
+      const myEmail = String(contextUserEmail || authUser?.email || '').trim().toLowerCase();
+      
+      console.log('🛡️ Aplicando Filtro de Privacidad:', { myId, myEmail });
 
-        {/* Timeline Maestro de 5 Pasos */}
-        <View style={styles.timelineRow}>
-          {/* Paso 1: Recibido */}
-          <View style={[styles.timelineDot, { backgroundColor: colors.success }]} />
-          <View style={[styles.timelineLine, { backgroundColor: activeStep >= 1 ? colors.primary : colors.border }]} />
-          
-          {/* Paso 2: Cocina */}
-          <View style={[styles.timelineDot, { backgroundColor: activeStep >= 1 ? colors.primary : colors.border }]} />
-          <View style={[styles.timelineLine, { backgroundColor: activeStep >= 2 ? colors.success : colors.border }]} />
-          
-          {/* Paso 3: Listo */}
-          <View style={[styles.timelineDot, { backgroundColor: activeStep >= 2 ? colors.success : colors.border }]} />
-          <View style={[styles.timelineLine, { backgroundColor: activeStep >= 3 ? '#2196F3' : colors.border }]} />
-          
-          {/* Paso 4: En Camino */}
-          <View style={[styles.timelineDot, { backgroundColor: activeStep >= 3 ? '#2196F3' : colors.border }]} />
-          <View style={[styles.timelineLine, { backgroundColor: activeStep >= 4 ? '#FFD700' : colors.border }]} />
-          
-          {/* Paso 5: Entregado */}
-          <View style={[styles.timelineDot, { backgroundColor: activeStep >= 4 ? '#FFD700' : colors.border }]} />
-        </View>
+      result = result.filter(o => {
+        // Usamos los nombres exactos que vienen de fetchKitchenOrders en api.js
+        const orderUserId = String(o.id_user || o.id_usuario || '').trim();
+        const orderEmail = String(o.email || '').trim().toLowerCase();
+        
+        const matchesId = myId !== '' && orderUserId !== '' && orderUserId === myId;
+        const matchesEmail = myEmail !== '' && orderEmail !== '' && orderEmail === myEmail;
+        
+        return matchesId || matchesEmail;
+      });
+    }
 
-        <Text style={[styles.itemSummary, { color: colors.text.secondary }]} numberOfLines={1}>
-          {order.items?.map(i => i.nombre || i.name || 'Producto').join(', ')}
-        </Text>
-      </GlassPanel>
-    );
+    // Filter by tab status
+    const allowedStatus = statusMap[activeTab];
+    result = result.filter(o => allowedStatus.includes((o.Estado || o.status || '').toLowerCase()));
+    
+    // Search (Solo para staff)
+    if (searchText && isStaff) {
+      const search = searchText.toLowerCase();
+      result = result.filter(o => 
+        (o.id || o.ID_Orden || '').toLowerCase().includes(search) || 
+        (o.NombreUser || o.id_user || '').toLowerCase().includes(search)
+      );
+    }
+    
+    return result;
+  }, [orders, activeTab, searchText, isStaff, contextUserId, contextUserEmail, authUser?.email]);
+
+  const handleUpdateStatus = async (orderId, newStatus) => {
+    try {
+      await updateOrderStatus(orderId, newStatus);
+      setOrders(prev => prev.map(o => (o.id || o.ID_Orden) === orderId ? { ...o, Estado: newStatus } : o));
+      Alert.alert('Éxito', `Pedido actualizado a ${newStatus}`);
+    } catch (err) {
+      Alert.alert('Error', 'No se pudo actualizar el estado');
+    }
   };
 
-  const renderRecentOrder = (order) => {
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: {
+      padding: spacing.md,
+      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight + 20) : 45,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    headerTitle: { color: colors.text.white, fontSize: 18, fontWeight: 'bold' },
+    backBtn: { padding: 5 },
+    tabBar: {
+      flexDirection: 'row',
+      backgroundColor: colors.surface,
+      margin: spacing.md,
+      borderRadius: 15,
+      padding: 5,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    tabItem: {
+      flex: 1,
+      paddingVertical: 10,
+      alignItems: 'center',
+      borderRadius: 10,
+    },
+    tabItemActive: {
+      backgroundColor: colors.primary,
+    },
+    tabText: {
+      fontSize: 10,
+      fontWeight: 'bold',
+      color: colors.text.secondary,
+    },
+    tabTextActive: {
+      color: '#FFF',
+    },
+    searchContainer: {
+      paddingHorizontal: spacing.md,
+      marginBottom: spacing.sm,
+    },
+    searchBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+      height: 45,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    searchInput: {
+      flex: 1,
+      color: colors.text.primary,
+      marginLeft: 8,
+    },
+    list: { padding: spacing.md, paddingBottom: 50 },
+    orderCard: {
+      padding: spacing.md,
+      borderRadius: 20,
+      marginBottom: spacing.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      ...shadows.small,
+    },
+    orderHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      paddingBottom: 8,
+    },
+    orderId: { fontWeight: 'bold', color: colors.primary },
+    orderTime: { fontSize: 10, color: colors.text.secondary },
+    customerName: { fontSize: 16, fontWeight: 'bold', color: colors.text.primary, marginBottom: 5 },
+    orderTotal: { fontSize: 18, fontWeight: 'bold', color: colors.success },
+    actionRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: 15,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      paddingTop: 12,
+    },
+    actionBtn: {
+      paddingHorizontal: 15,
+      paddingVertical: 8,
+      borderRadius: 10,
+      backgroundColor: colors.primary + '15',
+    },
+    actionText: { color: colors.primary, fontWeight: 'bold', fontSize: 12 }
+  }), [colors, darkMode]);
+
+  const renderOrder = ({ item }) => {
+    const id = item.id || item.ID_Orden;
     return (
-      <TouchableOpacity 
-        key={order.id} 
-        style={[styles.recentItem, { borderBottomColor: colors.border }]}
-        onPress={() => navigation.navigate('DeliveryTracking', { orderId: order.id })}
-      >
-        <View style={styles.recentIcon}>
-          <FontAwesome5 name="history" size={14} color={colors.text.secondary} />
+      <GlassPanel intensity={10} style={styles.orderCard}>
+        <View style={styles.orderHeader}>
+          <Text style={styles.orderId}>#{id?.slice(-6).toUpperCase()}</Text>
+          <Text style={styles.orderTime}>{item.Fecha || item.timestamp}</Text>
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.recentTitle, { color: colors.text.primary }]}>Orden #{order.id}</Text>
-          <Text style={[styles.recentDate, { color: colors.text.light }]}>{order.hora || 'Recientemente'}</Text>
+        <Text style={styles.customerName}>{item.NombreUser || 'Cliente'}</Text>
+        <Text style={styles.orderTotal}>${item.Total || item.total}</Text>
+        
+        <View style={styles.actionRow}>
+          <TouchableOpacity 
+            style={styles.actionBtn}
+            onPress={() => navigation.navigate('OrderDetail', { order: item })}
+          >
+            <Text style={styles.actionText}>Ver Detalles</Text>
+          </TouchableOpacity>
+          
+          {activeTab === 'pendientes' && isStaff && (
+            <TouchableOpacity 
+              style={[styles.actionBtn, { backgroundColor: colors.success + '15' }]}
+              onPress={() => handleUpdateStatus(id, 'preparing')}
+            >
+              <Text style={[styles.actionText, { color: colors.success }]}>Preparar</Text>
+            </TouchableOpacity>
+          )}
+
+          {activeTab === 'preparando' && isStaff && (
+            <TouchableOpacity 
+              style={[styles.actionBtn, { backgroundColor: colors.primary + '15' }]}
+              onPress={() => handleUpdateStatus(id, 'shipping')}
+            >
+              <Text style={[styles.actionText, { color: colors.primary }]}>Enviar</Text>
+            </TouchableOpacity>
+          )}
         </View>
-        <FontAwesome5 name="chevron-right" size={12} color={colors.text.light} />
-      </TouchableOpacity>
+      </GlassPanel>
     );
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <FontAwesome5 name="arrow-left" size={18} color={colors.text.primary} />
+      <View style={[styles.header, { backgroundColor: colors.primary }]}>
+        <TouchableOpacity 
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('InicioTab')} 
+          style={styles.backBtn}
+        >
+          <FontAwesome5 name="arrow-left" size={20} color="#FFF" />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text.primary }]}>Centro de Pedidos</Text>
-        <TouchableOpacity onPress={onRefresh} style={styles.refreshBtn}>
-          <FontAwesome5 name="sync" size={16} color={colors.primary} />
+        <Text style={styles.headerTitle}>
+          {isStaff ? 'Central de Pedidos' : 'Mis Pedidos Activos'}
+        </Text>
+        <TouchableOpacity onPress={syncAllData}>
+          <FontAwesome5 name="sync" size={18} color="#FFF" />
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
-      >
-        <Text style={styles.sectionTitle}>Pedidos en Curso</Text>
-        {activeOrders.length > 0 ? (
-          activeOrders.map(renderActiveOrder)
-        ) : (
-          <GlassPanel intensity={10} style={styles.emptyCard}>
-            <FontAwesome5 name="utensils" size={30} color={colors.border} />
-            <Text style={styles.emptyText}>No tienes pedidos activos ahora</Text>
-          </GlassPanel>
-        )}
+      <View style={styles.tabBar}>
+        {Object.keys(statusMap).map(tab => (
+          <TouchableOpacity 
+            key={tab}
+            style={[styles.tabItem, activeTab === tab && styles.tabItemActive]}
+            onPress={() => setActiveTab(tab)}
+          >
+            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+              {tab.toUpperCase()}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
-        <Text style={[styles.sectionTitle, { marginTop: 30 }]}>Registro de Rastreo</Text>
-        <GlassPanel intensity={15} style={styles.recentList}>
-          {completedOrders.length > 0 ? (
-            completedOrders.map(renderRecentOrder)
-          ) : (
-            <Text style={styles.emptyTextSmall}>Aún no hay registros de rastreo</Text>
-          )}
-        </GlassPanel>
+      {isStaff && (
+        <View style={styles.searchContainer}>
+          <View style={styles.searchBar}>
+            <FontAwesome5 name="search" size={14} color="#999" />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Buscar por ID o Cliente..."
+              placeholderTextColor="#999"
+              value={searchText}
+              onChangeText={setSearchText}
+            />
+          </View>
+        </View>
+      )}
 
-        <TouchableOpacity 
-          style={[styles.historyBtn, { borderColor: colors.primary }]}
-          onPress={() => navigation.navigate('PurchaseHistory')}
-        >
-          <Text style={[styles.historyBtnText, { color: colors.primary }]}>Ver Historial Completo</Text>
-        </TouchableOpacity>
-      </ScrollView>
+      <FlatList
+        data={filteredOrders}
+        renderItem={renderOrder}
+        keyExtractor={(item, index) => (item.id || item.ID_Orden || index).toString()}
+        contentContainerStyle={styles.list}
+        refreshing={isSyncing}
+        onRefresh={syncAllData}
+        ListEmptyComponent={
+          <View style={{ alignItems: 'center', marginTop: 100, opacity: 0.5 }}>
+            <FontAwesome5 name="clipboard-list" size={50} color={colors.text.secondary} />
+            <Text style={{ marginTop: 20, color: colors.text.secondary }}>No hay pedidos en esta sección</Text>
+          </View>
+        }
+      />
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: spacing.md,
-  },
-  headerTitle: { fontSize: 20, fontWeight: 'bold' },
-  backBtn: { padding: spacing.sm },
-  refreshBtn: { padding: spacing.sm },
-  scrollContent: { padding: spacing.md },
-  sectionTitle: { fontSize: 13, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 15, color: '#888' },
-  activeCard: {
-    borderRadius: borders.radius.lg,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-  orderId: { fontSize: 16, fontWeight: 'bold' },
-  statusLabel: { fontSize: 12, fontWeight: '600', marginTop: 2 },
-  trackBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 15 },
-  trackBtnText: { color: '#FFF', fontSize: 11, fontWeight: 'bold' },
-  timelineRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginVertical: 10 },
-  timelineDot: { width: 10, height: 10, borderRadius: 5 },
-  timelineLine: { flex: 1, height: 2, marginHorizontal: -2 },
-  itemSummary: { fontSize: 12, marginTop: 10, fontStyle: 'italic' },
-  emptyCard: { borderRadius: borders.radius.lg, padding: 30, alignItems: 'center', borderStyle: 'dashed', borderWidth: 1, borderColor: '#555' },
-  emptyText: { marginTop: 10, color: '#888', textAlign: 'center' },
-  recentList: { borderRadius: borders.radius.xl, overflow: 'hidden' },
-  recentItem: { flexDirection: 'row', alignItems: 'center', padding: spacing.md, borderBottomWidth: 1 },
-  recentIcon: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.05)', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  recentTitle: { fontSize: 14, fontWeight: '600' },
-  recentDate: { fontSize: 10, marginTop: 2 },
-  emptyTextSmall: { padding: 20, textAlign: 'center', color: '#666', fontSize: 12 },
-  historyBtn: { marginTop: 30, borderWidth: 1, borderRadius: borders.radius.full, padding: 12, alignItems: 'center' },
-  historyBtnText: { fontWeight: 'bold', fontSize: 14 },
-});
 
 export default OrderCenterScreen;

@@ -31,6 +31,7 @@ const STATUS_MAP = {
       'en camino': 'on_the_way',
       'entregado': 'delivered',
       'completado': 'ready',
+      'propuesta': 'proposal',
       'borrador': 'draft'
     };
     return map[excelStatus?.toLowerCase()] || 'pending';
@@ -44,8 +45,11 @@ const resolveSheetData = (data, sheetName) => {
   if (!data) return [];
   
   if (sheetName) {
-    const lowerName = sheetName.toLowerCase();
-    const foundKey = Object.keys(data).find(k => k.toLowerCase() === lowerName);
+    const sn = sheetName.toLowerCase().trim();
+    const foundKey = Object.keys(data).find(k => {
+      const name = k.toLowerCase().trim();
+      return name === sn || (name + 's') === sn || name === (sn + 's');
+    });
     if (foundKey && Array.isArray(data[foundKey])) return data[foundKey];
   }
 
@@ -227,12 +231,38 @@ export const updateOrderStatus = async (orderId, newStatus, extraData = {}) => {
  * Responder a una propuesta de despacho (Aceptar/Rechazar)
  */
 export const respondToOffer = async (orderId, riderId, accept = true) => {
+  // Limpiar el lock local para que el polling del cliente vea el estado real
+  const lockKey = String(orderId);
+  delete pendingUpdates[lockKey];
+
   return await updateOrderStatus(orderId, accept ? 'ready' : 'rechazado', {
     ID_Rider: accept ? riderId : '',
     ID_Pedido: orderId
   });
 };
 
+/**
+ * Lee el estado de un pedido específico directamente del Excel.
+ * No usa el cache pendingUpdates — siempre devuelve el valor real del servidor.
+ * Usado por el CheckoutScreen para detectar la respuesta del repartidor.
+ */
+export const fetchOrderStatus = async (orderId) => {
+  try {
+    const res = await fetch(`${CONFIG.GAS_API_URL}?sheet=pedidos`, { redirect: 'follow' });
+    const data = await res.json();
+    const rawOrders = resolveSheetData(data, 'pedidos');
+    const order = rawOrders.find(o => {
+      const id = getRobustProp(o, 'ID_Pedido');
+      return String(id).trim().toLowerCase() === String(orderId).trim().toLowerCase();
+    });
+    if (!order) return null;
+    const excelStatus = getRobustProp(order, 'Estado') || '';
+    return STATUS_MAP.fromExcel(excelStatus); // 'ready' | 'rechazado' | 'propuesta' | etc.
+  } catch (e) {
+    console.warn('[fetchOrderStatus] Error:', e.message);
+    return null;
+  }
+};
 
 
 export const fetchKitchenOrders = async () => {
@@ -314,8 +344,12 @@ export const fetchKitchenOrders = async () => {
 
         return {
           id: orderId || Math.random().toString(),
+          ID_Orden: orderId, // Alias para OrderCenterScreen
           cliente: (getRobustProp(order, 'Cliente') || 'Invitado').replace('\n', '').trim(),
+          NombreUser: (getRobustProp(order, 'Cliente') || 'Invitado'), // Alias para OrderCenterScreen
           email: getRobustProp(order, 'Email') || getRobustProp(order, 'email') || getRobustProp(order, 'usuario') || getRobustProp(order, 'Usuario') || '',
+          id_user: getRobustProp(order, 'ID_Usuario') || '', // Alias para OrderCenterScreen
+          id_usuario: getRobustProp(order, 'ID_Usuario') || '',
           items: itemsDetectados.length > 0 ? itemsDetectados.map(it => ({
             nombre: it.nombre || it.name || it.product || 'Producto',
             cantidad: it.cantidad || it.quantity || 1,
@@ -325,8 +359,10 @@ export const fetchKitchenOrders = async () => {
             cantidad: 1
           })), 
           estado: finalStatus,
+          Estado: finalStatus, // Alias para OrderCenterScreen
           hora: getRobustProp(order, 'Entrada') || '',
           total: parseFloat(getRobustProp(order, 'Total')) || 0,
+          Total: parseFloat(getRobustProp(order, 'Total')) || 0, // Alias para OrderCenterScreen
           mesa: getRobustProp(order, 'ID_Mesa') || getRobustProp(order, 'Mesa') || '',
           tipo: getRobustProp(order, 'Tipo') || (getRobustProp(order, 'ID_Mesa') ? 'Mesa' : 'Local'),
         };
@@ -353,15 +389,15 @@ export const pickupOrder = async (orderId, riderId) => {
  */
 export const fetchRiderOrders = async (riderId) => {
   try {
-    const [deliveriesRes, itemsRes] = await Promise.all([
-      fetch(`${CONFIG.GAS_API_URL}?sheet=Deliverys`, { redirect: 'follow' }),
+    const [ordersRes, itemsRes] = await Promise.all([
+      fetch(`${CONFIG.GAS_API_URL}?sheet=pedidos`, { redirect: 'follow' }),
       fetch(`${CONFIG.GAS_API_URL}?sheet=pedido detalle`, { redirect: 'follow' })
     ]);
 
-    const deliveriesData = await deliveriesRes.json();
+    const ordersData = await ordersRes.json();
     const itemsData = await itemsRes.json();
 
-    const rawDeliveries = resolveSheetData(deliveriesData, 'Deliverys');
+    const rawOrders = resolveSheetData(ordersData, 'pedidos');
     const rawItems = resolveSheetData(itemsData, 'pedido detalle');
 
     const itemsMap = {};
@@ -387,19 +423,23 @@ export const fetchRiderOrders = async (riderId) => {
       }
     });
     
-    return rawDeliveries
+    return rawOrders
       .filter(d => {
-        const dRiderId = getRobustProp(d, 'ID_Rider');
-        const excelStatus = getRobustProp(d, 'Estado') || 'Listo';
+        const dRiderId = String(getRobustProp(d, 'ID_Rider') || '').trim();
+        const excelStatus = (getRobustProp(d, 'Estado') || '').toLowerCase();
         
         // Mostrar si:
         // 1. Está asignado a este repartidor
         // 2. O si NO está asignado a nadie Y el estado es "Listo" (disponible para recoger)
-        const isAssignedToMe = dRiderId === riderId;
-        const isAvailableToPick = (!dRiderId || dRiderId.toString().trim() === '' || dRiderId.toString().toLowerCase() === 'n/a') && 
-                                  (excelStatus.toLowerCase() === 'listo' || excelStatus.toLowerCase() === 'ready');
+        // Solo hay match si AMBOS IDs existen y no están vacíos
+        const isAssignedToMe = dRiderId !== '' && riderId !== '' && dRiderId === riderId;
+        const isAvailableToPick = (dRiderId === '' || dRiderId === 'n/a') && 
+                                  (excelStatus === 'listo' || excelStatus === 'ready');
         
-        return isAssignedToMe || isAvailableToPick;
+        // También mostrar si está en fase de "Propuesta" para este repartidor específico
+        const isProposalForMe = dRiderId !== '' && riderId !== '' && dRiderId === riderId && excelStatus === 'propuesta';
+        
+        return isAssignedToMe || isAvailableToPick || isProposalForMe;
       })
       .map(d => {
         const orderId = getRobustProp(d, 'ID_Pedido');
@@ -423,7 +463,7 @@ export const fetchRiderOrders = async (riderId) => {
 /**
  * Fetch rider stats
  */
-export const fetchRiderStats = async (riderId) => {
+export const fetchRiderStats = async (riderId, email = null) => {
   try {
     const [userRes, deliveryRes] = await Promise.all([
       fetch(`${CONFIG.GAS_API_URL}?sheet=usuarios`, { redirect: 'follow' }),
@@ -432,22 +472,42 @@ export const fetchRiderStats = async (riderId) => {
     
     const rawUsers = await userRes.json();
     const users = resolveSheetData(rawUsers, 'usuarios');
-    const riderUser = users.find(u => getRobustProp(u, 'Usuario') === riderId || getRobustProp(u, 'ID_Usuario') === riderId);
+    const riderUser = users.find(u => 
+      String(getRobustProp(u, 'Usuario')) === String(riderId) || 
+      String(getRobustProp(u, 'ID_Usuario')) === String(riderId) ||
+      String(getRobustProp(u, 'ID_User')) === String(riderId) ||
+      (email && String(getRobustProp(u, 'Email')).toLowerCase() === String(email).toLowerCase()) ||
+      (email && String(getRobustProp(u, 'EmailUser')).toLowerCase() === String(email).toLowerCase())
+    );
     
-    // Buscar datos especÃ­ficos de delivery
-    const deliveryInfo = deliveryRes.find(d => d.id === riderId || d.id_delivery === riderId);
+    // Buscar datos específicos de delivery
+    const deliveryInfo = deliveryRes.find(d => 
+      String(d.id) === String(riderId) || 
+      String(d.id_delivery) === String(riderId) ||
+      (email && String(getRobustProp(d, 'Email')).toLowerCase() === String(email).toLowerCase())
+    );
     
+    const resolvedName = (riderUser ? (getRobustProp(riderUser, 'NombreUser') || getRobustProp(riderUser, 'Nombre')) : null) || 
+                         (deliveryInfo ? (deliveryInfo.nombre || deliveryInfo.Nombre) : null);
+    
+    // 🛡️ Triple-check: Si no hay nombre resuelto, intentar usar el displayName del sistema si es posible
+    // pero el finalName garantiza que no sea nulo.
+    
+    // 🛡️ Triple-check: No devolver el ID como nombre
+    const finalName = (resolvedName && resolvedName !== riderId) ? resolvedName : 'Repartidor';
+
     return {
-      nombre: (riderUser ? getRobustProp(riderUser, 'Nombre') : null) || (deliveryInfo ? deliveryInfo.nombre : null) || riderId,
+      nombre: finalName,
+      id_repartidor: riderId,
       cartera: deliveryInfo ? deliveryInfo.cartera : (riderUser ? parseFloat(getRobustProp(riderUser, 'Cartera')) : 0) || 0,
       deuda: deliveryInfo ? deliveryInfo.deuda_efectivo : (riderUser ? parseFloat(getRobustProp(riderUser, 'Deuda')) : 0) || 0,
       cupo: (parseFloat(getRobustProp(riderUser, 'Limite')) || 5000) - (deliveryInfo ? deliveryInfo.deuda_efectivo : 0),
-      activo: deliveryInfo ? deliveryInfo.activo : false, // <--- Estado de disponibilidad real
-      fullData: deliveryInfo || {} // Guardamos todo por si acaso
+      activo: deliveryInfo ? deliveryInfo.activo : false,
+      fullData: deliveryInfo || {}
     };
   } catch (error) {
     console.error('Error fetching rider stats:', error);
-    return { cartera: 0, deuda: 0, cupo: 0, nombre: riderId, activo: false };
+    return { cartera: 0, deuda: 0, cupo: 0, nombre: 'Repartidor', activo: false };
   }
 };
 
@@ -456,10 +516,11 @@ export const fetchRiderStats = async (riderId) => {
  */
 export const fetchAllUsers = async () => {
   try {
-    const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=usuarios`, { redirect: 'follow' });
+    const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=Usuarios`, { redirect: 'follow' });
     const data = await response.json();
-    return resolveSheetData(data, 'usuarios');
+    return resolveSheetData(data, 'Usuarios');
   } catch (error) {
+    console.error('Error fetching users:', error);
     return [];
   }
 };
@@ -474,13 +535,23 @@ export const formatPrice = (price) => {
 
 export const fetchUserRoleByEmail = async (email) => {
   try {
-    const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=usuarios&email=${email}`, { redirect: 'follow' });
+    const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=Usuarios`, { redirect: 'follow' });
     const data = await response.json();
-    const users = resolveSheetData(data, 'usuarios');
-    const user = users.find(u => getRobustProp(u, 'EmailUser') === email);
-    return getRobustProp(user, 'UserType') || 'client';
+    const users = resolveSheetData(data, 'Usuarios');
+    const user = users.find(u => 
+      (u.EmailUser || u.emailuser || u.Email || u.email || '').toLowerCase() === email.toLowerCase()
+    );
+
+    if (!user) return null;
+
+    return {
+      id: user.ID_User || user.ID_Usuario || user.id || '',
+      nombre: user.NombreUser || user.Nombre || user.username || '',
+      rol: user.UserType || user.Role || user.rol || 'Cliente'
+    };
   } catch (error) {
-    return 'client';
+    console.error('Error fetching user profile:', error);
+    return null;
   }
 };
 
@@ -521,17 +592,26 @@ export const fetchDeliveries = async () => {
         const rawActivo = String(getRobustProp(d, 'Activo') || getRobustProp(d, 'Disponible') || getRobustProp(d, 'Estado') || '').toLowerCase().trim();
         const isActive = rawActivo === 'true' || rawActivo === 'si' || rawActivo === 'activo' || rawActivo === '1' || rawActivo === 'disponible';
 
-        // Intentar obtener el nombre de varias fuentes
-        const nombreDetectado = getRobustProp(d, 'Nombre') || getRobustProp(d, 'Rider') || getRobustProp(d, 'Personal') || id;
+        // Intentar obtener el nombre de varias fuentes muy variadas incluyendo paréntesis
+        const nombreDetectado = getRobustProp(d, 'Nombre') || 
+                               getRobustProp(d, 'Nombre(s)') || // 👈 Caso específico de tu Excel
+                               getRobustProp(d, 'Rider') || 
+                               getRobustProp(d, 'NombreUser') || 
+                               id;
+        
+        const apellidoDetectado = getRobustProp(d, 'Apellido') || 
+                                 getRobustProp(d, 'Apellido(s)') || // 👈 Caso específico de tu Excel
+                                 '';
+        const vehiculo = getRobustProp(d, 'Vehiculo') || getRobustProp(d, 'Moto') || getRobustProp(d, 'Transporte') || 'Moto';
 
         return {
           id: String(id),
           id_delivery: String(id),
           nombre: nombreDetectado,
-          apellido: getRobustProp(d, 'Apellido') || '',
+          apellido: apellidoDetectado,
           telefono: getRobustProp(d, 'Telefono') || '',
           whatsapp: getRobustProp(d, 'Whatsapp') || '',
-          vehiculo: getRobustProp(d, 'Vehiculo') || 'Vehículo',
+          vehiculo: vehiculo,
           costo_pedido: parseFloat(getRobustProp(d, 'Costo_Pedido')) || 50,
           cartera: parseFloat(getRobustProp(d, 'Cartera')) || 0,
           deuda_efectivo: parseFloat(getRobustProp(d, 'Deuda_Efectivo')) || 0,
@@ -540,6 +620,8 @@ export const fetchDeliveries = async () => {
           honestidad: parseFloat(getRobustProp(d, 'Honestidad')) || 5.0,
           activo: isActive,
           foto: getRobustProp(d, 'Foto') || '',
+          pushToken: getRobustProp(d, 'PushToken') || getRobustProp(d, 'Push_Token') || null,
+          callmebotKey: getRobustProp(d, 'CallmebotKey') || getRobustProp(d, 'Callmebot_Key') || null,
           pedidos_dia: parseInt(getRobustProp(d, 'Pedidos_Dia')) || 0,
           pedidos_semana: parseInt(getRobustProp(d, 'Pedidos_Semana')) || 0,
           ingreso_dia: parseFloat(getRobustProp(d, 'Ingreso_Dia')) || 0
@@ -705,7 +787,8 @@ export const saveOrderDetail = async (detailData) => {
 
 export const saveOrder = async (orderData) => {
   try {
-    const itemsJson = JSON.stringify(orderData.items.map(it => ({
+    const itemsList = orderData.items || [];
+    const itemsJson = JSON.stringify(itemsList.map(it => ({
       nombre: it.nombre,
       cantidad: it.cantidad,
       precio: it.precio,
@@ -717,8 +800,9 @@ export const saveOrder = async (orderData) => {
       sheet: "pedidos",
       data: {
         'ID_Pedido': orderData.orderId,
+        'ID_Usuario': orderData.userId || '',
         'Cliente': orderData.cliente || 'Invitado',
-        'Email': orderData.usuario || '',
+        'Email': orderData.usuario || orderData.email || '',
         'Total': orderData.total,
         'Entrada': orderData.hora || new Date().toLocaleTimeString(),
         'Fecha': new Date().toLocaleDateString(),
@@ -752,15 +836,16 @@ export const saveUser = async (userData) => {
   try {
     const payload = {
       action: "UPSERT",
-      sheet: "usuarios",
-      idField: "ID_Usuario",
+      sheet: "Usuarios",
+      idField: "ID_User",
       data: {
-        'ID_Usuario': userData.id || Math.random().toString(),
-        'Nombre': userData.username || userData.email?.split('@')[0] || 'Cliente',
-        'Usuario': userData.email,
-        'EmailUser': userData.email,
-        'UserType': userData.role || 'Cliente',
-        'Estado': userData.active ? 'Activo' : 'Inactivo'
+        'ID_User': userData.id_user || userData.ID_User || userData.id || userData.emailuser || userData.email || `user_${Date.now()}`,
+        'NombreUser': userData.nombreuser || userData.NombreUser || userData.username || 'Usuario',
+        'EmailUser': userData.emailuser || userData.EmailUser || userData.email || '',
+        'UserType': userData.usertype || userData.UserType || userData.role || 'Cliente',
+        'activo?': userData['activo?'] !== undefined ? userData['activo?'] : true,
+        'Empleado?': userData['Empleado?'] !== undefined ? userData['Empleado?'] : (userData['empleado?'] !== undefined ? userData['empleado?'] : false),
+        'Area_Trabajo': userData.area_trabajo || userData.Area_Trabajo || 'Global'
       }
     };
     
@@ -773,7 +858,6 @@ export const saveUser = async (userData) => {
     return await response.json();
   } catch (error) {
     console.error('Error saving user to sheets:', error);
-    // Resolve without throwing to not break auth flow
     return { success: false, error: error.message };
   }
 };
@@ -983,8 +1067,28 @@ export const fetchOrderDetails = async (orderId) => {
         }))
     };
   } catch (error) {
-    console.error('Error fetching order details:', error);
     return null;
+  }
+};
+
+/**
+ * Delete a user by email/id
+ */
+export const deleteUser = async (email) => {
+  try {
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'DELETE',
+        sheet: 'usuarios',
+        idField: 'Email',
+        data: { Email: email }
+      })
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    return { success: false, error: error.message };
   }
 };
 
@@ -1008,5 +1112,6 @@ export default {
   saveWaiterCartItem,
   createDraftOrder,
   respondToOffer,
-  saveOrder
+  saveOrder,
+  deleteUser
 };

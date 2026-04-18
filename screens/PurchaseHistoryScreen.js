@@ -1,283 +1,219 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  SafeAreaView, 
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  SafeAreaView,
   FlatList,
   TouchableOpacity,
+  ActivityIndicator,
   RefreshControl,
-  ActivityIndicator
+  Alert
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { useAuth } from '../contexts/AuthContext';
-import { useGlobalStyles } from '../styles/globalStyles';
-import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
+import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
+import GlassPanel from '../components/GlassPanel';
+import { useAuth } from '../contexts/AuthContext';
+import { useUser } from '../contexts/UserContext';
+import { fetchOrders } from '../utils/api';
 
 const PurchaseHistoryScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
-  const globalStyles = useGlobalStyles(colors);
-  const { user } = useAuth();
-
+  const { user: authUser } = useAuth();
+  const { contextUserId, contextUserEmail } = useUser();
+  
   const [orders, setOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Simular carga de historial (reemplazar con API real)
   useEffect(() => {
     loadOrders();
-  }, []);
+  }, [contextUserId, contextUserEmail]);
 
   const loadOrders = async () => {
-    setIsLoading(true);
     try {
-      // TODO: Reemplazar con fetch a Google Sheets
-      // Por ahora datos de demostración
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setOrders([
-        {
-          id: 'DS123456',
-          fecha: '2024-01-15',
-          hora: '14:30',
-          estado: 'delivered',
-          items: 3,
-          total: 1250.00,
-        },
-        {
-          id: 'DS123789',
-          fecha: '2024-01-10',
-          hora: '20:15',
-          estado: 'delivered',
-          items: 2,
-          total: 850.00,
-        },
-      ]);
+      // Si no hay identidad, no intentamos cargar nada por seguridad
+      if (!contextUserId && !contextUserEmail) {
+        setOrders([]);
+        setIsLoading(false);
+        return;
+      }
+
+      const allOrders = await fetchOrders();
+      
+      const userOrders = allOrders.filter(o => {
+        const orderUserId = String(o.id_user || o.ID_Usuario || '').trim();
+        const orderEmail = String(o.EmailUser || o.email || '').trim().toLowerCase();
+        
+        const myId = String(contextUserId || '').trim();
+        const myEmail = String(contextUserEmail || authUser?.email || '').trim().toLowerCase();
+
+        // 🛡️ FILTRO BLINDADO:
+        // 1. El ID no puede estar vacío y debe coincidir.
+        // 2. O el Email no puede estar vacío y debe coincidir.
+        const matchesId = myId !== '' && orderUserId !== '' && orderUserId === myId;
+        const matchesEmail = myEmail !== '' && orderEmail !== '' && orderEmail === myEmail;
+
+        return matchesId || matchesEmail;
+      }).sort((a, b) => {
+        const dateA = new Date(a.Fecha || a.timestamp || 0);
+        const dateB = new Date(b.Fecha || b.timestamp || 0);
+        return dateB - dateA;
+      });
+      
+      setOrders(userOrders);
     } catch (error) {
-      console.error('Error loading orders:', error);
+      console.log('Error loading history:', error);
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   };
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadOrders();
-    setRefreshing(false);
-  }, []);
-
-  const getStatusLabel = (status) => {
-    switch (status) {
-      case 'preparing': return 'Preparando';
-      case 'on_the_way': return 'En camino';
-      case 'delivered': return 'Entregado';
-      case 'cancelled': return 'Cancelado';
-      default: return 'Desconocido';
-    }
+  const getStatusConfig = (status) => {
+    const s = (status || '').toLowerCase();
+    if (['pending', 'nuevo'].includes(s)) return { label: 'Recibido', color: colors.primary };
+    if (['preparing', 'preparando'].includes(s)) return { label: 'Preparando', color: '#FF8C00' };
+    if (['shipping', 'ruta', 'transito'].includes(s)) return { label: 'En camino', color: '#457B9D' };
+    if (['delivered', 'finalizado', 'entregado'].includes(s)) return { label: 'Entregado', color: colors.success };
+    return { label: 'Pendiente', color: colors.text.secondary };
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'preparing': return colors.warning;
-      case 'on_the_way': return colors.primary;
-      case 'delivered': return colors.success;
-      case 'cancelled': return colors.error;
-      default: return colors.text.secondary;
-    }
-  };
-
-  const renderOrderItem = useCallback(({ item }) => (
-    <TouchableOpacity 
-      style={styles.orderCard}
-      onPress={() => {}}
-      activeOpacity={0.7}
-    >
-      <View style={styles.orderHeader}>
-        <View>
-          <Text style={styles.orderId}>Orden #{item.id}</Text>
-          <Text style={styles.orderDate}>{item.fecha} • {item.hora}</Text>
-        </View>
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.estado) + '20' }]}>
-          <Text style={[styles.statusText, { color: getStatusColor(item.estado) }]}>
-            {getStatusLabel(item.estado)}
-          </Text>
-        </View>
-      </View>
-      
-      <View style={styles.orderDetails}>
-        <Text style={styles.orderItems}>{item.items} productos</Text>
-        <Text style={styles.orderTotal}>RD${item.total.toFixed(2)}</Text>
-      </View>
-
-      <View style={styles.orderActions}>
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={() => navigation.navigate('DeliveryTracking', { orderId: item.id })}
-        >
-          <FontAwesome5 name="map-marker-alt" size={14} color={colors.primary} />
-          <Text style={styles.actionText}>Rastrear</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={() => {}}
-        >
-          <FontAwesome5 name="receipt" size={14} color={colors.text.secondary} />
-          <Text style={[styles.actionText, { color: colors.text.secondary }]}>Ticket</Text>
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  ), [colors, navigation]);
-
-  const renderEmptyOrders = useCallback(() => (
-    <View style={globalStyles.emptyContainer}>
-      <TouchableOpacity onPress={() => navigation.goBack()} style={{ position: 'absolute', top: spacing.md, left: spacing.md, padding: spacing.sm, zIndex: 10 }}>
-        <FontAwesome5 name="arrow-left" size={20} color={colors.text.primary} />
-      </TouchableOpacity>
-      <FontAwesome5 name="receipt" size={64} color={colors.text.light} />
-      <Text style={globalStyles.emptyTitle}>Sin pedidos aún</Text>
-      <Text style={globalStyles.emptyText}>
-        ¡Tu historial de compras aparecerá aquí después de tu primer pedido!
-      </Text>
-      <TouchableOpacity 
-        style={globalStyles.primaryButton}
-        onPress={() => navigation.navigate('Explorar')}
-      >
-        <Text style={globalStyles.primaryButtonText}>Hacer un pedido</Text>
-      </TouchableOpacity>
-    </View>
-  ), [navigation]);
-
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
+  const styles = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
     header: {
       padding: spacing.md,
-      backgroundColor: colors.primary,
+      paddingTop: spacing.lg,
+      flexDirection: 'row',
+      alignItems: 'center',
     },
-    headerTitle: {
-      ...typography.h5,
-      color: colors.text.white,
+    headerTitle: { 
+      color: colors.text.primary, 
+      fontSize: 22, 
+      fontWeight: 'bold',
+      marginLeft: 15
     },
-    listContainer: {
-      padding: spacing.md,
-    },
-    orderCard: {
+    backBtn: { 
+      padding: 10,
       backgroundColor: colors.surface,
-      borderRadius: borders.radius.lg,
+      borderRadius: 12,
+      ...shadows.small
+    },
+    list: { padding: spacing.md },
+    orderCard: {
       padding: spacing.md,
+      borderRadius: 20,
       marginBottom: spacing.md,
-      ...shadows.medium,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      ...shadows.small,
     },
     orderHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      alignItems: 'flex-start',
-      marginBottom: spacing.sm,
+      alignItems: 'center',
+      marginBottom: 10,
     },
-    orderId: {
-      ...typography.bodyMedium,
-      fontWeight: 'bold',
-      color: colors.text.primary,
-    },
-    orderDate: {
-      ...typography.bodySmall,
-      color: colors.text.secondary,
-      marginTop: spacing.xs,
-    },
+    orderId: { fontWeight: 'bold', color: colors.text.primary },
     statusBadge: {
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xs,
-      borderRadius: borders.radius.sm,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 8,
     },
-    statusText: {
-      fontSize: typography.sizes.xs,
-      fontWeight: 'bold',
-    },
-    orderDetails: {
+    statusText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
+    orderFooter: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      paddingVertical: spacing.sm,
+      marginTop: 15,
+      paddingTop: 10,
       borderTopWidth: 1,
       borderTopColor: colors.border,
-      marginBottom: spacing.sm,
     },
-    orderItems: {
-      ...typography.bodySmall,
-      color: colors.text.secondary,
-    },
-    orderTotal: {
-      ...typography.h6,
-      color: colors.primary,
-    },
-    orderActions: {
-      flexDirection: 'row',
-      justifyContent: 'space-around',
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
-      paddingTop: spacing.sm,
-    },
-    actionButton: {
-      flexDirection: 'row',
+    orderDate: { fontSize: 12, color: colors.text.secondary },
+    orderTotal: { fontSize: 16, fontWeight: 'bold', color: colors.success },
+    emptyContainer: {
+      flex: 1,
+      justifyContent: 'center',
       alignItems: 'center',
-      padding: spacing.sm,
+      marginTop: 100,
+      opacity: 0.5
     },
-    actionText: {
-      marginLeft: spacing.xs,
-      color: colors.primary,
-      fontWeight: '600',
-    },
-  });
+    emptyText: {
+      marginTop: 20,
+      fontSize: 16,
+      color: colors.text.secondary,
+      textAlign: 'center'
+    }
+  }), [colors, darkMode]);
 
-  if (isLoading) {
+  const renderOrder = ({ item }) => {
+    const status = getStatusConfig(item.Estado || item.status);
     return (
-      <SafeAreaView style={[styles.container, globalStyles.centerContainer]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{ position: 'absolute', top: spacing.md, left: spacing.md, padding: spacing.sm, zIndex: 10 }}>
-          <FontAwesome5 name="arrow-left" size={20} color={colors.text.primary} />
-        </TouchableOpacity>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={{ marginTop: spacing.md, color: colors.text.secondary }}>
-          Cargando historial...
-        </Text>
-      </SafeAreaView>
-    );
-  }
+      <TouchableOpacity 
+        onPress={() => navigation.navigate('OrderDetail', { order: item })}
+      >
+        <GlassPanel intensity={10} style={styles.orderCard}>
+          <View style={styles.orderHeader}>
+            <Text style={styles.orderId}>Orden #{(item.id || item.ID_Orden || '').slice(-6).toUpperCase()}</Text>
+            <View style={[styles.statusBadge, { backgroundColor: status.color }]}>
+              <Text style={styles.statusText}>{status.label}</Text>
+            </View>
+          </View>
+          
+          <Text style={{ color: colors.text.secondary, fontSize: 13 }}>
+            {item.Items || 'Pedido realizado'}
+          </Text>
 
-  if (orders.length === 0) {
-    return (
-      <SafeAreaView style={styles.container}>
-        {renderEmptyOrders()}
-      </SafeAreaView>
+          <View style={styles.orderFooter}>
+            <Text style={styles.orderDate}>{item.Fecha || item.timestamp}</Text>
+            <Text style={styles.orderTotal}>${item.Total || item.total}</Text>
+          </View>
+        </GlassPanel>
+      </TouchableOpacity>
     );
-  }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={[styles.header, { flexDirection: 'row', alignItems: 'center' }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{ paddingRight: 15, paddingVertical: 5 }}>
-          <FontAwesome5 name="arrow-left" size={20} color={colors.text.white} />
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <FontAwesome5 name="chevron-left" size={18} color={colors.text.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Historial de Compras</Text>
+        <Text style={styles.headerTitle}>Mis Compras</Text>
       </View>
 
-      <FlatList
-        data={orders}
-        renderItem={renderOrderItem}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.listContainer}
-        refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
-            onRefresh={onRefresh}
-            colors={[colors.primary]}
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      />
+      {isLoading ? (
+        <View style={{ flex: 1, justifyContent: 'center' }}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      ) : (
+        <FlatList
+          data={orders}
+          renderItem={renderOrder}
+          keyExtractor={(item, index) => (item.id || item.ID_Orden || index).toString()}
+          contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl 
+              refreshing={isRefreshing} 
+              onRefresh={() => {
+                setIsRefreshing(true);
+                loadOrders();
+              }}
+              tintColor={colors.primary}
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <FontAwesome5 name="shopping-bag" size={60} color={colors.border} />
+              <Text style={styles.emptyText}>Aún no has realizado ninguna compra.</Text>
+            </View>
+          }
+        />
+      )}
     </SafeAreaView>
   );
 };

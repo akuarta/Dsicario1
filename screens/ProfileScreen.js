@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -6,8 +6,10 @@ import {
   StyleSheet, 
   SafeAreaView,
   ScrollView,
-  Alert
+  Alert,
+  Switch
 } from 'react-native';
+import { useUser } from '../contexts/UserContext';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useCart } from '../contexts/AppContext';
 // import { useTheme } from 'react-native-elements';
@@ -22,7 +24,18 @@ const ProfileScreen = ({ navigation }) => {
   const globalStyles = useGlobalStyles(colors);
   
   const { clearCart, getTotalItems } = useCart();
+  const { username, email, role, isClientMode, setIsClientMode } = useUser();
   const totalItems = getTotalItems();
+
+  const isOwner = email?.toLowerCase()?.trim() === 'hairoman28@gmail.com';
+  const isStaff = !!(role && (
+    role.toLowerCase().includes('admin') || 
+    role.toLowerCase().includes('cocina') || 
+    role.toLowerCase().includes('delivery') || 
+    role.toLowerCase().includes('repartidor') || 
+    role.toLowerCase().includes('mesero') ||
+    role.toLowerCase().includes('cosina')
+  )) || isOwner;
 
   const handleClearCart = () => {
     if (totalItems === 0) {
@@ -158,7 +171,7 @@ const ProfileScreen = ({ navigation }) => {
     </TouchableOpacity>
   );
 
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: colors.background,
@@ -176,131 +189,131 @@ const ProfileScreen = ({ navigation }) => {
     },
     
     avatarContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: spacing.md,
-  },
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: 'rgba(255,255,255,0.2)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: spacing.md,
+    },
   
-  userInfo: {
-    flex: 1,
-  },
+    userInfo: {
+      flex: 1,
+    },
   
-  userName: {
-    fontSize: typography.sizes.xl,
-    fontWeight: typography.weights.bold,
-    color: colors.text.white,
-    marginBottom: spacing.xs,
-  },
+    userName: {
+      fontSize: typography.sizes.xl,
+      fontWeight: typography.weights.bold,
+      color: colors.text.white,
+      marginBottom: spacing.xs,
+    },
   
-  userEmail: {
-    fontSize: typography.sizes.md,
-    color: 'rgba(255,255,255,0.8)',
-  },
+    userEmail: {
+      fontSize: typography.sizes.md,
+      color: 'rgba(255,255,255,0.8)',
+    },
   
-  menuContainer: {
-    paddingVertical: spacing.md,
-  },
+    menuContainer: {
+      paddingVertical: spacing.md,
+    },
   
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.background,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
+    menuItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+      backgroundColor: colors.background,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
   
-  destructiveItem: {
-    backgroundColor: 'rgba(244, 67, 54, 0.05)',
-  },
+    destructiveItem: {
+      backgroundColor: colors.error + '05',
+    },
   
-  menuItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
+    menuItemLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+    },
   
-  iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: borders.radius.md,
-    backgroundColor: 'rgba(255, 107, 53, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: spacing.md,
-  },
+    iconContainer: {
+      width: 40,
+      height: 40,
+      borderRadius: borders.radius.md,
+      backgroundColor: colors.primary + '10',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: spacing.md,
+    },
   
-  destructiveIcon: {
-    backgroundColor: 'rgba(244, 67, 54, 0.1)',
-  },
+    destructiveIcon: {
+      backgroundColor: colors.error + '10',
+    },
   
-  menuItemText: {
-    flex: 1,
-  },
+    menuItemText: {
+      flex: 1,
+    },
   
-  menuItemTitle: {
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.medium,
-    color: colors.text.primary,
-    marginBottom: spacing.xs,
-  },
+    menuItemTitle: {
+      fontSize: typography.sizes.md,
+      fontWeight: typography.weights.medium,
+      color: colors.text.primary,
+      marginBottom: spacing.xs,
+    },
   
-  destructiveText: {
-    color: colors.error,
-  },
+    destructiveText: {
+      color: colors.error,
+    },
   
-  menuItemSubtitle: {
-    fontSize: typography.sizes.sm,
-    color: colors.text.light,
-  },
+    menuItemSubtitle: {
+      fontSize: typography.sizes.sm,
+      color: colors.text.light,
+    },
   
-  menuItemRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+    menuItemRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
   
-  badge: {
-    backgroundColor: colors.primary,
-    borderRadius: borders.radius.round,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    marginRight: spacing.sm,
-    minWidth: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+    badge: {
+      backgroundColor: colors.primary,
+      borderRadius: borders.radius.round,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      marginRight: spacing.sm,
+      minWidth: 24,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
   
-  badgeText: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.bold,
-    color: colors.text.white,
-  },
+    badgeText: {
+      fontSize: typography.sizes.xs,
+      fontWeight: typography.weights.bold,
+      color: colors.text.white,
+    },
   
-  footer: {
-    alignItems: 'center',
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.md,
-  },
+    footer: {
+      alignItems: 'center',
+      paddingVertical: spacing.xl,
+      paddingHorizontal: spacing.md,
+    },
   
-  footerText: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.medium,
-    color: colors.text.light,
-    marginBottom: spacing.xs,
-  },
+    footerText: {
+      fontSize: typography.sizes.sm,
+      fontWeight: typography.weights.medium,
+      color: colors.text.light,
+      marginBottom: spacing.xs,
+    },
   
-  footerSubtext: {
-    fontSize: typography.sizes.sm,
-    color: colors.text.light,
-    textAlign: 'center',
-  },
-});
+    footerSubtext: {
+      fontSize: typography.sizes.sm,
+      color: colors.text.light,
+      textAlign: 'center',
+    },
+  }), [colors, darkMode]);
 
   return (
     <SafeAreaView style={[globalStyles.container, darkMode && { backgroundColor: colors.background }]}>
@@ -319,13 +332,39 @@ const ProfileScreen = ({ navigation }) => {
               <FontAwesome5 name="user" size={32} color={colors.text.white} />
             </View>
             <View style={styles.userInfo}>
-              <Text style={styles.userName}>Usuario</Text>
-              <Text style={styles.userEmail}>usuario@dsicario.com</Text>
+              <Text style={styles.userName}>{username || 'Usuario'}</Text>
+              <Text style={styles.userEmail}>{email || 'usuario@dsicario.com'}</Text>
             </View>
           </View>
         </View>
 
-        {/* Menu Items */}
+        {/* Admin/Staff Mode Toggle */}
+        {isStaff && (
+          <View style={{
+            backgroundColor: colors.surface || colors.background,
+            margin: spacing.md,
+            padding: spacing.md,
+            borderRadius: borders.radius.md,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderWidth: 1,
+            borderColor: colors.border
+          }}>
+            <View>
+              <Text style={{ fontSize: 16, fontWeight: 'bold', color: colors.text.primary }}>Modo Cliente</Text>
+              <Text style={{ fontSize: 12, color: colors.text.light }}>
+                {isClientMode ? 'Viendo como cliente' : 'Viendo como personal'}
+              </Text>
+            </View>
+            <Switch
+              value={isClientMode}
+              onValueChange={setIsClientMode}
+              trackColor={{ false: '#767577', true: colors.primary + '80' }}
+              thumbColor={isClientMode ? colors.primary : '#f4f3f4'}
+            />
+          </View>
+        )}
         <View style={styles.menuContainer}>
           {menuItems.map(renderMenuItem)}
         </View>

@@ -8,7 +8,8 @@ import {
   signOut as firebaseSignOut,
   updateProfile,
   GoogleAuthProvider,
-  signInWithCredential
+  signInWithCredential,
+  signInWithPopup
 } from 'firebase/auth';
 import { auth } from '../config/firebaseConfig';
 import { saveUser } from '../utils/api';
@@ -117,6 +118,16 @@ export const AuthProvider = ({ children }) => {
         photoURL: result.user.photoURL,
         emailVerified: result.user.emailVerified,
       };
+
+      // Guardar nuevo usuario en Google Sheets
+      await saveUser({
+        id: userData.uid,
+        username: userData.displayName,
+        email: userData.email,
+        role: 'Cliente',
+        active: true
+      });
+
       setUser(userData);
       await AsyncStorage.setItem('@dsicario_user', JSON.stringify(userData));
       return userData;
@@ -172,14 +183,33 @@ export const AuthProvider = ({ children }) => {
         emailVerified: result.user.emailVerified,
       };
 
-      // Guardar/Actualizar usuario en Google Sheets
-      await saveUser({
-        id: userData.uid,
-        username: userData.displayName,
-        email: userData.email,
-        role: 'Cliente',
-        active: true
-      });
+      setUser(userData);
+      await AsyncStorage.setItem('@dsicario_user', JSON.stringify(userData));
+      return userData;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  const signInWithGoogleWeb = async () => {
+    setIsAuthenticating(true);
+    setError(null);
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      const result = await signInWithPopup(auth, provider);
+      const userData = {
+        uid: result.user.uid,
+        email: result.user.email,
+        displayName: result.user.displayName,
+        photoURL: result.user.photoURL,
+        emailVerified: result.user.emailVerified,
+      };
+
+
 
       setUser(userData);
       await AsyncStorage.setItem('@dsicario_user', JSON.stringify(userData));
@@ -201,6 +231,7 @@ export const AuthProvider = ({ children }) => {
     signIn,
     signUp,
     signInWithGoogle,
+    signInWithGoogleWeb,
     signOut,
     clearError: () => setError(null),
   };

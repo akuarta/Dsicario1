@@ -4,7 +4,7 @@
 
 export const CONFIG = {
   // Google Apps Script Master URL
-  GAS_API_URL: 'https://script.google.com/macros/s/AKfycbz2nHfwS6V2bx0gEV0HVnxj4wVZu9giWjxLb7mVl6azT8iHU-U0Gcs64lgQNj3B1jz4/exec',
+  GAS_API_URL: 'https://script.google.com/macros/s/AKfycby5xMlsWhrNDB2O5tqE_GUTbeznMaB4pqTfx8gRZnvcvCB4zIS0IqwDMaptlaRbrUwe/exec',
   
   // App settings
   APP_NAME: 'DSicarioApp',
@@ -12,4 +12,8 @@ export const CONFIG = {
   
   // API settings
   API_TIMEOUT: 30000,
+
+  // VAPID Keys para Web Push Notifications
+  VAPID_PUBLIC_KEY: 'BH5kWZBL9T2ZzA5SLF6SgxX_dAkfXZCKQvJhdUBNV3BKH5yZAviSBXS4YVwUyz6qmtwrJ99L-5sxpTfkcYNePxo',
+  VAPID_PRIVATE_KEY: 'b3JqjGvxvmMPSWLLItD_gv_ltZpnbFWglf1Zgms3KXE', // Solo se usa en servidor/Code.gs
 };
