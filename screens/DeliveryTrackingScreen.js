@@ -245,9 +245,16 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
       fontSize: 16, 
       fontWeight: 'bold', 
       marginLeft: 20,
-      textShadowColor: 'rgba(0,0,0,0.75)',
-      textShadowOffset: { width: 1, height: 1 },
-      textShadowRadius: 5
+      ...Platform.select({
+        web: {
+          textShadow: '1px 1px 5px rgba(0,0,0,0.75)'
+        },
+        default: {
+          textShadowColor: 'rgba(0,0,0,0.75)',
+          textShadowOffset: { width: 1, height: 1 },
+          textShadowRadius: 5
+        }
+      })
     },
     scannerOverlay: { 
       flex: 1, 
@@ -341,7 +348,7 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
   };
 
   const openScanner = async () => {
-    if (!permission.granted) {
+    if (!permission || !permission.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
         Alert.alert('Permiso denegado', 'Necesitamos acceso a la cámara para confirmar la entrega.');

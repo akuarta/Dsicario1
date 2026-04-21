@@ -166,7 +166,7 @@ export const registerForPushNotifications = async () => {
   }
 
   const token = (await Notifications.getExpoPushTokenAsync({
-    projectId: '2c2e9a21-fda9-4b1b-b4e6-0a9a3d8a43f5',
+    projectId: 'f2b86deb-3577-44c9-8400-4ec78784f8f9', // ID real de app.json → extra.eas.projectId
   })).data;
 
   if (Platform.OS === 'android') {
@@ -234,4 +234,63 @@ export const setupNotificationResponseListener = (onNotificationTapped) => {
     if (onNotificationTapped) onNotificationTapped(data);
   });
   return () => subscription.remove();
+};
+
+// ─────────────────────────────────────────────
+// 🍽️ CANAL 4: COCINA → MESERO (Orden Lista)
+// Alerta local inmediata cuando una orden cambia
+// de estado "preparing" a "ready" desde la cocina.
+// ─────────────────────────────────────────────
+
+/**
+ * Configura el canal de Android para alertas de cocina.
+ * Llamar una sola vez al iniciar la App (en registerForPushNotifications).
+ */
+export const setupKitchenChannel = async () => {
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('kitchen-ready', {
+      name: '🍽️ Pedido Listo — Cocina',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 400, 200, 400, 200, 400],
+      lightColor: '#22c55e',
+      sound: 'default',
+      description: 'Alertas cuando la cocina marca un pedido como listo para servir.',
+    });
+  }
+};
+
+/**
+ * Dispara una notificación local inmediata + vibración
+ * cuando la cocina marca una orden como "ready".
+ * Si la App está abierta, el banner aparece igualmente.
+ *
+ * @param {Object} order - Objeto de la orden lista { id, cliente, mesa_nombre }
+ */
+export const notifyOrderReady = async (order) => {
+  try {
+    // Vibración de triple pulso (patrón de alerta urgente)
+    const { Vibration } = require('react-native');
+    if (Platform.OS !== 'web') {
+      Vibration.vibrate([0, 400, 200, 400, 200, 400]);
+    }
+
+    // Notificación local inmediata (trigger: null = ahora)
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: '🔔 ¡Pedido Listo para Servir!',
+        body: `👤 ${order.cliente || order.mesa_nombre || 'Mesa'} — Orden #${String(order.id || '').slice(-6)}`,
+        data: { orderId: order.id, type: 'KITCHEN_READY', screen: 'WaiterScreen' },
+        color: '#22c55e',
+        sound: 'default',
+        // Android: usa el canal específico de cocina
+        ...(Platform.OS === 'android' && { channelId: 'kitchen-ready' }),
+      },
+      trigger: null, // Enviar inmediatamente
+    });
+
+    console.log(`[KitchenNotif] ✅ Alerta enviada para orden: ${order.id}`);
+  } catch (error) {
+    // Falla silenciosa — la App NO se romperá si falla la notificación
+    console.warn('[KitchenNotif] Error (no crítico):', error?.message || error);
+  }
 };

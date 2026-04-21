@@ -43,7 +43,13 @@
     "owner": "hairoman28",
     "plugins": [
       "expo-font",
-      "expo-barcode-scanner"
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permite escanear QRs para entregas."
+        }
+      ]
     ],
     "extra": {
       "eas": {

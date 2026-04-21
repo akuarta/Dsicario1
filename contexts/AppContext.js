@@ -1,6 +1,11 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
+import {
+  notifyOrderReady,
+  setupKitchenChannel,
+  registerForPushNotifications,
+} from '../utils/notifications';
 import { 
   fetchProducts, 
   fetchSuggestedProducts, 
@@ -500,6 +505,40 @@ export const DataSyncProvider = ({ children }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(null);
   const [isAutoSyncEnabled, setIsAutoSyncEnabled] = useState(false); // Por defecto OFF para que el usuario sea quien lo active la primera vez
+
+  // 🔔 Ref para comparar estado ANTERIOR de órdenes y detectar cambios a 'ready'
+  const prevKitchenOrdersRef = useRef({});
+
+  // 🔔 Solicitar permisos y configurar canal de cocina al montar
+  useEffect(() => {
+    (async () => {
+      try {
+        await registerForPushNotifications();
+        await setupKitchenChannel();
+      } catch (e) {
+        // Silencioso — no debe afectar la carga de la App
+        console.warn('[Notif] Setup no crítico falló:', e?.message);
+      }
+    })();
+  }, []);
+
+  // 🔔 Detectar órdenes que cambian a 'ready' y notificar al mesero
+  useEffect(() => {
+    if (!kitchenOrders || kitchenOrders.length === 0) return;
+
+    kitchenOrders.forEach((order) => {
+      const currentStatus = (order.estado || '').toLowerCase();
+      const prevStatus = prevKitchenOrdersRef.current[order.id] || '';
+
+      // Si el estado CAMBIÓ y el nuevo estado es 'ready' → notificar
+      if (currentStatus === 'ready' && prevStatus !== 'ready') {
+        notifyOrderReady(order);
+      }
+
+      // Actualizar el mapa de referencia
+      prevKitchenOrdersRef.current[order.id] = currentStatus;
+    });
+  }, [kitchenOrders]);
 
   const syncAllData = async () => {
     if (isSyncing) return;

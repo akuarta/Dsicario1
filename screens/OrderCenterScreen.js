@@ -23,6 +23,7 @@ import { useDataSync } from '../contexts/AppContext';
 import { useUser } from '../contexts/UserContext';
 import { useAuth } from '../contexts/AuthContext';
 import { updateOrderStatus } from '../utils/api';
+import { generatePDFBase64 } from '../utils/pdfGenerator';
 
 const { width } = Dimensions.get('window');
 
@@ -43,6 +44,34 @@ const OrderCenterScreen = ({ navigation }) => {
 
   const [activeTab, setActiveTab] = useState('pendientes'); // pendientes, preparando, ruta, entregado
   const [searchText, setSearchText] = useState('');
+  const [loadingReceiptId, setLoadingReceiptId] = useState(null); // ID de la orden generando recibo
+
+  const handleGenerateReceipt = async (item) => {
+    const id = item.id || item.ID_Orden;
+    setLoadingReceiptId(id);
+    try {
+      const orderData = {
+        idorden: String(id || '').slice(-8).toUpperCase(),
+        fecha: item.Fecha ? item.Fecha.split('T')[0] : new Date().toLocaleDateString(),
+        hora: item.Fecha ? new Date(item.Fecha).toLocaleTimeString() : new Date().toLocaleTimeString(),
+        Cliente: item.NombreUser || item.cliente || 'Invitado',
+        metodo: item.TipoPago || item.metodo || 'N/A',
+        items: item.items || item.productos || [],
+        Subtotal: item.Subtotal || item.subtotal || item.Total || item.total || '0.00',
+        ITBIS: item.ITBIS || item.impuesto || '0.00',
+        Descuento: item.Descuento || item.descuento || '0.00',
+        Propina: item.Propina || item.propina || '0.00',
+        Total: item.Total || item.total || '0.00',
+        Pagado: item.Pagado || item.pagado || item.Total || '0.00',
+        Devuelta: item.Devuelta || item.cambio || '0.00',
+      };
+      await generatePDFBase64(orderData);
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo generar el recibo. Inténtalo de nuevo.');
+    } finally {
+      setLoadingReceiptId(null);
+    }
+  };
 
   const statusMap = {
     'pendientes': ['pending', 'nuevo'],
@@ -214,6 +243,21 @@ const OrderCenterScreen = ({ navigation }) => {
           >
             <Text style={styles.actionText}>Ver Detalles</Text>
           </TouchableOpacity>
+
+          {/* 🧾 BOTÓN DE RECIBO — Solo para staff */}
+          {isStaff && (
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: colors.warning + '20', flexDirection: 'row', alignItems: 'center', gap: 5 }]}
+              onPress={() => handleGenerateReceipt(item)}
+              disabled={loadingReceiptId === id}
+            >
+              {loadingReceiptId === id
+                ? <ActivityIndicator size="small" color={colors.warning} />
+                : <FontAwesome5 name="file-invoice" size={11} color={colors.warning} />
+              }
+              <Text style={[styles.actionText, { color: colors.warning }]}>Recibo</Text>
+            </TouchableOpacity>
+          )}
           
           {activeTab === 'pendientes' && isStaff && (
             <TouchableOpacity 
