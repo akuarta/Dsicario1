@@ -11,8 +11,13 @@ import {
   Animated,
   Platform,
   Linking,
-  ActivityIndicator
+  ActivityIndicator,
+  Modal,
+  Alert
 } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { updateOrderStatus } from '../utils/api';
+
 import { FontAwesome5 } from '@expo/vector-icons';
 import GlassPanel from '../components/GlassPanel';
 import DeliveryMap from '../components/DeliveryMap';
@@ -34,6 +39,11 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(height)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  const [permission, requestPermission] = useCameraPermissions();
+  const [isScannerVisible, setIsScannerVisible] = useState(false);
+  const [isProcessingQR, setIsProcessingQR] = useState(false);
+  const [scanned, setScanned] = useState(false);
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
@@ -199,7 +209,78 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
       borderColor: colors.border,
       backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)',
     },
-    detailsBtnText: { fontSize: 16, fontWeight: '700', letterSpacing: -0.3, color: colors.text.secondary }
+    detailsBtnText: { fontSize: 16, fontWeight: '700', letterSpacing: -0.3, color: colors.text.secondary },
+    receiveBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+      borderRadius: 25,
+      marginTop: 20,
+      gap: 12,
+      ...shadows.medium,
+    },
+    receiveBtnText: { color: '#FFF', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
+    scannerContainer: { flex: 1, backgroundColor: '#000' },
+    scannerHeader: { 
+      position: 'absolute', 
+      top: 40, 
+      left: 0, 
+      right: 0, 
+      zIndex: 20, 
+      flexDirection: 'row', 
+      alignItems: 'center', 
+      paddingHorizontal: 20 
+    },
+    closeScannerBtn: { 
+      width: 44, 
+      height: 44, 
+      borderRadius: 22, 
+      backgroundColor: 'rgba(0,0,0,0.5)', 
+      justifyContent: 'center', 
+      alignItems: 'center' 
+    },
+    scannerTitle: { 
+      color: '#FFF', 
+      fontSize: 16, 
+      fontWeight: 'bold', 
+      marginLeft: 20,
+      textShadowColor: 'rgba(0,0,0,0.75)',
+      textShadowOffset: { width: 1, height: 1 },
+      textShadowRadius: 5
+    },
+    scannerOverlay: { 
+      flex: 1, 
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      zIndex: 10 
+    },
+    scannerFrame: { 
+      width: 250, 
+      height: 250, 
+      borderWidth: 4, 
+      borderColor: colors.primary, 
+      borderRadius: 30,
+      backgroundColor: 'transparent'
+    },
+    scannerHint: { 
+      color: '#FFF', 
+      marginTop: 30, 
+      fontSize: 14, 
+      fontWeight: '600',
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      paddingHorizontal: 20,
+      paddingVertical: 10,
+      borderRadius: 20
+    },
+    processingOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0,0,0,0.8)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 30
+    },
+    processingText: { color: '#FFF', marginTop: 20, fontSize: 18, fontWeight: 'bold' }
   }), [colors, darkMode]);
 
   useEffect(() => {
@@ -220,6 +301,56 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     }
     return () => { if (interval) clearInterval(interval); };
   }, [orderId, isAutoSyncEnabled]);
+
+  useEffect(() => {
+    if (route.params?.autoOpenScanner) {
+      openScanner();
+    }
+  }, [route.params?.autoOpenScanner]);
+
+  const handleBarCodeScanned = async ({ type, data }) => {
+    if (scanned || isProcessingQR) return;
+    setScanned(true);
+    setIsProcessingQR(true);
+
+    try {
+      const payload = JSON.parse(data);
+      
+      // Validar que sea un QR de DSicario y para esta orden
+      if (payload.action === 'confirm_delivery' && String(payload.orderId) === String(orderId)) {
+        await updateOrderStatus(orderId, 'delivered');
+        await refreshOrder(orderId);
+        
+        setIsScannerVisible(false);
+        
+        const isCash = payload.paymentMethod?.toLowerCase().includes('efectivo');
+        const message = isCash ? '¡RECIBIDO Y PAGADO ✅! Gracias por tu preferencia.' : '¡RECIBIDO ✅! Esperamos que disfrutes tu pedido.';
+        
+        Alert.alert('Éxito', message);
+      } else {
+        Alert.alert('Error', 'Este código no corresponde a tu pedido actual.');
+        setScanned(false);
+      }
+    } catch (error) {
+      console.error("Error scanning QR:", error);
+      Alert.alert('Error', 'Código no válido.');
+      setScanned(false);
+    } finally {
+      setIsProcessingQR(false);
+    }
+  };
+
+  const openScanner = async () => {
+    if (!permission.granted) {
+      const { granted } = await requestPermission();
+      if (!granted) {
+        Alert.alert('Permiso denegado', 'Necesitamos acceso a la cámara para confirmar la entrega.');
+        return;
+      }
+    }
+    setScanned(false);
+    setIsScannerVisible(true);
+  };
 
   const steps = [
     { key: 'preparing', label: 'Cocinando', icon: 'utensils' },
@@ -329,9 +460,52 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
               <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#25D366', marginTop: 12 }]} onPress={() => Linking.openURL(`https://wa.me/${orderDetails?.whatsapp?.replace(/\D/g,'')}`)} activeOpacity={0.7}><FontAwesome5 name="whatsapp" size={18} color="#FFF" /></TouchableOpacity>
             </View>
           </GlassPanel>
+          
+          {currentStepIndex === 1 && (
+            <TouchableOpacity 
+              style={[styles.receiveBtn, { backgroundColor: colors.success }]} 
+              onPress={openScanner}
+            >
+              <FontAwesome5 name="qrcode" size={18} color="#FFF" />
+              <Text style={styles.receiveBtnText}>RECIBIR PEDIDO</Text>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity style={styles.detailsBtn} onPress={() => navigation.navigate('Config')}><Text style={styles.detailsBtnText}>Detalles de la Factura</Text><FontAwesome5 name="chevron-right" size={12} color={colors.text.light} /></TouchableOpacity>
         </ScrollView>
       </Animated.View>
+
+      {/* 📸 MODAL DE ESCÁNER QR PARA EL CLIENTE */}
+      <Modal visible={isScannerVisible} animationType="slide" onRequestClose={() => setIsScannerVisible(false)}>
+        <SafeAreaView style={styles.scannerContainer}>
+          <View style={styles.scannerHeader}>
+            <TouchableOpacity onPress={() => setIsScannerVisible(false)} style={styles.closeScannerBtn}>
+              <FontAwesome5 name="times" size={24} color="#FFF" />
+            </TouchableOpacity>
+            <Text style={styles.scannerTitle}>ESCANEAR PARA CONFIRMAR</Text>
+          </View>
+          
+          <CameraView
+            onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+            barcodeScannerSettings={{
+              barcodeTypes: ["qr"],
+            }}
+            style={StyleSheet.absoluteFillObject}
+          />
+
+          <View style={styles.scannerOverlay}>
+            <View style={styles.scannerFrame} />
+            <Text style={styles.scannerHint}>Enfoca el código QR del repartidor</Text>
+          </View>
+          
+          {isProcessingQR && (
+            <View style={styles.processingOverlay}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={styles.processingText}>Confirmando entrega...</Text>
+            </View>
+          )}
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 };

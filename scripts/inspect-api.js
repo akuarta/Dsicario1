@@ -6,8 +6,7 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbzObeW78gKUtWhiZarThm5B
 console.log('🔍 Inspeccionando API (Mapeo de Datos)...');
 console.log('URL:', API_URL);
 
-// Hacemos el request y seguimos los redirects
-const request = require('follow-redirects').https.request;
+// Hacemos el request
 
 fetch(API_URL)
   .then(res => res.json())

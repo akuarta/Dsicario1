@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useCart } from '../contexts/AppContext';
+import { formatPrice } from '../utils/api';
 import { useUser } from '../contexts/UserContext';
 import { useGlobalStyles } from '../styles/globalStyles';
 import { useThemeMode } from '../contexts/ThemeContext';
@@ -49,9 +50,9 @@ const CartScreen = ({ navigation }) => {
         if (!raw) return;
         const saved = JSON.parse(raw);
         cart.forEach(item => {
-          const savedNote = saved[String(item.id)];
+          const savedNote = saved[item.cartItemId || String(item.id)];
           if (savedNote && !item.orderNote) {
-            updateCartItemNote(item.id, savedNote);
+            updateCartItemNote(item.cartItemId || item.id, savedNote);
           }
         });
       })
@@ -62,35 +63,36 @@ const CartScreen = ({ navigation }) => {
     const notes = {};
     cart.forEach(item => {
       if (item.orderNote && item.orderNote.trim()) {
-        notes[String(item.id)] = item.orderNote.trim();
+        notes[item.cartItemId || String(item.id)] = item.orderNote.trim();
       }
     });
     AsyncStorage.setItem(NOTES_KEY, JSON.stringify(notes)).catch(() => {});
   }, [cart]);
 
   const openNote = (item) => {
+    const id = item.cartItemId || String(item.id);
     AsyncStorage.getItem(NOTES_KEY)
       .then(raw => {
         const saved = raw ? JSON.parse(raw) : {};
-        const savedDraft = saved[String(item.id)] || item.orderNote || '';
+        const savedDraft = saved[id] || item.orderNote || '';
         setDraftNote(savedDraft);
       })
       .catch(() => setDraftNote(item.orderNote || ''));
-    setActiveNoteId(item.id);
+    setActiveNoteId(id);
   };
 
-  const confirmNote = (itemId) => {
-    updateCartItemNote(itemId, draftNote.trim());
+  const confirmNote = (cartItemId) => {
+    updateCartItemNote(cartItemId, draftNote.trim());
     setActiveNoteId(null);
   };
 
-  const clearNote = (itemId) => {
-    updateCartItemNote(itemId, '');
+  const clearNote = (cartItemId) => {
+    updateCartItemNote(cartItemId, '');
     setDraftNote('');
     setActiveNoteId(null);
     AsyncStorage.getItem(NOTES_KEY).then(raw => {
       const saved = raw ? JSON.parse(raw) : {};
-      delete saved[String(itemId)];
+      delete saved[cartItemId];
       AsyncStorage.setItem(NOTES_KEY, JSON.stringify(saved)).catch(() => {});
     }).catch(() => {});
   };
@@ -99,17 +101,17 @@ const CartScreen = ({ navigation }) => {
   const totalItems = useMemo(() => getTotalItems(), [cart, getTotalItems]);
 
   const incrementQuantity = useCallback((item) => {
-    updateCartItemQuantity(item.id, item.quantity + 1);
+    updateCartItemQuantity(item.cartItemId, item.quantity + 1);
   }, [updateCartItemQuantity]);
 
   const decrementQuantity = useCallback((item) => {
     if (item.quantity > 1) {
-      updateCartItemQuantity(item.id, item.quantity - 1);
+      updateCartItemQuantity(item.cartItemId, item.quantity - 1);
     } else {
       showConfirm(
         'Remover producto',
         `¿Estás seguro de que quieres remover ${item.nombre} del carrito?`,
-        () => removeFromCart(item.id)
+        () => removeFromCart(item.cartItemId)
       );
     }
   }, [updateCartItemQuantity, removeFromCart]);
@@ -118,7 +120,7 @@ const CartScreen = ({ navigation }) => {
     showConfirm(
       'Remover producto',
       `¿Estás seguro de que quieres remover ${item.nombre} del carrito?`,
-      () => removeFromCart(item.id)
+      () => removeFromCart(item.cartItemId)
     );
   };
 
@@ -146,6 +148,33 @@ const CartScreen = ({ navigation }) => {
     container: {
       flex: 1,
       backgroundColor: colors.background,
+    },
+    listContainer: {
+      padding: spacing.md,
+      paddingBottom: 100,
+    },
+    emptyList: {
+      flexGrow: 1,
+      justifyContent: 'center',
+    },
+    cartItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+      padding: spacing.sm,
+      borderRadius: borders.radius.lg,
+      ...shadows.small,
+    },
+    itemImage: {
+      width: 70,
+      height: 70,
+      borderRadius: borders.radius.md,
+      backgroundColor: colors.background,
+    },
+    itemInfo: {
+      flex: 1,
+      marginLeft: spacing.sm,
+      justifyContent: 'center',
     },
     header: {
       flexDirection: 'row',
@@ -183,6 +212,20 @@ const CartScreen = ({ navigation }) => {
     itemInfo: {
       flex: 1,
       marginRight: spacing.sm,
+    },
+    preOrderBadge: {
+      backgroundColor: colors.primary + '20',
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 4,
+      alignSelf: 'flex-start',
+      marginBottom: 4,
+    },
+    preOrderText: {
+      fontSize: 10,
+      fontWeight: 'bold',
+      color: colors.primary,
+      textTransform: 'uppercase',
     },
     itemName: {
       fontSize: typography.sizes.md,
@@ -239,6 +282,22 @@ const CartScreen = ({ navigation }) => {
       height: 1,
       backgroundColor: colors.border,
       marginHorizontal: spacing.md,
+    },
+    preOrderBadge: {
+      backgroundColor: colors.primary + '20',
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 4,
+      alignSelf: 'flex-start',
+      marginBottom: 4,
+      borderWidth: 1,
+      borderColor: colors.primary + '40',
+    },
+    preOrderText: {
+      fontSize: 10,
+      fontWeight: 'bold',
+      color: colors.primary,
+      textTransform: 'uppercase',
     },
     footer: {
       backgroundColor: colors.surface,
@@ -368,16 +427,22 @@ const CartScreen = ({ navigation }) => {
 
   function renderCartItem({ item }) {
     const hasNote = !!(item.orderNote && item.orderNote.trim());
-    const isOpen = activeNoteId === item.id;
+    const itemId = item.cartItemId || String(item.id);
+    const isOpen = activeNoteId === itemId;
 
     return (
       <View>
         <View style={styles.cartItem}>
           <Image source={{ uri: item.imagen }} style={styles.itemImage} resizeMode="cover" />
           <View style={styles.itemInfo}>
+            {item.isPreOrder && (
+              <View style={styles.preOrderBadge}>
+                <Text style={styles.preOrderText}>Pre-Orden</Text>
+              </View>
+            )}
             <Text style={styles.itemName} numberOfLines={2}>{item.nombre}</Text>
             <Text style={styles.itemCategory}>{item.categoria}</Text>
-            <Text style={styles.itemPrice}>RD${parseFloat(item.precio || 0).toFixed(2)} c/u</Text>
+            <Text style={styles.itemPrice}>{formatPrice(item.precio)} c/u</Text>
           </View>
           <View style={styles.quantityControls}>
             <TouchableOpacity style={styles.quantityButton} onPress={() => decrementQuantity(item)}>
@@ -389,7 +454,7 @@ const CartScreen = ({ navigation }) => {
             </TouchableOpacity>
           </View>
           <View style={styles.itemActions}>
-            <Text style={styles.subtotalText}>RD${(parseFloat(item.precio || 0) * item.quantity).toFixed(2)}</Text>
+            <Text style={styles.subtotalText}>{formatPrice(parseFloat(item.precio || 0) * item.quantity)}</Text>
             <TouchableOpacity style={styles.removeButton} onPress={() => handleRemoveItem(item)}>
               <FontAwesome5 name="trash" size={14} color={colors.error} />
             </TouchableOpacity>
@@ -398,7 +463,7 @@ const CartScreen = ({ navigation }) => {
 
         <TouchableOpacity
           style={[styles.noteRow, (hasNote || isOpen) && styles.noteRowActive]}
-          onPress={() => (isOpen || hasNote) ? clearNote(item.id) : openNote(item)}
+          onPress={() => (isOpen || hasNote) ? clearNote(itemId) : openNote(item)}
           activeOpacity={0.7}
         >
           <FontAwesome5 name="check" size={10} color={(hasNote || isOpen) ? colors.primary : colors.text.light} style={{ marginRight: 6 }} />
@@ -420,7 +485,7 @@ const CartScreen = ({ navigation }) => {
               multiline
               numberOfLines={2}
             />
-            <TouchableOpacity style={styles.noteConfirmBtn} onPress={() => confirmNote(item.id)}>
+            <TouchableOpacity style={styles.noteConfirmBtn} onPress={() => confirmNote(itemId)}>
               <FontAwesome5 name="arrow-right" size={13} color="#FFF" />
             </TouchableOpacity>
           </View>
@@ -450,7 +515,7 @@ const CartScreen = ({ navigation }) => {
         <FlatList
           data={cart}
           renderItem={renderCartItem}
-          keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
+          keyExtractor={(item) => item.cartItemId || item.id?.toString() || Math.random().toString()}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
           ListEmptyComponent={renderEmptyCart}
           contentContainerStyle={cart.length === 0 ? styles.emptyList : styles.listContainer}
@@ -482,7 +547,7 @@ const CartScreen = ({ navigation }) => {
             <View style={styles.checkoutSection}>
               <View style={styles.totalContainer}>
                 <Text style={styles.totalLabel}>Total:</Text>
-                <Text style={styles.totalAmount}>RD${totalCost.toFixed(2)}</Text>
+                <Text style={styles.totalAmount}>{formatPrice(totalCost)}</Text>
               </View>
               <TouchableOpacity style={styles.checkoutButton} onPress={handleCheckout} activeOpacity={0.8}>
                 <FontAwesome5 name="credit-card" size={18} color="#FFF" />

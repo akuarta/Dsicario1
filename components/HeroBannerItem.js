@@ -3,8 +3,8 @@ import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useThemeMode } from '../contexts/ThemeContext';
-import { useCart } from '../contexts/AppContext'; // 👈 Añadido
-import { useUser } from '../contexts/UserContext'; // 👈 Añadido
+import { useProducts, useCart } from '../contexts/AppContext';
+import { useUser } from '../contexts/UserContext';
 import { getThemeColors, borders, spacing, typography, shadows } from '../theme/theme';
 import ProductBadges from './ProductBadges';
 import { formatPrice, calculateDiscountedPrice } from '../utils/api';
@@ -12,7 +12,8 @@ import { formatPrice, calculateDiscountedPrice } from '../utils/api';
 const HeroBannerItem = memo(({ product, onPress }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
-  const { addToCart } = useCart(); // 👈 Añadido
+  const { isEditorMode } = useProducts();
+  const { addToCart } = useCart();
   const { role, isClientMode } = useUser(); // 🛡️ Seguridad
 
   const canPurchase = isClientMode || role === 'Cliente' || role === 'Admin';
@@ -76,24 +77,36 @@ const HeroBannerItem = memo(({ product, onPress }) => {
               </View>
               
               <View style={{ flexDirection: 'row', gap: 8 }}>
-                <TouchableOpacity 
-                   onPress={() => onPress?.(product)}
-                   style={[styles.actionButton, { backgroundColor: 'rgba(255,255,255,0.2)' }]}
-                >
-                  <Text style={styles.actionText}>Ver</Text>
-                </TouchableOpacity>
-
-                {canPurchase && (
+                {isEditorMode ? (
                   <TouchableOpacity 
-                    onPress={(e) => {
-                      if (e && e.stopPropagation) e.stopPropagation();
-                      addToCart(product);
-                    }}
-                    style={[styles.actionButton, { backgroundColor: colors.primary, flexDirection: 'row', gap: 5 }]}
+                    onPress={() => onPress?.(product)}
+                    style={[styles.actionButton, { backgroundColor: colors.info, flexDirection: 'row', gap: 5 }]}
                   >
-                    <FontAwesome5 name="plus" size={10} color="#fff" />
-                    <Text style={styles.actionText}>Agregar</Text>
+                    <FontAwesome5 name="edit" size={10} color="#fff" />
+                    <Text style={styles.actionText}>Editar Producto</Text>
                   </TouchableOpacity>
+                ) : (
+                  <>
+                    <TouchableOpacity 
+                       onPress={() => onPress?.(product)}
+                       style={[styles.actionButton, { backgroundColor: 'rgba(255,255,255,0.2)' }]}
+                    >
+                      <Text style={styles.actionText}>Ver</Text>
+                    </TouchableOpacity>
+
+                    {canPurchase && (
+                      <TouchableOpacity 
+                        onPress={(e) => {
+                          if (e && e.stopPropagation) e.stopPropagation();
+                          addToCart(product);
+                        }}
+                        style={[styles.actionButton, { backgroundColor: colors.primary, flexDirection: 'row', gap: 5 }]}
+                      >
+                        <FontAwesome5 name="plus" size={10} color="#fff" />
+                        <Text style={styles.actionText}>Agregar</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
                 )}
               </View>
             </View>

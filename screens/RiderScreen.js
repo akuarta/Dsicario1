@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import QRCode from 'react-native-qrcode-svg';
 import {
   View,
   Text,
@@ -47,6 +48,8 @@ const RiderScreen = ({ navigation, route }) => {
   const { isAutoSyncEnabled } = useDataSync();
   const [proposal, setProposal] = useState(null);
   const [timeLeft, setTimeLeft] = useState(20);
+  const [showQR, setShowQR] = useState(false);
+  const [activeQRData, setActiveQRData] = useState(null);
   const timerRef = useRef(null);
 
   // Sincronización de propuesta y contador
@@ -172,6 +175,25 @@ const RiderScreen = ({ navigation, route }) => {
     };
   }, [isAutoSyncEnabled, riderId]);
 
+  // Cerrar Modal QR si el pedido se confirma (desde el lado del cliente)
+  useEffect(() => {
+    if (showQR && activeQRData) {
+      try {
+        const payload = JSON.parse(activeQRData);
+        const currentOrder = orders.find(o => String(o.id) === String(payload.orderId));
+        if (currentOrder && (String(currentOrder.estado).toLowerCase() === 'delivered' || String(currentOrder.estado).toLowerCase() === 'entregado')) {
+          setShowQR(false);
+          setActiveQRData(null);
+          if (Platform.OS !== 'web') {
+             Alert.alert('✅ ¡Entregado!', 'El cliente ha confirmado la recepción del pedido.');
+          }
+        }
+      } catch (e) {
+        console.error("Error parsing QR payload in effect:", e);
+      }
+    }
+  }, [orders, showQR, activeQRData]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadData(true);
@@ -214,40 +236,45 @@ const RiderScreen = ({ navigation, route }) => {
   };
 
   const handlePickup = async (orderId) => {
-    Alert.alert('Recoger Pedido', '¿Confirmas que ya tienes el pedido?', [
-      { text: 'No', style: 'cancel' },
-      { text: 'Sí', onPress: async () => {
-        setIsLoading(true);
-        try {
-          await pickupOrder(orderId, riderId);
-          await loadData(true);
-          setActiveTab('on_the_way');
-        } catch (error) {
-          Alert.alert('Error', 'Error al actualizar.');
-        } finally {
-          setIsLoading(false);
-        }
-      }}
-    ]);
+    const executePickup = async () => {
+      setIsLoading(true);
+      try {
+        await pickupOrder(orderId, riderId);
+        await loadData(true);
+        setActiveTab('on_the_way');
+      } catch (error) {
+        Alert.alert('Error', 'Error al actualizar.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('¿Confirmas que ya tienes el pedido?')) {
+        executePickup();
+      }
+    } else {
+      Alert.alert('Recoger Pedido', '¿Confirmas que ya tienes el pedido?', [
+        { text: 'No', style: 'cancel' },
+        { text: 'Sí', onPress: executePickup }
+      ]);
+    }
   };
 
-  const handleDeliver = (orderId) => {
-    Alert.alert('Finalizar Entrega', '¿El cliente recibió el pedido?', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Entregado ✅', onPress: async () => {
-        setIsLoading(true);
-        try {
-          await updateOrderStatus(orderId, 'delivered');
-          await loadData(true);
-          Alert.alert('¡Éxito!', 'Pedido entregado.');
-        } catch (error) {
-          Alert.alert('Error', 'No se pudo cerrar la entrega.');
-        } finally {
-          setIsLoading(false);
-        }
-      }}
-    ]);
+  const handleDeliver = (order) => {
+    // En lugar de confirmar nosotros, generamos el QR para que el cliente lo escanee
+    const qrPayload = JSON.stringify({
+      orderId: order.id,
+      riderId: riderId,
+      paymentMethod: order.Pago || order.MetodoPago || 'Efectivo',
+      action: 'confirm_delivery',
+      timestamp: Date.now()
+    });
+    
+    setActiveQRData(qrPayload);
+    setShowQR(true);
   };
+
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
@@ -352,7 +379,15 @@ const RiderScreen = ({ navigation, route }) => {
     propClient: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
     propPrice: { color: colors.success, fontSize: 22, fontWeight: '900' },
     propActions: { flexDirection: 'row', gap: 10 },
-    miniBtn: { height: 45, borderRadius: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 15 }
+    miniBtn: { height: 45, borderRadius: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 15 },
+    qrCard: { padding: 30, borderRadius: 40, alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+    closeBtn: { position: 'absolute', top: 20, right: 20, zIndex: 10 },
+    qrHeader: { alignItems: 'center', marginBottom: 25 },
+    qrTitle: { fontSize: 22, fontWeight: '900', color: colors.text.primary, marginTop: 10, letterSpacing: 1 },
+    qrSubtitle: { fontSize: 13, color: colors.text.secondary, textAlign: 'center', marginTop: 8, paddingHorizontal: 20 },
+    qrContainer: { padding: 20, backgroundColor: '#FFF', borderRadius: 25, elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 15 },
+    qrFooter: { marginTop: 25, width: '100%' },
+    statusBadge: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 15, borderRadius: 20, width: '100%' }
   }), [colors, darkMode]);
 
   const renderOrderItem = ({ item }) => {
@@ -403,10 +438,10 @@ const RiderScreen = ({ navigation, route }) => {
           ) : (
             <TouchableOpacity 
               style={[styles.mainBtn, { backgroundColor: isReady ? colors.primary : colors.success }]} 
-              onPress={() => isReady ? handlePickup(item.id) : handleDeliver(item.id)}
+              onPress={() => isReady ? handlePickup(item.id) : handleDeliver(item)}
             >
-              <FontAwesome5 name={isReady ? "motorcycle" : "check-double"} size={16} color="#FFF" />
-              <Text style={styles.mainBtnText}>{isReady ? 'RECOGER' : 'ENTREGAR'}</Text>
+              <FontAwesome5 name={isReady ? "motorcycle" : "qrcode"} size={16} color="#FFF" />
+              <Text style={styles.mainBtnText}>{isReady ? 'RECOGER' : 'GENERAR QR'}</Text>
             </TouchableOpacity>
           )}
 
@@ -561,7 +596,43 @@ const RiderScreen = ({ navigation, route }) => {
           <FlatList data={filteredOrders} renderItem={renderOrderItem} keyExtractor={item => item?.id?.toString() || Math.random().toString()} contentContainerStyle={styles.listContainer} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />} ListEmptyComponent={<View style={styles.emptyContainer}><Ionicons name="bicycle-outline" size={80} color={colors.border} /><Text style={styles.emptyText}>Sin entregas activas.</Text></View>} />
         )}
       </View>
+      {/* 📱 MODAL PARA CÓDIGO QR DE ENTREGA */}
+      <Modal visible={showQR} transparent animationType="slide" onRequestClose={() => setShowQR(false)}>
+        <View style={styles.modalOverlay}>
+          <GlassPanel style={styles.qrCard}>
+            <TouchableOpacity style={styles.closeBtn} onPress={() => setShowQR(false)}>
+              <Ionicons name="close-circle" size={32} color={colors.text.secondary} />
+            </TouchableOpacity>
+            
+            <View style={styles.qrHeader}>
+              <FontAwesome5 name="qrcode" size={30} color={colors.primary} />
+              <Text style={styles.qrTitle}>ENTREGA SEGURA</Text>
+              <Text style={styles.qrSubtitle}>Pide al cliente que escanee este código para confirmar la entrega.</Text>
+            </View>
+
+            <View style={styles.qrContainer}>
+              {activeQRData && (
+                <QRCode
+                  value={activeQRData}
+                  size={220}
+                  color={colors.text.primary}
+                  backgroundColor="transparent"
+                />
+              )}
+            </View>
+
+            <View style={styles.qrFooter}>
+              <View style={[styles.statusBadge, { backgroundColor: colors.success + '20' }]}>
+                <ActivityIndicator size="small" color={colors.success} style={{ marginRight: 8 }} />
+                <Text style={{ color: colors.success, fontWeight: 'bold' }}>ESPERANDO ESCANEO...</Text>
+              </View>
+            </View>
+          </GlassPanel>
+        </View>
+      </Modal>
+
       {/* 🚀 OVERLAY DE PROPUESTA FLOTANTE */}
+
       {proposal && (
         <View style={styles.floatingProposal}>
           <GlassPanel style={styles.proposalInner}>

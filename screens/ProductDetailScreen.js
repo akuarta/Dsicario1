@@ -60,7 +60,7 @@ const SimpleRating = ({ defaultRating = 5, onFinishRating, isDisabled = false, s
 const ProductDetailScreen = ({ navigation, route }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
-  const { product } = route.params;
+  const { product, isPreOrder } = route.params;
   const { addToCart } = useCart();
   const { products } = useProducts();
   const { username, email, isClientMode, role } = useUser();
@@ -139,10 +139,11 @@ const ProductDetailScreen = ({ navigation, route }) => {
     console.log(`- Cantidad Seleccionada: ${quantity}`);
     console.log(`- Precio Unitario: $${finalPrice}`);
     console.log(`- Subtotal a registrar: $${subtotal}`);
+    console.log(`- Es Pre-Orden: ${!!isPreOrder}`);
     
-    addToCart({ ...product, quantity, subtotal, orderNote: kitchenNote });
+    addToCart({ ...product, quantity, subtotal, orderNote: kitchenNote, isPreOrder: !!isPreOrder });
     showAlert('¡Listo!', `${product.nombre} se agregó al carrito.`);
-  }, [product, quantity, subtotal, kitchenNote, addToCart, finalPrice]);
+  }, [product, quantity, subtotal, kitchenNote, addToCart, finalPrice, isPreOrder]);
 
   const handleSubmitReview = async () => {
     if (!reviewText.trim()) return;
@@ -174,7 +175,7 @@ const ProductDetailScreen = ({ navigation, route }) => {
           <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.imageOverlay}>
             <View style={styles.priceOverlay}>
               <Text style={{ color: '#FFF' }}>{quantity} unidad(es)</Text>
-              <Text style={styles.subtotalOverlay}>RD${subtotal.toFixed(2)}</Text>
+              <Text style={styles.subtotalOverlay}>{formatPrice(subtotal)}</Text>
             </View>
           </LinearGradient>
         </View>
@@ -299,7 +300,7 @@ const ProductDetailScreen = ({ navigation, route }) => {
                 borderRadius: 14 
               }}>
                 <Text style={{ color: '#FFF', fontWeight: '900', fontSize: 16 }}>
-                  ${subtotal.toFixed(2)}
+                  {formatPrice(subtotal)}
                 </Text>
               </View>
             </LinearGradient>

@@ -1,7 +1,17 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
-import { fetchProducts, fetchBusinessInfo, saveWaiterCartItem, fetchAllUsers, fetchKitchenOrders, fetchDeliveries, fetchTables } from '../utils/api';
+import { 
+  fetchProducts, 
+  fetchSuggestedProducts, 
+  mapSuggestedProductData,
+  fetchBusinessInfo, 
+  saveWaiterCartItem, 
+  fetchAllUsers, 
+  fetchKitchenOrders, 
+  fetchDeliveries, 
+  fetchTables 
+} from '../utils/api';
 import { useUser } from './UserContext';
 import { useAuth } from './AuthContext';
 
@@ -16,23 +26,29 @@ export const DataSyncContext = createContext();
 
 export const ProductsProvider = ({ children }) => {
   const [products, setProducts] = useState([]);
+  const [suggestedProducts, setSuggestedProducts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastFetch, setLastFetch] = useState(null);
+  const [isEditorMode, setIsEditorMode] = useState(false);
 
   const fetchProductsData = async () => {
     try {
       setIsLoading(true);
       setError(null);
       
-      const data = await fetchProducts();
+      const [productsData, suggestedData] = await Promise.all([
+        fetchProducts(),
+        fetchSuggestedProducts()
+      ]);
       
-      setProducts(data);
+      setProducts(productsData || []);
+      setSuggestedProducts((suggestedData || []).map(mapSuggestedProductData));
       setLastFetch(new Date().toISOString());
       
     } catch (err) {
+      console.error('Error fetching data:', err);
       setError(err.message);
-      setProducts([]);
     } finally {
       setIsLoading(false);
     }
@@ -120,10 +136,13 @@ export const ProductsProvider = ({ children }) => {
 
   const value = React.useMemo(() => ({
     products,
+    suggestedProducts,
     isLoading,
     error,
     lastFetch,
     refetchProducts: fetchProductsData,
+    isEditorMode,
+    setIsEditorMode,
     
     // Helper functions
     getProductsByCategory,
@@ -133,7 +152,7 @@ export const ProductsProvider = ({ children }) => {
     getAvailableProducts,
     getCategoriesWithCounts,
     getProductStats,
-  }), [products, isLoading, error, lastFetch]);
+  }), [products, suggestedProducts, isLoading, error, lastFetch, isEditorMode]);
 
   return (
     <ProductsContext.Provider value={value}>
@@ -188,6 +207,8 @@ export const CartProvider = ({ children }) => {
     closed: false,
   });
 
+  const [exchangeRates, setExchangeRates] = useState({ USD: 58.00, EUR: 63.00, COP: 0.015, MXN: 3.50 });
+
   // Cargar info del negocio al montar
   useEffect(() => {
     fetchBusinessInfo()
@@ -196,7 +217,17 @@ export const CartProvider = ({ children }) => {
         console.log('Negocio cargado:', info.name);
       })
       .catch(err => console.warn('Info negocio no disponible:', err.message));
+      
+    // Cargar tasas de cambio
+    AsyncStorage.getItem('@dsicario_exchange_rates').then(rates => {
+      if (rates) setExchangeRates(JSON.parse(rates));
+    });
   }, []);
+
+  const updateExchangeRates = async (newRates) => {
+    setExchangeRates(newRates);
+    await AsyncStorage.setItem('@dsicario_exchange_rates', JSON.stringify(newRates));
+  };
 
   // Load cart from storage
   useEffect(() => {
@@ -204,7 +235,22 @@ export const CartProvider = ({ children }) => {
       try {
         const savedCart = await AsyncStorage.getItem('@dsicario_cart');
         if (savedCart) {
-          setCart(JSON.parse(savedCart));
+          const parsedCart = JSON.parse(savedCart);
+          const migratedCart = parsedCart.map(item => {
+            const id = item.id || item.ID_Producto || item.id_producto || `prod_${Math.random().toString(36).substr(2, 9)}`;
+            const isPre = !!item.isPreOrder;
+            const note = (item.orderNote || '').trim();
+            const cartItemId = item.cartItemId || `${id}_${isPre ? 'pre' : 'norm'}_${note}`;
+            
+            return {
+              ...item,
+              id, // Asegurar que tenga id
+              cartItemId,
+              precio: parseFloat(item.precio) || 0,
+              quantity: parseInt(item.quantity) || 1
+            };
+          });
+          setCart(migratedCart);
         }
       } catch (err) {
         console.error('Error loading cart:', err);
@@ -271,51 +317,66 @@ export const CartProvider = ({ children }) => {
 
     // 👤 LÓGICA DE CLIENTE (LOCAL)
     setCart((prevCart) => {
-      // Diferenciación inteligente: Mismos productos con NOTAS distintas son items diferentes
       const note = (product.orderNote || '').trim();
-      const existingItem = prevCart.find(item => 
-        String(item.id) === String(prodId) && 
-        (item.orderNote || '').trim() === note
-      );
+      const isPre = !!product.isPreOrder;
+      // Generar una clave única para este item en el carrito
+      const cartItemId = `${prodId}_${isPre ? 'pre' : 'norm'}_${note}`;
+      
+      const existingItem = prevCart.find(item => item.cartItemId === cartItemId);
       
       if (existingItem) {
         return prevCart.map(item =>
-          (String(item.id) === String(prodId) && (item.orderNote || '').trim() === note)
+          item.cartItemId === cartItemId
             ? { ...item, quantity: item.quantity + (product.quantity || 1) }
             : item
         );
       } else {
-        return [...prevCart, { ...product, quantity: product.quantity || 1, id: prodId }];
+        return [...prevCart, { 
+          ...product, 
+          quantity: product.quantity || 1, 
+          id: prodId, 
+          cartItemId, 
+          isPreOrder: isPre 
+        }];
       }
     });
   };
 
-  const removeFromCart = (productId) => {
-    setCart((prevCart) => prevCart.filter((item) => String(item.id) !== String(productId)));
+  const removeFromCart = (cartItemId) => {
+    setCart((prevCart) => prevCart.filter((item) => {
+      const id = item.cartItemId || `${item.id || item.ID_Producto}_${item.isPreOrder ? 'pre' : 'norm'}_${(item.orderNote || '').trim()}`;
+      return id !== cartItemId;
+    }));
   };
 
-  const updateCartItemQuantity = (productId, quantity) => {
+  const updateCartItemQuantity = (cartItemId, quantity) => {
     if (quantity <= 0) {
-      removeFromCart(productId);
+      removeFromCart(cartItemId);
       return;
     }
     
     setCart((prevCart) =>
-      prevCart.map(item =>
-        item.id === productId
-          ? { ...item, quantity }
-          : item
-      )
+      prevCart.map(item => {
+        const currentId = item.cartItemId || `${item.id || item.ID_Producto}_${item.isPreOrder ? 'pre' : 'norm'}_${(item.orderNote || '').trim()}`;
+        return currentId === cartItemId
+          ? { ...item, quantity, cartItemId: currentId }
+          : item;
+      })
     );
   };
 
-  const updateCartItemNote = (productId, note) => {
+  const updateCartItemNote = (cartItemId, note) => {
     setCart((prevCart) =>
-      prevCart.map(item =>
-        String(item.id) === String(productId)
-          ? { ...item, orderNote: note }
-          : item
-      )
+      prevCart.map(item => {
+        if (item.cartItemId === cartItemId) {
+          const id = item.id || item.ID_Producto || item.id_producto;
+          const isPre = !!item.isPreOrder;
+          const newNote = (note || '').trim();
+          const newCartId = `${id}_${isPre ? 'pre' : 'norm'}_${newNote}`;
+          return { ...item, orderNote: note, cartItemId: newCartId };
+        }
+        return item;
+      })
     );
   };
 
@@ -399,8 +460,11 @@ export const CartProvider = ({ children }) => {
     businessInfo,
     waiterActiveSession,
     setWaiterActiveSession,
-    isSubmitting
-  }), [cart, paymentType, businessInfo, waiterActiveSession, isSubmitting]);
+    saveWaiterCartItem,
+    isSubmitting,
+    exchangeRates,
+    updateExchangeRates
+  }), [cart, paymentType, isLoaded, isSubmitting, businessInfo, waiterActiveSession, exchangeRates]);
 
 
 

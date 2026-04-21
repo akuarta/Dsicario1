@@ -14,7 +14,9 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useUser } from '../contexts/UserContext';
 import { useThemeMode } from '../contexts/ThemeContext';
+import { useCart } from '../contexts/AppContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
+import { TextInput, Modal } from 'react-native';
 
 const ConfigScreen = () => {
   const { darkMode, setThemeMode, themeMode } = useThemeMode();
@@ -24,6 +26,20 @@ const ConfigScreen = () => {
   const { role } = useUser();
   const isAdmin = !!(role && role.toLowerCase() === 'admin');
   const [notifications, setNotifications] = useState(true);
+  const { exchangeRates, updateExchangeRates } = useCart();
+  const [ratesModalVisible, setRatesModalVisible] = useState(false);
+  const [tempRates, setTempRates] = useState({});
+
+  const openRatesModal = () => {
+    setTempRates(exchangeRates || { USD: 58.00, EUR: 63.00, COP: 0.015, MXN: 3.50 });
+    setRatesModalVisible(true);
+  };
+
+  const saveRates = () => {
+    updateExchangeRates(tempRates);
+    setRatesModalVisible(false);
+    Alert.alert('Éxito', 'Tasas de cambio actualizadas correctamente.');
+  };
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
@@ -65,7 +81,17 @@ const ConfigScreen = () => {
       borderWidth: 1, borderColor: colors.error + '30',
     },
     logoutText: { fontSize: typography.sizes.md, fontWeight: typography.weights.bold, color: colors.error, marginLeft: spacing.sm },
-    footerText: { textAlign: 'center', color: colors.text.secondary, fontSize: 10, marginBottom: spacing.xl }
+    footerText: { textAlign: 'center', color: colors.text.secondary, fontSize: 10, marginBottom: spacing.xl },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg },
+    modalContent: { backgroundColor: colors.background, borderRadius: borders.radius.lg, padding: spacing.xl, ...shadows.large },
+    modalTitle: { fontSize: typography.sizes.lg, fontWeight: 'bold', color: colors.text.primary, marginBottom: spacing.lg, textAlign: 'center' },
+    rateInputRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
+    rateCurrency: { fontSize: typography.sizes.md, fontWeight: 'bold', color: colors.primary, width: 60 },
+    rateInput: { flex: 1, backgroundColor: colors.surface, padding: spacing.md, borderRadius: borders.radius.md, color: colors.text.primary, borderWidth: 1, borderColor: colors.border },
+    modalBtnRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.lg },
+    modalBtn: { flex: 1, padding: spacing.md, borderRadius: borders.radius.md, alignItems: 'center' },
+    modalBtnCancel: { backgroundColor: colors.surface, marginRight: spacing.sm },
+    modalBtnSave: { backgroundColor: colors.primary, marginLeft: spacing.sm }
   }), [colors, darkMode]);
 
   const handleLogout = () => {
@@ -115,6 +141,7 @@ const ConfigScreen = () => {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>⚙️ ADMINISTRACIÓN</Text>
             <SettingItem icon="motorcycle" title="Administrar Repartidores" onPress={() => navigation.navigate('RiderAdmin')} />
+            <SettingItem icon="money-bill-wave" title="Tasas de Cambio" onPress={openRatesModal} />
           </View>
         )}
 
@@ -146,6 +173,45 @@ const ConfigScreen = () => {
           DSicarioApp v1.2.0 • Hecho con amor 🇩🇴
         </Text>
       </ScrollView>
+
+      {/* MODAL DE TASAS DE CAMBIO */}
+      <Modal visible={ratesModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Ajustar Tasas de Cambio</Text>
+            <Text style={{ color: colors.text.secondary, marginBottom: 15, fontSize: 12, textAlign: 'center' }}>
+              Valor en pesos (DOP) de cada moneda extranjera.
+            </Text>
+            
+            {Object.keys(tempRates).map(curr => (
+              <View key={curr} style={styles.rateInputRow}>
+                <Text style={styles.rateCurrency}>{curr}</Text>
+                <TextInput
+                  style={styles.rateInput}
+                  keyboardType="numeric"
+                  value={String(tempRates[curr])}
+                  onChangeText={(val) => {
+                    const parsed = parseFloat(val.replace(',', '.')) || 0;
+                    setTempRates(prev => ({ ...prev, [curr]: parsed || val }));
+                  }}
+                  onEndEditing={() => {
+                    setTempRates(prev => ({ ...prev, [curr]: parseFloat(prev[curr]) || 0 }));
+                  }}
+                />
+              </View>
+            ))}
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => setRatesModalVisible(false)}>
+                <Text style={{ color: colors.text.primary, fontWeight: 'bold' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSave]} onPress={saveRates}>
+                <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Guardar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };

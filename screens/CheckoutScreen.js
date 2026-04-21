@@ -23,7 +23,7 @@ import { getThemeColors, spacing, typography, borders, shadows } from '../theme/
 import { useThemeMode } from '../contexts/ThemeContext';
 import { generateInvoice } from '../utils/invoiceService';
 import { useUser } from '../contexts/UserContext';
-import { saveOrder, fetchDeliveries, updateOrderStatus, fetchOrderStatus, updateOrderFinalDetails } from '../utils/api';
+import { saveOrder, fetchDeliveries, updateOrderStatus, fetchOrderStatus, updateOrderFinalDetails, formatPrice } from '../utils/api';
 import { notifyRider } from '../utils/notifications';
 import GlassPanel from '../components/GlassPanel';
 import LocationPickerModal from '../components/LocationPickerModal';
@@ -38,7 +38,7 @@ const CheckoutScreen = ({ navigation, route }) => {
   const orderNoteProps = params.orderNoteProps || '';
   const orderNumber = params.orderId || params.orderNumber || `ORD-${Date.now()}`;
 
-  const { clearCart, businessInfo } = useCart();
+  const { clearCart, businessInfo, exchangeRates } = useCart();
   const { user, username, email } = useUser();
   const { syncAllData } = useDataSync();
   
@@ -61,7 +61,20 @@ const CheckoutScreen = ({ navigation, route }) => {
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [isMapVisible, setIsMapVisible] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState(null);
+  const [costoEnvioBase, setCostoEnvioBase] = useState('100');
+  const [isExpressEnvio, setIsExpressEnvio] = useState(false);
+  const [currency, setCurrency] = useState('DOP');
 
+  const availableCurrencies = businessInfo?.currencies || ['DOP', 'USD', 'EUR', 'COP', 'MXN'];
+
+  useEffect(() => {
+    setCostoEnvioBase((businessInfo?.deliveryBaseFee || 100).toString());
+  }, [businessInfo?.deliveryBaseFee]);
+
+  const cycleCurrency = () => {
+    const idx = availableCurrencies.indexOf(currency);
+    setCurrency(availableCurrencies[(idx + 1) % availableCurrencies.length] || 'DOP');
+  };
   const deadlineTimerRef = useRef(null);
   const tickTimerRef = useRef(null);
   const pollTimerRef = useRef(null);
@@ -73,11 +86,16 @@ const CheckoutScreen = ({ navigation, route }) => {
   const subtotal = totalCost;
   const itbis = totalCost * 0.18;
   const propina = (deliveryType === 'local' && includePropina) ? totalCost * 0.10 : 0;
-  const finalTotal = (totalCost - totalDiscount) + itbis + propina;
+  const costoExpressDelNegocio = businessInfo?.expressFee || 50;
+  const costoEnvioCalculado = deliveryType === 'delivery' ? (parseFloat(costoEnvioBase) || 0) + (isExpressEnvio ? costoExpressDelNegocio : 0) : 0;
+  const finalTotal = (totalCost - totalDiscount) + itbis + propina + costoEnvioCalculado;
   
+  const currentRate = (currency === 'DOP' || currency === 'RD$') ? 1 : (exchangeRates?.[currency] || 1);
   const numericAmountReceived = parseFloat(amountReceived) || 0;
-  const devuelta = paymentType === 'cash' ? Math.max(0, numericAmountReceived - finalTotal) : 0;
-  const isAmountInsufficient = paymentType === 'cash' && numericAmountReceived < finalTotal;
+  const convertedAmountReceived = numericAmountReceived * currentRate;
+
+  const devuelta = paymentType === 'cash' ? Math.max(0, convertedAmountReceived - finalTotal) : 0;
+  const isAmountInsufficient = paymentType === 'cash' && convertedAmountReceived < finalTotal;
 
   const handleLocationSelected = (locationData) => {
     setSelectedLocation({ latitude: locationData.latitude, longitude: locationData.longitude });
@@ -238,9 +256,21 @@ const CheckoutScreen = ({ navigation, route }) => {
         ID_Pedido: oid,
         Cliente: username || 'Cliente App',
         Email: email || '',
-        Pedido_Items: JSON.stringify(cart.map(item => ({ nombre: item.nombre, cantidad: item.quantity, precio: item.precio }))),
-        items: cart.map(item => ({ nombre: item.nombre, cantidad: item.quantity, precio: item.precio, notas: item.orderNote || '' })),
+        Pedido_Items: JSON.stringify(cart.map(item => ({ 
+          nombre: item.isPreOrder ? `[PRE] ${item.nombre}` : item.nombre, 
+          cantidad: item.quantity, 
+          precio: item.precio,
+          isPreOrder: !!item.isPreOrder
+        }))),
+        items: cart.map(item => ({ 
+          nombre: item.nombre, 
+          cantidad: item.quantity, 
+          precio: item.precio, 
+          notas: item.orderNote || '',
+          isPreOrder: !!item.isPreOrder
+        })),
         Total: finalTotal,
+        Envio: costoEnvioCalculado,
         Estado: rider ? 'Propuesta' : 'Listo',
         Entrada: new Date().toLocaleTimeString(),
         Fecha: new Date().toLocaleDateString(),
@@ -309,9 +339,10 @@ const CheckoutScreen = ({ navigation, route }) => {
       setCurrentOrderId(oid);
 
       const itemsJson = JSON.stringify(cart.map(item => ({ 
-        nombre: item.nombre, 
+        nombre: item.isPreOrder ? `[PRE] ${item.nombre}` : item.nombre, 
         cantidad: item.quantity, 
-        precio: item.precio 
+        precio: item.precio,
+        isPreOrder: !!item.isPreOrder
       })));
 
       const orderData = {
@@ -320,8 +351,14 @@ const CheckoutScreen = ({ navigation, route }) => {
         Cliente: username || 'Cliente App',
         Email: email || '',
         Pedido_Items: itemsJson,
-        items: cart.map(item => ({ nombre: item.nombre, cantidad: item.quantity, precio: item.precio })),
+        items: cart.map(item => ({ 
+          nombre: item.nombre, 
+          cantidad: item.quantity, 
+          precio: item.precio,
+          isPreOrder: !!item.isPreOrder
+        })),
         Total: finalTotal,
+        Envio: costoEnvioCalculado,
         Estado: deliveryType === 'delivery' && selectedRider ? 'Propuesta' : 'Pendiente',
         Entrada: new Date().toLocaleTimeString(),
         Fecha: new Date().toLocaleDateString(),
@@ -375,8 +412,8 @@ const CheckoutScreen = ({ navigation, route }) => {
         EmailLocal: businessInfo?.email || 'hairoman28@gmail.com', TelefonoLocal: businessInfo?.phone || '809-000-0000',
         logo: businessInfo?.logo, Cliente: username || 'Invitado', EmailUser: email || 'n/a', metodo: paymentType === 'cash' ? 'Efectivo' : 'Tarjeta',
         items: cart.map(item => ({ 'Detalle': item.nombre, 'Cant': item.quantity, 'Precio': item.precio, 'Total': (item.precio * item.quantity).toFixed(2) })),
-        Subtotal: subtotal.toFixed(2), ITBIS: itbis.toFixed(2), Descuento: totalDiscount.toFixed(2), Propina: propina.toFixed(2), Total: finalTotal.toFixed(2),
-        Pagado: paymentType === 'cash' ? numericAmountReceived.toFixed(2) : "0.00", Devuelta: devuelta.toFixed(2)
+        Subtotal: subtotal.toFixed(2), ITBIS: itbis.toFixed(2), Descuento: totalDiscount.toFixed(2), Propina: propina.toFixed(2), CostoEnvio: costoEnvioCalculado.toFixed(2), Total: finalTotal.toFixed(2),
+        MonedaPago: currency, Pagado: paymentType === 'cash' ? numericAmountReceived.toFixed(2) : "0.00", Devuelta: devuelta.toFixed(2)
       };
 
       if (tipo === 'ticket') await generatePDFBase64(orderData);
@@ -403,16 +440,32 @@ const CheckoutScreen = ({ navigation, route }) => {
         <View style={styles.successContainer}>
           <View style={styles.successIcon}><FontAwesome5 name="check" size={40} color="#FFF" /></View>
           <Text style={styles.successTitle}>¡Pedido Exitoso!</Text>
-          <Text style={styles.successMessage}>ID: {currentOrderId}{'\n'}Total: RD${finalTotal.toFixed(2)}</Text>
+          <Text style={styles.successMessage}>ID: {currentOrderId}{'\n'}Total: {formatPrice(finalTotal)}</Text>
           <TouchableOpacity style={styles.backButton} onPress={() => handleGenerateInvoice('ticket')} disabled={isGeneratingPDF}>
             <FontAwesome5 name="receipt" size={18} color="#FFF" />
             <Text style={styles.backButtonText}>{isGeneratingPDF ? 'Generando...' : 'Descargar Ticket'}</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.backButton, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary }]} 
+            onPress={() => navigation.navigate('DeliveryTracking', { orderId: currentOrderId })}
+          >
+            <FontAwesome5 name="map-marked-alt" size={16} color={colors.primary} />
+            <Text style={[styles.backButtonText, { color: colors.primary, marginLeft: 10 }]}>Rastrear Pedido</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.backButton, { backgroundColor: colors.success }]} 
+            onPress={() => navigation.navigate('DeliveryTracking', { orderId: currentOrderId, autoOpenScanner: true })}
+          >
+            <FontAwesome5 name="qrcode" size={16} color="#FFF" />
+            <Text style={[styles.backButtonText, { marginLeft: 10 }]}>Recibir Pedido (Escanear)</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={{ marginTop: 20 }}
             onPress={() => navigation.navigate('Home')}
           >
-            <Text style={[styles.backButtonText, { color: colors.primary }]}>Volver al inicio</Text>
+            <Text style={{ color: colors.text.secondary, fontWeight: 'bold' }}>Volver al Inicio</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -429,7 +482,7 @@ const CheckoutScreen = ({ navigation, route }) => {
             {['local', 'pickup', 'delivery'].map(type => (
               <TouchableOpacity key={type} style={[styles.optionButton, deliveryType === type && styles.optionButtonActive]} onPress={() => setDeliveryType(type)}>
                 <FontAwesome5 name={type === 'local' ? 'utensils' : type === 'pickup' ? 'store' : 'motorcycle'} size={14} color={deliveryType === type ? '#FFF' : colors.text.secondary} />
-                <Text style={[styles.optionText, deliveryType === type && styles.optionTextActive]}>{type.charAt(0).toUpperCase() + type.slice(1)}</Text>
+                <Text style={[styles.optionText, deliveryType === type && styles.optionTextActive]}>{type === 'local' ? 'En Local' : type === 'pickup' ? 'Recogida' : 'A Domicilio'}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -482,22 +535,54 @@ const CheckoutScreen = ({ navigation, route }) => {
                   <FontAwesome5 name="map-marker-alt" size={18} color="#FFF" />
                 </TouchableOpacity>
               </View>
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 15 }}>
+                <Text style={{ fontSize: typography.sizes.sm, color: colors.text.primary, fontWeight: 'bold' }}>Tarifa base de envío:</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, borderRadius: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: colors.border }}>
+                  <Text style={{ color: colors.text.secondary }}>DOP $ </Text>
+                  <TextInput
+                    style={{ color: colors.primary, fontWeight: 'bold', minWidth: 50, paddingVertical: 8 }}
+                    keyboardType="numeric"
+                    value={costoEnvioBase}
+                    onChangeText={setCostoEnvioBase}
+                  />
+                </View>
+              </View>
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 15 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <FontAwesome5 name="bolt" size={16} color="#FF9800" style={{ marginRight: 8 }} />
+                  <Text style={{ fontSize: typography.sizes.sm, color: colors.text.primary, fontWeight: 'bold' }}>Envío Express (+{formatPrice(costoExpressDelNegocio)})</Text>
+                </View>
+                <Switch
+                  value={isExpressEnvio}
+                  onValueChange={setIsExpressEnvio}
+                  trackColor={{ false: colors.border, true: colors.primary + '80' }}
+                  thumbColor={isExpressEnvio ? colors.primary : '#f4f3f4'}
+                />
+              </View>
             </View>
           )}
 
-          <Text style={[styles.sectionTitle, { mt: 20 }]}>Resumen</Text>
+          <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Resumen</Text>
           {cart.map((item, i) => (
             <View key={i} style={styles.orderItem}>
-              <Text style={styles.itemName}>{item.nombre}</Text>
+              <View style={{ flex: 1 }}>
+                {item.isPreOrder && (
+                  <Text style={{ fontSize: 10, color: colors.primary, fontWeight: 'bold', marginBottom: 2 }}>[PRE-ORDEN]</Text>
+                )}
+                <Text style={styles.itemName}>{item.nombre}</Text>
+              </View>
               <Text style={styles.itemQuantity}>x{item.quantity}</Text>
-              <Text style={styles.itemTotal}>RD${(item.precio * item.quantity).toFixed(2)}</Text>
+              <Text style={styles.itemTotal}>{formatPrice(item.precio * item.quantity)}</Text>
             </View>
           ))}
-          <View style={{ mt: 10 }}>
-            <View style={styles.taxRow}><Text style={styles.taxLabel}>Subtotal</Text><Text style={styles.taxValue}>RD${subtotal.toFixed(2)}</Text></View>
-            <View style={styles.taxRow}><Text style={styles.taxLabel}>Impuestos (18%)</Text><Text style={styles.taxValue}>RD${itbis.toFixed(2)}</Text></View>
-            {propina > 0 && <View style={styles.taxRow}><Text style={styles.taxLabel}>Propina (10%)</Text><Text style={styles.taxValue}>RD${propina.toFixed(2)}</Text></View>}
-            <View style={styles.totalRow}><Text style={styles.totalLabel}>TOTAL</Text><Text style={styles.totalAmount}>RD${finalTotal.toFixed(2)}</Text></View>
+          <View style={{ marginTop: 10 }}>
+            <View style={styles.taxRow}><Text style={styles.taxLabel}>Subtotal</Text><Text style={styles.taxValue}>{formatPrice(subtotal)}</Text></View>
+            <View style={styles.taxRow}><Text style={styles.taxLabel}>Impuestos (18%)</Text><Text style={styles.taxValue}>{formatPrice(itbis)}</Text></View>
+            {propina > 0 && <View style={styles.taxRow}><Text style={styles.taxLabel}>Propina (10%)</Text><Text style={styles.taxValue}>{formatPrice(propina)}</Text></View>}
+            {costoEnvioCalculado > 0 && <View style={styles.taxRow}><Text style={styles.taxLabel}>Costo de Envío {isExpressEnvio ? '(Express)' : ''}</Text><Text style={styles.taxValue}>{formatPrice(costoEnvioCalculado)}</Text></View>}
+            <View style={styles.totalRow}><Text style={styles.totalLabel}>TOTAL</Text><Text style={styles.totalAmount}>{formatPrice(finalTotal)}</Text></View>
           </View>
         </View>
 
@@ -515,19 +600,38 @@ const CheckoutScreen = ({ navigation, route }) => {
           
           {paymentType === 'cash' && (
             <View style={styles.cashInputContainer}>
-              <Text style={{ fontSize: 12, color: colors.text.secondary, marginBottom: 5 }}>¿Con cuánto pagarás al repartidor?</Text>
-              <TextInput 
-                style={[styles.cashInput, riderConfirmed && { borderColor: colors.success, borderWidth: 2 }]} 
-                placeholder="Ej: 1000" 
-                keyboardType="numeric" 
-                value={amountReceived} 
-                onChangeText={setAmountReceived} 
-                placeholderTextColor={colors.text.disabled} 
-              />
+              <Text style={{ fontSize: 13, color: colors.text.secondary, marginBottom: 10, fontWeight: 'bold' }}>
+                {deliveryType === 'delivery' ? '¿Con cuánto dinero en efectivo enviará el pago al repartidor?' : '¿Con cuánto dinero en efectivo vas a pagar?'}
+              </Text>
+              
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, borderRadius: borders.radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md }}>
+                <TouchableOpacity 
+                  onPress={cycleCurrency} 
+                  style={{ flexDirection: 'row', alignItems: 'center', paddingRight: spacing.md, borderRightWidth: 1, borderRightColor: colors.border, height: '100%' }}
+                >
+                  <Text style={{ fontSize: typography.sizes.lg, fontWeight: 'bold', color: colors.text.primary, marginRight: 5 }}>{currency}</Text>
+                  <FontAwesome5 name="caret-down" size={14} color={colors.text.secondary} />
+                </TouchableOpacity>
+
+                <TextInput 
+                  style={{ flex: 1, fontSize: typography.sizes.xl, fontWeight: 'bold', color: colors.text.primary, paddingVertical: spacing.md, paddingHorizontal: spacing.md }} 
+                  placeholder="Ej: 1000" 
+                  keyboardType="numeric" 
+                  value={amountReceived} 
+                  onChangeText={setAmountReceived} 
+                  placeholderTextColor="#A0A0A0" 
+                />
+              </View>
+
               {numericAmountReceived > 0 && (
                 <View style={styles.changeContainer}>
-                  <Text style={styles.changeLabel}>Devuelta para el repartidor:</Text>
-                  <Text style={styles.changeValue}>RD${devuelta.toFixed(2)}</Text>
+                  <Text style={styles.changeLabel}>
+                    {deliveryType === 'delivery' ? 'Cambio a llevar por el repartidor:' : 'Cambio a devolver al cliente:'}
+                  </Text>
+                  <Text style={styles.changeValue}>
+                    {formatPrice(devuelta)}
+                    {(currency !== 'DOP' && currency !== 'RD$') ? ` (${currency} ${(devuelta / currentRate).toFixed(2)})` : ''}
+                  </Text>
                 </View>
               )}
             </View>
@@ -546,7 +650,7 @@ const CheckoutScreen = ({ navigation, route }) => {
           onPress={executePayment}
         >
           <Text style={styles.confirmButtonText}>
-            {riderConfirmed ? '¡ACEPTADO! CONFIRMAR PEDIDO FINAL' : `Confirmar RD$${finalTotal.toFixed(2)}`}
+            {riderConfirmed ? '¡ACEPTADO! CONFIRMAR PEDIDO FINAL' : `Confirmar ${formatPrice(finalTotal)}`}
           </Text>
         </TouchableOpacity>
       </GlassPanel>

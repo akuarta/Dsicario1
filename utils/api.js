@@ -100,19 +100,22 @@ export const mapProductData = (item) => {
   
   return {
     id: getRobustProp(item, 'ID_Producto') || getRobustProp(item, 'ID') || Math.random().toString(),
-    name: getRobustProp(item, 'Nombre') || 'Producto sin nombre',
-    price: price,
-    description: getRobustProp(item, 'Descripcion') || '',
-    image: getProxyImage(getRobustProp(item, 'Imagen')),
-    category: getRobustProp(item, 'Categoria') || 'General',
-    subcategory: getRobustProp(item, 'Subcategoria') || '',
+    nombre: getRobustProp(item, 'Nombre') || 'Producto sin nombre',
+    precio: price,
+    descripcion: getRobustProp(item, 'Descripcion') || '',
+    imagen: getProxyImage(getRobustProp(item, 'Imagen')),
+    categoria: getRobustProp(item, 'Categoria') || 'General',
+    subcategoria: getRobustProp(item, 'Subcategoria') || '',
     rating: parseFloat(getRobustProp(item, 'Rating')) || 5,
     isAvailable: String(getRobustProp(item, 'Agotado')).toLowerCase() !== 'true',
     isOffer: String(getRobustProp(item, 'En_Oferta')).toLowerCase() === 'true',
-    discount: discount,
+    descuento: discount,
     discountPrice: discount > 0 ? price * (1 - discount / 100) : price,
-    isPopular: String(getRobustProp(item, 'Mas_Vendidos')).toLowerCase() === 'true',
-    isHouseSpecial: String(getRobustProp(item, 'De_La_Casa')).toLowerCase() === 'true'
+    masVendido: String(getRobustProp(item, 'Mas_Vendidos')).toLowerCase() === 'true',
+    delaCasa: String(getRobustProp(item, 'De_La_Casa')).toLowerCase() === 'true',
+    isPreOrder: ['true', 'si', 'sí', '1', 'yes'].includes(String(getRobustProp(item, 'pre_orden?') || getRobustProp(item, 'tipo_orden') || '').toLowerCase().trim()),
+    recomendado: String(getRobustProp(item, 'recomendado')).toLowerCase() === 'true',
+    isSuggestion: false
   };
 };
 
@@ -124,11 +127,85 @@ export const fetchProducts = async () => {
     const url = `${CONFIG.GAS_API_URL}`;
     const response = await fetch(url, { redirect: 'follow' });
     const data = await response.json();
-    const products = resolveSheetData(data, 'Producto');
-    return products;
+    
+    // Obtener productos normales
+    const normalProducts = resolveSheetData(data, 'productos') || [];
+    const mappedNormal = normalProducts.map(mapProductData);
+    
+    // Obtener sugerencias
+    const suggestedProducts = resolveSheetData(data, 'productos sugeridos') || [];
+    const mappedSuggested = suggestedProducts.map(mapSuggestedProductData);
+    
+    // Combinar ambos
+    return [...mappedNormal, ...mappedSuggested];
   } catch (error) {
     console.error('Error fetching products:', error);
     return [];
+  }
+};
+
+/**
+ * Fetch suggested products from its specific sheet
+ */
+export const fetchSuggestedProducts = async () => {
+  try {
+    const url = `${CONFIG.GAS_API_URL}`;
+    const response = await fetch(url, { redirect: 'follow' });
+    const data = await response.json();
+    const suggested = resolveSheetData(data, 'productos sugeridos');
+    return suggested || [];
+  } catch (error) {
+    console.error('Error fetching suggested products:', error);
+    return [];
+  }
+};
+
+/**
+ * Map suggested product data to UI model
+ */
+export const mapSuggestedProductData = (item) => {
+  return {
+    id: getRobustProp(item, 'ID_Sugerido') || Math.random().toString(),
+    nombre: getRobustProp(item, 'Nombre') || 'Sugerencia sin nombre',
+    precio: parseFloat(getRobustProp(item, 'Precio_sugerido')) || 0,
+    descripcion: getRobustProp(item, 'Descripcion') || '',
+    imagen: getRobustProp(item, 'Imagen'),
+    categoria: getRobustProp(item, 'Categoria') || 'Sugerencia',
+    subcategoria: getRobustProp(item, 'Subcategoria') || '',
+    suggestedBy: getRobustProp(item, 'Sugerido_por') || 'Anónimo',
+    likes: parseInt(getRobustProp(item, 'like')) || 0,
+    dislikes: parseInt(getRobustProp(item, 'dislike')) || 0,
+    isSuggestion: true,
+    isPreOrder: false,
+    isAvailable: true 
+  };
+};
+
+/**
+ * Vote for a suggested product
+ */
+export const voteSuggestion = async (id, type, currentCount) => {
+  try {
+    const payload = {
+      action: 'UPSERT',
+      sheet: 'productos sugeridos',
+      idField: 'ID_Sugerido',
+      data: {
+        'ID_Sugerido': id,
+        [type === 'like' ? 'like' : 'dislike']: currentCount + 1
+      }
+    };
+    
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error voting:', error);
+    return { success: false };
   }
 };
 
@@ -155,7 +232,11 @@ export const fetchBusinessInfo = async () => {
         address: getRobustProp(b, 'DireccionLocal') || 'República Dominicana',
         logo:    getRobustProp(b, 'Logo') || null,
         appLink: getRobustProp(b, 'Link App') || null,
-        closed:  getRobustProp(b, 'Cerrado?') === true || getRobustProp(b, 'cerrado?') === true
+        closed:  getRobustProp(b, 'Cerrado?') === true || getRobustProp(b, 'cerrado?') === true,
+        // Nuevos campos de configuración
+        currencies: (getRobustProp(b, 'Monedas') || 'DOP, USD, EUR, COP, MXN').split(',').map(s => s.trim()),
+        deliveryBaseFee: parseFloat(getRobustProp(b, 'CostoEnvioBase')) || 100,
+        expressFee: parseFloat(getRobustProp(b, 'CostoEnvioExpress')) || 50
       };
     }
     
@@ -167,7 +248,10 @@ export const fetchBusinessInfo = async () => {
       address: 'Calle diagonal 1ra. no. 29, Santo Tomas De Aquino',
       logo: null,
       appLink: null,
-      closed: false
+      closed: false,
+      currencies: ['DOP', 'USD', 'EUR', 'COP', 'MXN'],
+      deliveryBaseFee: 100,
+      expressFee: 50
     };
   } catch (error) {
     console.error('Error fetching business info:', error);
@@ -178,7 +262,10 @@ export const fetchBusinessInfo = async () => {
       address: 'Calle diagonal 1ra. no. 29, Santo Tomas De Aquino',
       logo: null,
       appLink: null,
-      closed: false
+      closed: false,
+      currencies: ['DOP', 'USD', 'EUR', 'COP', 'MXN'],
+      deliveryBaseFee: 100,
+      expressFee: 50
     };
   }
 };
@@ -558,8 +645,8 @@ export const fetchAllUsers = async () => {
  * Formatter and Helpers
  */
 export const formatPrice = (price) => {
-  if (price === undefined || price === null) return '$0.00';
-  return `$${parseFloat(price).toFixed(2)}`;
+  if (price === undefined || price === null) return 'DOP $0.00';
+  return `DOP $${parseFloat(price).toFixed(2)}`;
 };
 
 export const fetchUserRoleByEmail = async (email) => {
@@ -1147,6 +1234,77 @@ export const deleteUser = async (email) => {
   }
 };
 
+/**
+ * Actualizar un producto en la hoja de Google Sheets.
+ * @param {Object} productData - Los datos completos del producto a actualizar.
+ */
+export const updateProduct = async (productData) => {
+  try {
+    const isSuggestion = productData.isSuggestion;
+    const isNew = !productData.id || String(productData.id).trim() === '';
+
+    let payload;
+
+    if (isSuggestion) {
+      // 📝 Mapeo para la hoja de "productos sugeridos"
+      payload = {
+        action: isNew ? 'ADD' : 'UPSERT',
+        sheet: 'productos sugeridos',
+        ...(isNew ? {} : { idField: 'ID_Sugerido' }),
+        data: {
+          'ID_Sugerido': productData.id || '',
+          'Nombre': productData.nombre || productData.name || '',
+          'Descripcion': productData.descripcion || productData.description || '',
+          'Categoria': productData.categoria || productData.category || '',
+          'Subcategoria': productData.subcategoria || productData.subcategory || '',
+          'Imagen': productData.imagen || productData.image || '',
+          'Precio_sugerido': productData.precio || productData.price || 0,
+          'Sugerido_por': productData.suggestedBy || 'Usuario',
+          'like': productData.likes || 0,
+          'dislike': productData.dislikes || 0,
+        }
+      };
+    } else {
+      // 📦 Mapeo para la hoja principal "productos"
+      payload = {
+        action: isNew ? 'ADD' : 'UPSERT',
+        sheet: 'productos',
+        ...(isNew ? {} : { idField: 'ID_Producto' }),
+        data: {
+          'ID_Producto': productData.id || '',
+          'nombre': productData.nombre || productData.name || '',
+          'descripcion': productData.descripcion || productData.description || '',
+          'precio': productData.precio || productData.price || 0,
+          'descuento': productData.descuento || 0,
+          'categoria': productData.categoria || productData.category || '',
+          'subcategoria': productData.subcategoria || productData.subcategory || '',
+          'imagen': productData.imagen || productData.image || '',
+          'agotado': productData.agotado || false,
+          'enOferta': productData.enOferta || false,
+          'recomendado': productData.recomendado || productData.isSuggestion || false,
+          'pre_orden?': productData.isPreOrder || false,
+          'tipo_orden': productData.isPreOrder || false,
+          'masVendido': productData.masVendido || false,
+          'delaCasa': productData.delaCasa || false,
+        }
+      };
+    }
+
+    console.log(`[API] Guardando en "${payload.sheet}" (id=${productData.id || 'NUEVO'})`, payload);
+
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error updating product:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 export default {
   fetchProducts,
   mapProductData,
@@ -1168,5 +1326,6 @@ export default {
   createDraftOrder,
   respondToOffer,
   saveOrder,
-  deleteUser
+  deleteUser,
+  updateProduct
 };

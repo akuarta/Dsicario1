@@ -3,6 +3,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { useTheme } from '../contexts/ThemeContext';
 import ProductListScreen from '../screens/ProductListScreen';
 import ProductDetailScreen from '../screens/ProductDetailScreen';
+import ProductEditorScreen from '../screens/ProductEditorScreen';
 import SectionProductsScreen from '../screens/SectionProductsScreen';
 
 const Stack = createStackNavigator();
@@ -14,13 +15,18 @@ const InicioStack = () => {
     <Stack.Navigator>
       <Stack.Screen
         name="InicioScreen"
+        component={ProductListScreen}
+        initialParams={{ mode: 'inicio' }}
         options={{ headerShown: false }}
-      >
-        {props => <ProductListScreen {...props} mode="inicio" />}
-      </Stack.Screen>
+      />
       <Stack.Screen
         name="ProductDetail"
         component={ProductDetailScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="ProductEditor"
+        component={ProductEditorScreen}
         options={{ headerShown: false }}
       />
       <Stack.Screen

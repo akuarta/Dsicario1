@@ -1,14 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createDrawerNavigator } from '@react-navigation/drawer';
-import { Home, Compass, ShoppingCart, User, ClipboardList, History } from 'lucide-react-native';
+import { Home, Compass, ShoppingCart, User, ClipboardList, History, CalendarClock } from 'lucide-react-native';
 
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useUser } from '../contexts/UserContext';
-import { useProducts } from '../contexts/AppContext';
+import { ProductsContext } from '../contexts/AppContext';
 
 import InicioStack from './InicioStack';
 import CartStack from './CartStack';
@@ -32,6 +32,7 @@ import AdminStaffScreen from '../screens/AdminStaffScreen';
 import ProductListScreen from '../screens/ProductListScreen';
 import OrderCenterScreen from '../screens/OrderCenterScreen';
 import AdminDeliveryScreen from '../screens/AdminDeliveryScreen';
+import ProductEditorScreen from '../screens/ProductEditorScreen';
 
 const Tab = createBottomTabNavigator();
 const Drawer = createDrawerNavigator();
@@ -56,6 +57,41 @@ const ExplorarStack = () => {
       <Stack.Screen 
         name="ProductDetail" 
         component={ProductDetailScreen} 
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen 
+        name="ProductEditor" 
+        component={ProductEditorScreen} 
+        options={{ headerShown: false }}
+      />
+    </Stack.Navigator>
+  );
+};
+
+const PreOrderStack = () => {
+  const { colors } = useTheme();
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.primary },
+        headerTintColor: '#FFFFFF',
+        headerTitleStyle: { fontWeight: 'bold' },
+      }}
+    >
+      <Stack.Screen 
+        name="PreOrderList" 
+        component={ProductListScreen} 
+        options={{ title: 'Pre-Ordenes' }}
+        initialParams={{ mode: 'preorder' }}
+      />
+      <Stack.Screen 
+        name="ProductDetail" 
+        component={ProductDetailScreen} 
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen 
+        name="ProductEditor" 
+        component={ProductEditorScreen} 
         options={{ headerShown: false }}
       />
     </Stack.Navigator>
@@ -100,13 +136,11 @@ const MainTabs = () => {
         }}
       />
       <Tab.Screen
-        name="CarritoTab"
-        component={CartStack}
+        name="PreOrdenTab"
+        component={PreOrderStack}
         options={{
-          tabBarLabel: 'CARRITO',
-          tabBarIcon: ({ color }) => <ShoppingCart color={color} size={24} />,
-          // Forzamos visibilidad si es Admin o si el usuario está en modo cliente
-          tabBarButton: (isAdmin || isClientMode) ? undefined : () => null,
+          tabBarLabel: 'PRE-ORDEN',
+          tabBarIcon: ({ color }) => <CalendarClock color={color} size={24} />,
         }}
       />
       <Tab.Screen
@@ -129,6 +163,7 @@ const MainTabs = () => {
       <Tab.Screen name="Favoritos" component={FavoritesStack} options={{ tabBarButton: () => null }} />
       <Tab.Screen name="Configuracion" component={ConfigStack} options={{ tabBarButton: () => null }} />
       <Tab.Screen name="DeliveryTracking" component={DeliveryTrackingScreen} options={{ tabBarButton: () => null }} />
+      <Tab.Screen name="CarritoTab" component={CartStack} options={{ tabBarButton: () => null }} />
       
       {(isAdmin || isCocina) && (
         <Tab.Screen name="CocinaAdmin" component={KitchenScreen} options={{ tabBarButton: () => null }} />
@@ -151,6 +186,7 @@ const DrawerNavigator = () => {
   const { colors } = useTheme();
   return (
     <Drawer.Navigator
+      useLegacyImplementation={false}
       drawerContent={(props) => <ProfileDrawerContent {...props} />}
       screenOptions={{
         headerShown: false,
@@ -166,10 +202,19 @@ const DrawerNavigator = () => {
 const AppNavigator = () => {
   const { darkMode } = useTheme();
   const { isAuthenticated, user, loading: authLoading } = useAuth();
-  const { syncUserRole, isClientMode, role } = useUser(); // 👈 Añadido 'role'
-  const { isLoading: productsLoading } = useProducts();
+  const { syncUserRole, isClientMode, role } = useUser();
   const [roleReady, setRoleReady] = useState(false);
   
+  // 🔑 Usar el contexto directamente SIN useProducts() para evitar re-renders
+  // causados por cambios en isEditorMode que están en el mismo useMemo del contexto.
+  // Solo necesitamos saber si los productos ya cargaron una vez al inicio.
+  const productsCtx = React.useContext(ProductsContext);
+  const productsAlreadyLoadedRef = useRef(false);
+  if (productsCtx && !productsCtx.isLoading) {
+    productsAlreadyLoadedRef.current = true;
+  }
+  const productsLoading = !productsAlreadyLoadedRef.current && (productsCtx?.isLoading ?? true);
+
   const roleLow = role ? role.toLowerCase() : '';
   const isAdmin = roleLow.includes('admin');
 

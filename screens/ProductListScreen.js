@@ -11,7 +11,8 @@ import {
   RefreshControl,
   Dimensions,
   Platform,
-  StatusBar
+  StatusBar,
+  Switch
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useProducts, useCart } from '../contexts/AppContext';
@@ -33,7 +34,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
   const colors = getThemeColors(darkMode);
   const globalStyles = useGlobalStyles();
   
-  const { products, isLoading, error, refetchProducts } = useProducts();
+  const { products, suggestedProducts, isLoading, error, refetchProducts, isEditorMode, setIsEditorMode } = useProducts();
   const { role } = useUser();
   const { waiterActiveSession, setWaiterActiveSession } = useCart();
 
@@ -50,14 +51,19 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
     }
   }, [route.params?.cliente, route.params?.mesaId, route.params?.orderId]);
 
-  const isInicio = mode === 'inicio';
+  const isInicio = mode === 'inicio' || route.params?.mode === 'inicio';
   // 🤵 Detectar si estamos en flujo operativo de Camarero (vía Rol Global + Sesión si es Admin)
   const isWaiterWorkFlow = role === 'Mesero' || (role === 'Admin' && waiterActiveSession);
   const activeWaiterSession = waiterActiveSession;
 
   const [searchTerm, setSearchTerm] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedFilter, setSelectedFilter] = useState('all');
+  const isPreOrderMode = mode === 'preorder' || route.params?.mode === 'preorder';
+  const [selectedFilter, setSelectedFilter] = useState(isPreOrderMode ? 'preorder_only' : 'all');
+  
+  const isExplorar = mode === 'explorar' || route.params?.mode === 'explorar';
+  
+  const isAdmin = role?.toLowerCase().includes('admin');
 
   // Recuperar parámetros de filtrado si vienen de la navegación
   useEffect(() => {
@@ -73,12 +79,17 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
   }, [refetchProducts]);
 
   const handleProductPress = useCallback((product) => {
-    navigation.navigate('ProductDetail', { 
-      product,
-      target_pos_id: activeWaiterSession?.id_carrito,
-      target_client: activeWaiterSession?.cliente
-    });
-  }, [navigation, activeWaiterSession]);
+    if (isEditorMode) {
+      navigation.navigate('ProductEditor', { product });
+    } else {
+      navigation.navigate('ProductDetail', { 
+        product,
+        target_pos_id: activeWaiterSession?.id_carrito,
+        target_client: activeWaiterSession?.cliente,
+        isPreOrder: isPreOrderMode
+      });
+    }
+  }, [navigation, activeWaiterSession, isEditorMode, isPreOrderMode]);
 
   const clearSearch = useCallback(() => {
     setSearchTerm('');
@@ -88,6 +99,19 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
 
   // Filtrado y búsqueda
   const processedProducts = useMemo(() => {
+    // Si estamos en la pestaña de sugerencias, usamos la lista de sugeridos directamente
+    if (selectedFilter === 'suggestions') {
+      let sugResult = suggestedProducts || [];
+      if (hasActiveSearch) {
+        const term = searchTerm.toLowerCase();
+        sugResult = sugResult.filter(p => 
+          (p.nombre || p.name)?.toLowerCase().includes(term) || 
+          (p.categoria || p.category)?.toLowerCase().includes(term)
+        );
+      }
+      return sugResult;
+    }
+
     let result = products || [];
     
     // Búsqueda
@@ -107,10 +131,15 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       if (selectedFilter === 'bestsellers') result = result.filter(p => p.masVendido);
       if (selectedFilter === 'recommended') result = result.filter(p => p.recomendado);
       if (selectedFilter === 'house-specials') result = result.filter(p => p.delaCasa);
+      if (selectedFilter === 'preorder_only') result = result.filter(p => p.isPreOrder);
     }
 
-    return result;
-  }, [products, searchTerm, selectedFilter, hasActiveSearch]);
+    // ↕️ Ordenamiento Final: Mandar agotados al final
+    return [...result].sort((a, b) => {
+      if (a.agotado === b.agotado) return 0;
+      return a.agotado ? 1 : -1;
+    });
+  }, [products, suggestedProducts, searchTerm, selectedFilter, hasActiveSearch]);
 
   const styles = useMemo(() => StyleSheet.create({
     headerContainer: {
@@ -227,6 +256,38 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
     activeFilterText: {
       color: '#FFFFFF',
     },
+    editorToggleBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.md,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    editorToggleText: {
+      fontSize: 12,
+      fontWeight: 'bold',
+      flex: 1,
+      marginLeft: 10,
+    },
+    fabAdd: {
+      position: 'absolute',
+      bottom: 100,
+      right: 20,
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+      backgroundColor: colors.primary,
+      justifyContent: 'center',
+      alignItems: 'center',
+      elevation: 10,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 5 },
+      shadowOpacity: 0.3,
+      shadowRadius: 5,
+      zIndex: 100,
+    }
   }), [colors, darkMode]);
 
   const renderFilterChip = useCallback((filter) => (
@@ -254,7 +315,11 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
     </TouchableOpacity>
   ), [selectedFilter, colors, styles]);
 
-  const filterOptions = [
+  const filterOptions = isPreOrderMode ? [
+    { key: 'all', label: 'Todos', icon: 'list' },
+    { key: 'preorder_only', label: 'Pre orden', icon: 'clock' },
+    { key: 'suggestions', label: 'Sugerencia', icon: 'thumbs-up' },
+  ] : [
     { key: 'all', label: 'Todos', icon: 'th-large' },
     { key: 'available', label: 'Disponibles', icon: 'check-circle' },
     { key: 'offers', label: 'Ofertas', icon: 'tag' },
@@ -266,11 +331,11 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
 
   if (isInicio && !hasActiveSearch) {
     const sectionRules = [
-      { key: 'recommended', label: 'Recomendados', filter: (p) => p.recomendado, filterKey: 'recommended' },
-      { key: 'offers', label: 'En oferta', filter: (p) => p.enOferta || p.descuento > 0, filterKey: 'offers' },
-      { key: 'high-rated', label: 'Mejor Valorados', filter: (p) => p.rating >= 4, filterKey: 'high-rated' },
-      { key: 'bestsellers', label: 'Más Vendidos', filter: (p) => p.masVendido, filterKey: 'bestsellers' },
-      { key: 'house-specials', label: 'De la casa', filter: (p) => p.delaCasa, filterKey: 'house-specials' },
+      { key: 'recommended', label: 'Recomendados', filter: (p) => p.recomendado && !p.agotado, filterKey: 'recommended' },
+      { key: 'offers', label: 'En oferta', filter: (p) => (p.enOferta || p.descuento > 0) && !p.agotado, filterKey: 'offers' },
+      { key: 'high-rated', label: 'Mejor Valorados', filter: (p) => p.rating >= 4 && !p.agotado, filterKey: 'high-rated' },
+      { key: 'bestsellers', label: 'Más Vendidos', filter: (p) => p.masVendido && !p.agotado, filterKey: 'bestsellers' },
+      { key: 'house-specials', label: 'De la casa', filter: (p) => p.delaCasa && !p.agotado, filterKey: 'house-specials' },
     ];
 
     const secciones = sectionRules.map(rule => ({
@@ -280,7 +345,11 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       filterKey: rule.filterKey,
     }));
 
-    const nuevosIngresos = [...(Array.isArray(products) ? products : [])].reverse().slice(0, 5);
+    // Nuevos ingresos solo si no están agotados
+    const nuevosIngresos = [...(Array.isArray(products) ? products : [])]
+      .filter(p => !p.agotado)
+      .reverse()
+      .slice(0, 5);
 
     return (
       <View style={[globalStyles.container, { backgroundColor: colors.background }]}>
@@ -302,6 +371,24 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
             <Text style={styles.waiterModeText}>
               🥘 Ordenando para: <Text style={{ fontWeight: '900' }}>{activeWaiterSession.cliente}</Text>
             </Text>
+          </View>
+        )}
+
+        {/* 🛠️ Banner de Modo Editor para Administradores (Vista Inicio) */}
+        {isAdmin && (
+          <View 
+            style={[styles.editorToggleBar, { backgroundColor: isEditorMode ? colors.success : colors.surface, marginTop: 10 }]}
+          >
+            <FontAwesome5 name="edit" size={14} color={isEditorMode ? "#FFF" : colors.primary} />
+            <Text style={[styles.editorToggleText, { color: isEditorMode ? "#FFF" : colors.text.primary }]}>
+              MODO EDITOR: <Text style={{ fontWeight: '900' }}>{isEditorMode ? 'ACTIVO' : 'INACTIVO'}</Text>
+            </Text>
+            <Switch 
+              value={isEditorMode} 
+              onValueChange={setIsEditorMode}
+              trackColor={{ false: '#767577', true: colors.success + '80' }}
+              thumbColor={isEditorMode ? '#FFF' : '#f4f3f4'}
+            />
           </View>
         )}
 
@@ -355,6 +442,15 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
             </View>
           ))}
         </ScrollView>
+        {/* ➕ Botón Flotante para Añadir Producto (Vista Inicio) */}
+        {isAdmin && isEditorMode && (
+          <TouchableOpacity 
+            style={styles.fabAdd}
+            onPress={() => navigation.navigate('ProductEditor')}
+          >
+            <FontAwesome5 name="plus" size={24} color="#FFF" />
+          </TouchableOpacity>
+        )}
       </View>
     );
   }
@@ -378,6 +474,24 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
           {filterOptions.map(renderFilterChip)}
         </ScrollView>
       </View>
+
+      {/* 🛠️ Banner de Modo Editor para Administradores */}
+      {isAdmin && (
+        <View 
+          style={[styles.editorToggleBar, { backgroundColor: isEditorMode ? colors.success : colors.surface }]}
+        >
+          <FontAwesome5 name="edit" size={14} color={isEditorMode ? "#FFF" : colors.primary} />
+          <Text style={[styles.editorToggleText, { color: isEditorMode ? "#FFF" : colors.text.primary }]}>
+            MODO EDITOR: <Text style={{ fontWeight: '900' }}>{isEditorMode ? 'ACTIVO' : 'INACTIVO'}</Text>
+          </Text>
+          <Switch 
+            value={isEditorMode} 
+            onValueChange={setIsEditorMode}
+            trackColor={{ false: '#767577', true: colors.success + '80' }}
+            thumbColor={isEditorMode ? '#FFF' : '#f4f3f4'}
+          />
+        </View>
+      )}
 
       {isWaiterWorkFlow && activeWaiterSession && (
         <View style={[styles.waiterModeBanner, { backgroundColor: '#FF8C00' }]}>
@@ -404,6 +518,29 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       />
+
+      {/* ➕ Botón Flotante Adaptativo */}
+      {(isEditorMode || selectedFilter === 'suggestions') && (
+        <TouchableOpacity 
+          style={[styles.fabAdd, selectedFilter === 'suggestions' && { backgroundColor: colors.primary }]}
+          onPress={() => {
+            if (selectedFilter === 'suggestions') {
+              // Navegar al editor con flags de sugerencia
+              navigation.navigate('ProductEditor', { 
+                product: { isSuggestion: true },
+                isSuggestionFlow: true 
+              });
+            } else {
+              navigation.navigate('ProductEditor');
+            }
+          }}
+        >
+          <FontAwesome5 name={selectedFilter === 'suggestions' ? "lightbulb" : "plus"} size={24} color="#FFF" />
+          {selectedFilter === 'suggestions' && (
+            <Text style={{ color: '#FFF', fontSize: 10, fontWeight: 'bold' }}>SUGERIR</Text>
+          )}
+        </TouchableOpacity>
+      )}
     </View>
   );
 };

@@ -10,9 +10,9 @@ import {
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCart } from '../contexts/AppContext';
+import { useProducts, useCart } from '../contexts/AppContext';
 import { useUser } from '../contexts/UserContext';
-import { formatPrice, calculateDiscountedPrice } from '../utils/api';
+import { formatPrice, calculateDiscountedPrice, voteSuggestion } from '../utils/api';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 
@@ -32,8 +32,23 @@ const ProductItem = memo(({
 }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
+  const { products, isEditorMode, refetchProducts } = useProducts();
   const { cart, addToCart, updateCartItemQuantity } = useCart();
   const { role, isClientMode } = useUser(); // 🛡️ Seguridad
+
+  const isSuggestion = product.isSuggestion;
+
+  const handleVote = async (type) => {
+    try {
+      const currentCount = type === 'like' ? (product.likes || 0) : (product.dislikes || 0);
+      const result = await voteSuggestion(product.id, type, currentCount);
+      if (result.success || result.status === 'success') {
+        refetchProducts();
+      }
+    } catch (error) {
+      console.error('Error in handleVote:', error);
+    }
+  };
   
   const originalPrice = parseFloat(product.precio) || 0;
   const finalPrice = product.descuento > 0 
@@ -180,11 +195,48 @@ const ProductItem = memo(({
       ...shadows.medium,
       borderWidth: 1.5,
       borderColor: 'rgba(255,255,255,0.3)',
-    }
+    },
+    suggestionOverlay: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: 'rgba(0,0,0,0.7)',
+      padding: 6,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      borderBottomLeftRadius: 15,
+      borderBottomRightRadius: 15,
+      zIndex: 40,
+    },
+    suggestedByText: {
+      color: '#FFF',
+      fontSize: 10,
+      fontWeight: '600',
+      opacity: 0.9,
+    },
+    voteContainer: {
+      flexDirection: 'row',
+      gap: 6,
+    },
+    voteBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 6,
+      paddingVertical: 3,
+      borderRadius: 8,
+      gap: 4,
+    },
+    voteCount: {
+      color: '#FFF',
+      fontSize: 10,
+      fontWeight: 'bold',
+    },
   }), [colors, darkMode]);
 
   const handlePress = () => {
-    if (product.agotado) return;
+    if (product.agotado && !isEditorMode) return;
     onPress?.(product);
   };
 
@@ -215,23 +267,62 @@ const ProductItem = memo(({
           {product.nombre}
         </Text>
       </LinearGradient>
-      {!product.agotado && canPurchase && (
-        <TouchableOpacity 
-          style={styles.quickAddBtn}
-          onPress={(e) => {
-            if (e && e.stopPropagation) e.stopPropagation();
-            // 🛡️ Siempre permitimos añadir al carrito si tiene permiso
-            const currentQuantity = cart?.find(item => item.id === product.id)?.quantity || 0;
-            if (currentQuantity > 0) {
-              updateCartItemQuantity(product.id, currentQuantity + 1);
-            } else {
-              addToCart(product);
-            }
-          }}
-          activeOpacity={0.7}
-        >
-          <FontAwesome5 name="plus" size={14} color="#FFF" />
-        </TouchableOpacity>
+      {!isSuggestion && (
+        isEditorMode ? (
+          <TouchableOpacity 
+            style={[styles.quickAddBtn, { backgroundColor: colors.info }]}
+            onPress={(e) => {
+              if (e && e.stopPropagation) e.stopPropagation();
+              handlePress();
+            }}
+            activeOpacity={0.7}
+          >
+            <FontAwesome5 name="edit" size={14} color="#FFF" />
+          </TouchableOpacity>
+        ) : (
+          !product.agotado && canPurchase && (
+            <TouchableOpacity 
+              style={styles.quickAddBtn}
+              onPress={(e) => {
+                if (e && e.stopPropagation) e.stopPropagation();
+                addToCart(product);
+              }}
+              activeOpacity={0.7}
+            >
+              <FontAwesome5 name="plus" size={14} color="#FFF" />
+            </TouchableOpacity>
+          )
+        )
+      )}
+
+      {/* 🗳️ Sección de Sugerencia (Autor y Votos) */}
+      {isSuggestion && (
+        <View style={styles.suggestionOverlay}>
+          <Text style={styles.suggestedByText}>🗣️ {product.suggestedBy || 'Anónimo'}</Text>
+          <View style={styles.voteContainer}>
+            <TouchableOpacity 
+              style={[styles.voteBtn, { backgroundColor: 'rgba(74, 222, 128, 0.2)' }]} 
+              onPress={(e) => {
+                if (e && e.stopPropagation) e.stopPropagation();
+                handleVote('like');
+              }}
+            >
+              <FontAwesome5 name="thumbs-up" size={12} color="#4ADE80" />
+              <Text style={styles.voteCount}>{product.likes || 0}</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.voteBtn, { backgroundColor: 'rgba(248, 113, 113, 0.2)' }]} 
+              onPress={(e) => {
+                if (e && e.stopPropagation) e.stopPropagation();
+                handleVote('dislike');
+              }}
+            >
+              <FontAwesome5 name="thumbs-down" size={12} color="#F87171" />
+              <Text style={styles.voteCount}>{product.dislikes || 0}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       )}
     </>
   );
@@ -277,9 +368,9 @@ const ProductItem = memo(({
     return (
       <TouchableOpacity
         style={[styles.compactCard, product.agotado && styles.outOfStockContainer, style]}
-        activeOpacity={product.agotado ? 1 : 0.8}
+        activeOpacity={(product.agotado && !isEditorMode) ? 1 : 0.8}
         onPress={handlePress}
-        disabled={product.agotado}
+        disabled={product.agotado && !isEditorMode}
       >
         <View style={styles.compactImageContainer}>
           {renderSharedImageContent()}
@@ -292,9 +383,9 @@ const ProductItem = memo(({
   return (
     <TouchableOpacity
       style={[styles.gridCard, product.agotado && styles.outOfStockContainer, style]}
-      activeOpacity={product.agotado ? 1 : 0.8}
-      onPress={handlePress}
-      disabled={product.agotado}
+        activeOpacity={(product.agotado && !isEditorMode) ? 1 : 0.8}
+        onPress={handlePress}
+        disabled={product.agotado && !isEditorMode}
     >
       <View style={styles.gridImageContainer}>
         {renderSharedImageContent()}
