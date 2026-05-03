@@ -1,17 +1,28 @@
-import { Dimensions } from 'react-native';
+import { Dimensions, Platform } from 'react-native';
 import { Colors } from '../constants/Colors';
 
 const { width, height } = Dimensions.get('window');
+
+// Helper para generar sombras limpias según plataforma
+const createShadow = (h, r, o) => Platform.select({
+  ios: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: h },
+    shadowOpacity: o,
+    shadowRadius: r,
+  },
+  android: {
+    elevation: h * 2,
+  },
+  web: {
+    boxShadow: `0px ${h}px ${r}px rgba(0, 0, 0, ${o})`,
+  },
+});
 
 export const getThemeColors = (darkMode) => {
   const colors = darkMode ? Colors.dark : Colors.light;
   return colors;
 };
-
-// ✅ Los colores se manejan ahora centralizadamente en constants/Colors.js
-// Esto evita el problema de las "letras invisibles" al tener una sola fuente de verdad.
-
-
 
 // Sistema de espaciado
 export const spacing = {
@@ -45,7 +56,6 @@ export const typography = {
     medium: '500',
     bold: '700',
   },
-  // Typography Helpers
   h1: { fontSize: 32, fontWeight: '700' },
   h2: { fontSize: 24, fontWeight: '700' },
   h3: { fontSize: 20, fontWeight: '700' },
@@ -56,7 +66,6 @@ export const typography = {
   bodyMedium: { fontSize: 16, fontWeight: '400' },
   bodySmall: { fontSize: 14, fontWeight: '400' },
   bodyExtraSmall: { fontSize: 12, fontWeight: '400' },
-  // Compatibility Aliases
   body1: { fontSize: 16, fontWeight: '400' },
   body2: { fontSize: 14, fontWeight: '400' },
   button: { fontSize: 14, fontWeight: '600' },
@@ -72,7 +81,7 @@ export const dimensions = {
   isTablet: width >= 768,
 };
 
-// Bordes y sombras
+// Bordes
 export const borders = {
   radius: {
     sm: 8,
@@ -80,7 +89,6 @@ export const borders = {
     lg: 16,
     xl: 24,
     round: 999,
-    // Compatibility aliases
     small: 8,
     medium: 12,
     large: 16,
@@ -90,36 +98,17 @@ export const borders = {
     medium: 2,
     thick: 3,
   },
-  // Compatibility alias
   thin: 1,
 };
 
-// Sombras
+// Sombras optimizadas
 export const shadows = {
-  small: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  medium: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  large: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 8,
-  },
+  small: createShadow(2, 4, 0.04),
+  medium: createShadow(4, 8, 0.08),
+  large: createShadow(8, 16, 0.12),
 };
 
-// Efectos de cristal (Glassmorphism)
+// Efectos de cristal
 export const glass = {
   light: {
     background: 'rgba(255, 255, 255, 0.7)',
@@ -133,11 +122,8 @@ export const glass = {
   },
 };
 
-
-
-// Tema completo simplificado (Tokens de diseño)
 const theme = {
-  colors: getThemeColors(false), // Valor por defecto para hojas de estilo estáticas
+  colors: getThemeColors(false),
   spacing,
   typography,
   dimensions,

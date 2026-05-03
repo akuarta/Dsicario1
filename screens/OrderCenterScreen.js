@@ -22,7 +22,7 @@ import GlassPanel from '../components/GlassPanel';
 import { useDataSync } from '../contexts/AppContext';
 import { useUser } from '../contexts/UserContext';
 import { useAuth } from '../contexts/AuthContext';
-import { updateOrderStatus } from '../utils/api';
+import { updateOrderStatus, deleteOrder } from '../utils/api';
 import { generatePDFBase64 } from '../utils/pdfGenerator';
 
 const { width } = Dimensions.get('window');
@@ -35,7 +35,7 @@ const OrderCenterScreen = ({ navigation }) => {
   const { role, contextUserId, contextUserEmail, isClientMode } = useUser();
   const { user: authUser } = useAuth();
   
-  const isAdmin = role === 'Admin';
+  const isAdmin = role === 'Admin' || role === 'Owner';
   const isCocina = role === 'Cocina';
   const isMesero = role === 'Mesero';
   
@@ -45,6 +45,8 @@ const OrderCenterScreen = ({ navigation }) => {
   const [activeTab, setActiveTab] = useState('pendientes'); // pendientes, preparando, ruta, entregado
   const [searchText, setSearchText] = useState('');
   const [loadingReceiptId, setLoadingReceiptId] = useState(null); // ID de la orden generando recibo
+  const [updatingOrderId, setUpdatingOrderId] = useState(null); // ID de la orden actualizándose
+
 
   const handleGenerateReceipt = async (item) => {
     const id = item.id || item.ID_Orden;
@@ -76,7 +78,8 @@ const OrderCenterScreen = ({ navigation }) => {
   const statusMap = {
     'pendientes': ['pending', 'nuevo'],
     'preparando': ['preparing', 'preparando'],
-    'ruta': ['shipping', 'transito', 'ruta'],
+    'listo': ['ready', 'listo'],
+    'ruta': ['shipping', 'transito', 'ruta', 'on_the_way'],
     'entregado': ['delivered', 'finalizado', 'entregado']
   };
 
@@ -101,6 +104,22 @@ const OrderCenterScreen = ({ navigation }) => {
         
         return matchesId || matchesEmail;
       });
+    } else {
+      // 2. Filtro por Rol (Seguridad)
+      if (!isAdmin) {
+        // Si es cocina, solo ve los que están en cocina (pendientes, preparando, listo)
+        if (isCocina) {
+          const kitchenStatus = ['pending', 'preparing', 'ready', 'listo'];
+          result = result.filter(o => kitchenStatus.includes((o.Estado || o.status || '').toLowerCase()));
+        }
+        // Si es mesero, solo ve pedidos del local o sus propios pedidos
+        else if (isMesero) {
+          result = result.filter(o => 
+            (String(o.tipo || '').toLowerCase() === 'local') || 
+            (String(o.id_user || o.ID_Usuario || '').trim() === String(contextUserId).trim())
+          );
+        }
+      }
     }
 
     // Filter by tab status
@@ -119,21 +138,61 @@ const OrderCenterScreen = ({ navigation }) => {
     return result;
   }, [orders, activeTab, searchText, isStaff, contextUserId, contextUserEmail, authUser?.email]);
 
+  const confirmAction = (msg, onConfirm) => {
+    if (Platform.OS === 'web') {
+      if (window.confirm(msg)) {
+        onConfirm();
+      }
+    } else {
+      Alert.alert('Confirmar', msg, [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Aceptar', onPress: onConfirm }
+      ]);
+    }
+  };
+
   const handleUpdateStatus = async (orderId, newStatus) => {
+    setUpdatingOrderId(orderId);
     try {
       await updateOrderStatus(orderId, newStatus);
+      // Actualización local inmediata para respuesta instantánea
       setOrders(prev => prev.map(o => (o.id || o.ID_Orden) === orderId ? { ...o, Estado: newStatus } : o));
-      Alert.alert('Éxito', `Pedido actualizado a ${newStatus}`);
+      // No alert if it was fast, just move it
     } catch (err) {
       Alert.alert('Error', 'No se pudo actualizar el estado');
+    } finally {
+      setUpdatingOrderId(null);
     }
+  };
+
+  const handleDeleteOrder = (orderId) => {
+    Alert.alert(
+      '⚠️ Eliminar Pedido',
+      `¿Estás seguro de que deseas eliminar permanentemente el pedido #${orderId?.slice(-6)?.toUpperCase()}? Esto no se puede deshacer.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { 
+          text: 'Eliminar', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteOrder(orderId);
+              setOrders(prev => prev.filter(o => (o.id || o.ID_Orden) !== orderId));
+              Alert.alert('Éxito', 'Pedido eliminado correctamente.');
+            } catch (err) {
+              Alert.alert('Error', 'No se pudo eliminar el pedido. Verifica tu conexión.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
-      padding: spacing.md,
-      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight + 20) : 45,
+      padding: spacing.sm,
+      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight + 10) : 35,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
@@ -143,9 +202,10 @@ const OrderCenterScreen = ({ navigation }) => {
     tabBar: {
       flexDirection: 'row',
       backgroundColor: colors.surface,
-      margin: spacing.md,
+      marginHorizontal: spacing.md,
+      marginVertical: spacing.xs,
       borderRadius: 15,
-      padding: 5,
+      padding: 4,
       borderWidth: 1,
       borderColor: colors.border,
     },
@@ -187,7 +247,7 @@ const OrderCenterScreen = ({ navigation }) => {
     },
     list: { padding: spacing.md, paddingBottom: 50 },
     orderCard: {
-      padding: spacing.md,
+      padding: spacing.sm,
       borderRadius: 20,
       marginBottom: spacing.md,
       backgroundColor: colors.surface,
@@ -222,7 +282,18 @@ const OrderCenterScreen = ({ navigation }) => {
       borderRadius: 10,
       backgroundColor: colors.primary + '15',
     },
-    actionText: { color: colors.primary, fontWeight: 'bold', fontSize: 12 }
+    actionText: { color: colors.primary, fontWeight: 'bold', fontSize: 12 },
+    itemsBrief: {
+      backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+      padding: 10,
+      borderRadius: 12,
+      marginVertical: 8,
+    },
+    itemBriefText: {
+      fontSize: 12,
+      color: colors.text.secondary,
+      lineHeight: 18,
+    }
   }), [colors, darkMode]);
 
   const renderOrder = ({ item }) => {
@@ -231,17 +302,45 @@ const OrderCenterScreen = ({ navigation }) => {
       <GlassPanel intensity={10} style={styles.orderCard}>
         <View style={styles.orderHeader}>
           <Text style={styles.orderId}>#{id?.slice(-6).toUpperCase()}</Text>
-          <Text style={styles.orderTime}>{item.Fecha || item.timestamp}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Text style={styles.orderTime}>{item.Fecha || item.timestamp}</Text>
+            {isAdmin && (
+              <TouchableOpacity onPress={() => handleDeleteOrder(id)} style={{ padding: 4, marginLeft: 5 }}>
+                <FontAwesome5 name="trash-alt" size={14} color="#E31837" />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
         <Text style={styles.customerName}>{item.NombreUser || 'Cliente'}</Text>
+        
+        {/* 📦 RESUMEN DE PRODUCTOS */}
+        <View style={styles.itemsBrief}>
+          {(item.items || []).map((it, idx) => (
+            <Text key={idx} style={styles.itemBriefText}>
+              • {it.cantidad || 1}x {it.nombre || it.product}
+            </Text>
+          ))}
+          {(!item.items || item.items.length === 0) && (
+             <Text style={[styles.itemBriefText, { fontStyle: 'italic', opacity: 0.5 }]}>Sin detalles de productos</Text>
+          )}
+        </View>
+
         <Text style={styles.orderTotal}>${item.Total || item.total}</Text>
         
         <View style={styles.actionRow}>
           <TouchableOpacity 
             style={styles.actionBtn}
-            onPress={() => navigation.navigate('OrderDetail', { order: item })}
+            onPress={() => navigation.navigate('DeliveryTracking', { orderId: id })}
           >
-            <Text style={styles.actionText}>Ver Detalles</Text>
+            <Text style={styles.actionText}>Detalles</Text>
+          </TouchableOpacity>
+
+          {/* 📍 RASTREO */}
+          <TouchableOpacity 
+            style={[styles.actionBtn, { backgroundColor: colors.primary + '10' }]}
+            onPress={() => navigation.navigate('DeliveryTracking', { orderId: id })}
+          >
+            <FontAwesome5 name="map-marker-alt" size={11} color={colors.primary} />
           </TouchableOpacity>
 
           {/* 🧾 BOTÓN DE RECIBO — Solo para staff */}
@@ -263,17 +362,66 @@ const OrderCenterScreen = ({ navigation }) => {
             <TouchableOpacity 
               style={[styles.actionBtn, { backgroundColor: colors.success + '15' }]}
               onPress={() => handleUpdateStatus(id, 'preparing')}
+              disabled={updatingOrderId === id}
             >
-              <Text style={[styles.actionText, { color: colors.success }]}>Preparar</Text>
+              {updatingOrderId === id ? <ActivityIndicator size="small" color={colors.success} /> : <Text style={[styles.actionText, { color: colors.success }]}>Preparar</Text>}
             </TouchableOpacity>
           )}
 
           {activeTab === 'preparando' && isStaff && (
             <TouchableOpacity 
-              style={[styles.actionBtn, { backgroundColor: colors.primary + '15' }]}
-              onPress={() => handleUpdateStatus(id, 'shipping')}
+              style={[styles.actionBtn, { backgroundColor: colors.success + '15' }]}
+              onPress={() => handleUpdateStatus(id, 'ready')}
+              disabled={updatingOrderId === id}
             >
-              <Text style={[styles.actionText, { color: colors.primary }]}>Enviar</Text>
+              {updatingOrderId === id ? <ActivityIndicator size="small" color={colors.success} /> : <Text style={[styles.actionText, { color: colors.success }]}>Marcar Listo</Text>}
+            </TouchableOpacity>
+          )}
+
+          {activeTab === 'listo' && isStaff && (
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              {(String(item.Tipo || item.tipo || '').toLowerCase() === 'domicilio' || String(item.Tipo || item.tipo || '').toLowerCase() === 'delivery') ? (
+                <TouchableOpacity 
+                  style={[styles.actionBtn, { backgroundColor: colors.primary + '15' }]}
+                  onPress={() => {
+                    confirmAction(
+                      '¿Deseas enviar este pedido? Asegúrate de que sea el cliente correcto.',
+                      () => handleUpdateStatus(id, 'on_the_way')
+                    );
+                  }}
+                  disabled={updatingOrderId === id}
+                >
+                  {updatingOrderId === id ? <ActivityIndicator size="small" color={colors.primary} /> : <Text style={[styles.actionText, { color: colors.primary }]}>Enviar Pedido</Text>}
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity 
+                  style={[styles.actionBtn, { backgroundColor: colors.success + '15' }]}
+                  onPress={() => {
+                    confirmAction(
+                      '¿Deseas entregar este pedido? Asegúrate de que sea el cliente correcto.',
+                      () => handleUpdateStatus(id, 'delivered')
+                    );
+                  }}
+                  disabled={updatingOrderId === id}
+                >
+                  {updatingOrderId === id ? <ActivityIndicator size="small" color={colors.success} /> : <Text style={[styles.actionText, { color: colors.success }]}>Entregar al Cliente</Text>}
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          {activeTab === 'ruta' && isStaff && (
+            <TouchableOpacity 
+              style={[styles.actionBtn, { backgroundColor: colors.success + '15' }]}
+              onPress={() => {
+                confirmAction(
+                  '¿El pedido ya fue entregado? Asegúrate de que sea el cliente correcto.',
+                  () => handleUpdateStatus(id, 'delivered')
+                );
+              }}
+              disabled={updatingOrderId === id}
+            >
+              {updatingOrderId === id ? <ActivityIndicator size="small" color={colors.success} /> : <Text style={[styles.actionText, { color: colors.success }]}>Finalizar Entrega</Text>}
             </TouchableOpacity>
           )}
         </View>

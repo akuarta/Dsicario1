@@ -16,14 +16,18 @@ import {
   Alert
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { updateOrderStatus } from '../utils/api';
+import { updateOrderStatus, getRouteDetails } from '../utils/api';
+import { getDistance } from '../utils/mathUtils';
 
 import { FontAwesome5 } from '@expo/vector-icons';
 import GlassPanel from '../components/GlassPanel';
 import DeliveryMap from '../components/DeliveryMap';
+import ScannerModal from '../components/ScannerModal';
 import { useDataSync } from '../contexts/AppContext';
 import { useThemeMode } from '../contexts/ThemeContext';
+import { CONFIG } from '../constants/Config';
 import { useOrder } from '../contexts/OrderContext';
+import { useUser } from '../contexts/UserContext';
 import { getThemeColors, shadows, glass } from '../theme/theme';
 
 const { height, width } = Dimensions.get('window');
@@ -31,10 +35,53 @@ const { height, width } = Dimensions.get('window');
 const DeliveryTrackingScreen = ({ navigation, route }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
+  const { isAutoSyncEnabled } = useDataSync();
+  const { role, username } = useUser();
+
+  const isStaff = useMemo(() => {
+    const currentRole = role || '';
+    return ['admin', 'staff', 'waiter', 'owner'].includes(currentRole.toLowerCase());
+  }, [role]);
   
   const orderId = route.params?.orderId || "DS-" + Math.random().toString(36).substr(2, 6).toUpperCase();
   const { orderDetails, loading, loadOrderDetails, refreshOrder } = useOrder();
-  const { isAutoSyncEnabled } = useDataSync();
+  
+  const [routeData, setRouteData] = useState(null);
+  const [fetchingRoute, setFetchingRoute] = useState(false);
+
+  // Ubicaciones
+  const storeLocation = CONFIG.STORE_LOCATION;
+  const clientLocation = useMemo(() => orderDetails?.location || { 
+    latitude: route.params?.lat || 18.486, 
+    longitude: route.params?.lng || -69.931 
+  }, [orderDetails, route.params]);
+
+  const tipoEntrega = (orderDetails?.tipo || 'Domicilio').toLowerCase();
+  const isDelivery = tipoEntrega === 'domicilio' || tipoEntrega === 'delivery' || tipoEntrega === 'envio' || tipoEntrega === 'envío';
+
+  // Cargar ruta real de Google
+  useEffect(() => {
+    const fetchRealRoute = async () => {
+      if (!clientLocation || !storeLocation) return;
+      
+      setFetchingRoute(true);
+      const origin = isDelivery ? storeLocation : clientLocation;
+      const destination = isDelivery ? clientLocation : storeLocation;
+      
+      const data = await getRouteDetails(origin, destination);
+      if (data) {
+        setRouteData(data);
+      }
+      setFetchingRoute(false);
+    };
+
+    fetchRealRoute();
+  }, [clientLocation, isDelivery]);
+
+  const distance = useMemo(() => 
+    routeData?.distance || getDistance(storeLocation.latitude, storeLocation.longitude, clientLocation.latitude, clientLocation.longitude) + " km",
+    [clientLocation, routeData]
+  );
   
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(height)).current;
@@ -44,13 +91,14 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
   const [isScannerVisible, setIsScannerVisible] = useState(false);
   const [isProcessingQR, setIsProcessingQR] = useState(false);
   const [scanned, setScanned] = useState(false);
+  const [showMapForLocal, setShowMapForLocal] = useState(false);
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     floatingHeader: {
       position: 'absolute',
-      top: Platform.OS === 'ios' ? 50 : 20,
+      top: Platform.OS === 'ios' ? 40 : 10,
       left: 0,
       right: 0,
       zIndex: 10,
@@ -77,7 +125,7 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     },
     headerOrderId: { fontSize: 14, fontWeight: 'bold', color: colors.text.primary },
     mapWrapper: {
-      height: height * 0.55,
+      height: height * 0.45,
       width: '100%',
     },
     etaSection: {
@@ -103,11 +151,11 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     etaTime: { fontSize: 24, fontWeight: '900', marginTop: 2, color: colors.primary },
     infoSheet: {
       flex: 1,
-      borderTopLeftRadius: 35,
-      borderTopRightRadius: 35,
-      marginTop: -40,
-      paddingHorizontal: 24,
-      paddingTop: 16,
+      borderTopLeftRadius: 25,
+      borderTopRightRadius: 25,
+      marginTop: -25,
+      paddingHorizontal: 16,
+      paddingTop: 8,
       ...shadows.large,
       backgroundColor: darkMode ? 'rgba(30, 30, 30, 0.9)' : 'rgba(255, 255, 255, 0.9)',
     },
@@ -119,14 +167,14 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
       alignSelf: 'center',
       marginBottom: 20,
     },
-    deliveryStatusContainer: { marginBottom: 30 },
-    statusTitle: { fontSize: 24, fontWeight: 'bold', marginBottom: 8, color: colors.text.primary },
-    deliveryAddress: { fontSize: 14, lineHeight: 20, color: colors.text.secondary },
+    deliveryStatusContainer: { marginBottom: 15 },
+    statusTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 4, color: colors.text.primary },
+    deliveryAddress: { fontSize: 13, lineHeight: 18, color: colors.text.secondary },
     stepsContainer: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: 35,
+      marginBottom: 20,
       paddingHorizontal: 10,
     },
     stepItem: { alignItems: 'center', zIndex: 2 },
@@ -152,14 +200,14 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     riderCard: {
       flexDirection: 'row',
       alignItems: 'center',
-      padding: 18,
-      borderRadius: 30,
-      marginBottom: 25,
+      padding: 8,
+      borderRadius: 20,
+      marginBottom: 10,
       borderWidth: 1,
       borderColor: colors.border
     },
-    riderAvatarContainer: { position: 'relative', marginRight: 15 },
-    riderAvatar: { width: 65, height: 65, borderRadius: 32.5 },
+    riderAvatarContainer: { position: 'relative', marginRight: 12 },
+    riderAvatar: { width: 50, height: 50, borderRadius: 25 },
     riderStatusDot: {
       position: 'absolute',
       bottom: 2,
@@ -220,74 +268,7 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
       gap: 12,
       ...shadows.medium,
     },
-    receiveBtnText: { color: '#FFF', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
-    scannerContainer: { flex: 1, backgroundColor: '#000' },
-    scannerHeader: { 
-      position: 'absolute', 
-      top: 40, 
-      left: 0, 
-      right: 0, 
-      zIndex: 20, 
-      flexDirection: 'row', 
-      alignItems: 'center', 
-      paddingHorizontal: 20 
-    },
-    closeScannerBtn: { 
-      width: 44, 
-      height: 44, 
-      borderRadius: 22, 
-      backgroundColor: 'rgba(0,0,0,0.5)', 
-      justifyContent: 'center', 
-      alignItems: 'center' 
-    },
-    scannerTitle: { 
-      color: '#FFF', 
-      fontSize: 16, 
-      fontWeight: 'bold', 
-      marginLeft: 20,
-      ...Platform.select({
-        web: {
-          textShadow: '1px 1px 5px rgba(0,0,0,0.75)'
-        },
-        default: {
-          textShadowColor: 'rgba(0,0,0,0.75)',
-          textShadowOffset: { width: 1, height: 1 },
-          textShadowRadius: 5
-        }
-      })
-    },
-    scannerOverlay: { 
-      flex: 1, 
-      justifyContent: 'center', 
-      alignItems: 'center', 
-      zIndex: 10 
-    },
-    scannerFrame: { 
-      width: 250, 
-      height: 250, 
-      borderWidth: 4, 
-      borderColor: colors.primary, 
-      borderRadius: 30,
-      backgroundColor: 'transparent'
-    },
-    scannerHint: { 
-      color: '#FFF', 
-      marginTop: 30, 
-      fontSize: 14, 
-      fontWeight: '600',
-      backgroundColor: 'rgba(0,0,0,0.6)',
-      paddingHorizontal: 20,
-      paddingVertical: 10,
-      borderRadius: 20
-    },
-    processingOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      justifyContent: 'center',
-      alignItems: 'center',
-      zIndex: 30
-    },
-    processingText: { color: '#FFF', marginTop: 20, fontSize: 18, fontWeight: 'bold' }
+    receiveBtnText: { color: '#FFF', fontSize: 18, fontWeight: '900', letterSpacing: 1 }
   }), [colors, darkMode]);
 
   useEffect(() => {
@@ -359,15 +340,18 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     setIsScannerVisible(true);
   };
 
-  const steps = [
+
+
+  const steps = useMemo(() => [
     { key: 'preparing', label: 'Cocinando', icon: 'utensils' },
-    { key: 'on_the_way', label: 'En camino', icon: 'motorcycle' },
-    { key: 'delivered', label: '¡Aquí está!', icon: 'check-circle' },
-  ];
+    { key: 'on_the_way', label: isDelivery ? 'En camino' : 'Listo para retirar', icon: isDelivery ? 'motorcycle' : 'store' },
+    { key: 'delivered', label: isDelivery ? '¡Aquí está!' : '¡Retirado!', icon: 'check-circle' },
+  ], [isDelivery]);
 
   const getStatusIndex = (status) => {
     switch(status) {
       case 'preparing': return 0;
+      case 'ready':
       case 'on_the_way': return 1;
       case 'delivered': return 2;
       default: return 0;
@@ -385,6 +369,8 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     );
   }
 
+
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.floatingHeader}>
@@ -397,20 +383,71 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
         <View style={{ width: 44 }} />
       </View>
 
-      <View style={styles.mapWrapper}>
-        <DeliveryMap darkMode={darkMode} colors={colors} pulseAnim={pulseAnim} progreso={orderDetails?.progreso || 0.4} />
-        <Animated.View style={[styles.etaSection, { opacity: fadeAnim, transform: [{ scale: fadeAnim }] }]}>
-          <GlassPanel intensity={35} style={styles.etaContainer}>
-            <View style={{ alignItems: 'center' }}>
-              <Text style={styles.etaLabel}>LLEGADA ESTIMADA</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                <FontAwesome5 name="clock" size={16} color={colors.primary} style={{ marginRight: 8 }} />
-                <Text style={styles.etaTime}>{orderDetails?.eta || '20 min'}</Text>
+      {isDelivery || showMapForLocal ? (
+        <View style={styles.mapWrapper}>
+          <DeliveryMap 
+            darkMode={darkMode} 
+            colors={colors} 
+            origin={isDelivery ? CONFIG.STORE_LOCATION : clientLocation}
+            destination={isDelivery ? clientLocation : CONFIG.STORE_LOCATION} 
+            routeData={routeData}
+            isPickup={!isDelivery}
+            pulseAnim={pulseAnim} 
+            progreso={orderDetails?.progreso || 0.4} 
+          />
+          <Animated.View style={[styles.etaSection, { opacity: fadeAnim, transform: [{ scale: fadeAnim }] }]}>
+            <GlassPanel intensity={35} style={styles.etaContainer}>
+              <View style={{ alignItems: 'center' }}>
+                <Text style={styles.etaLabel}>{isDelivery ? 'LLEGADA ESTIMADA' : 'RECOGIDA ESTIMADA'}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                  <FontAwesome5 name="clock" size={16} color={colors.primary} style={{ marginRight: 8 }} />
+                  <Text style={styles.etaTime}>{routeData?.duration || orderDetails?.eta || '20 min'}</Text>
+                </View>
               </View>
-            </View>
-          </GlassPanel>
-        </Animated.View>
-      </View>
+            </GlassPanel>
+          </Animated.View>
+          {showMapForLocal && !isDelivery && (
+            <TouchableOpacity 
+              style={{ position: 'absolute', top: Platform.OS === 'ios' ? 50 : 20, right: 20, backgroundColor: colors.surface, padding: 12, borderRadius: 20, zIndex: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 3, elevation: 5 }}
+              onPress={() => setShowMapForLocal(false)}
+            >
+              <FontAwesome5 name="times" size={18} color={colors.text.primary} />
+            </TouchableOpacity>
+          )}
+        </View>
+      ) : (
+        <View style={[styles.mapWrapper, { justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }]}>
+          <View style={{ width: 120, height: 120, borderRadius: 60, backgroundColor: colors.primary + '20', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
+            <FontAwesome5 name="store-alt" size={50} color={colors.primary} />
+          </View>
+          <Text style={{ fontSize: 26, fontWeight: '900', color: colors.text.primary }}>Recogida en Local</Text>
+          <Text style={{ marginTop: 10, fontSize: 15, color: colors.text.secondary, textAlign: 'center', paddingHorizontal: 40, marginBottom: 30 }}>
+            Tu pedido se preparará en nuestro establecimiento. Acércate al mostrador cuando esté listo.
+          </Text>
+
+          <Text style={{ fontSize: 16, fontWeight: 'bold', color: colors.text.primary, marginBottom: 15 }}>
+            ¿Sabes llegar al local?
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 15 }}>
+            <TouchableOpacity 
+              style={{ paddingVertical: 12, paddingHorizontal: 40, borderRadius: 25, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary }}
+              onPress={() => {
+                // Ya no hace falta mostrar mapa si sabe llegar
+                // Se queda en esta misma vista
+                Alert.alert("¡Genial!", "Te esperamos en nuestro local para entregarte tu pedido.");
+              }}
+            >
+              <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 16 }}>Sí</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={{ paddingVertical: 12, paddingHorizontal: 30, borderRadius: 25, backgroundColor: colors.primary }}
+              onPress={() => setShowMapForLocal(true)}
+            >
+              <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 16 }}>No, ver mapa</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       <Animated.View style={[styles.infoSheet, { transform: [{ translateY: slideAnim }] }]}>
         <View style={styles.dragHandle} />
@@ -442,33 +479,35 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
               );
             })}
           </View>
-          <GlassPanel intensity={20} style={styles.riderCard}>
-            <View style={styles.riderAvatarContainer}>
-              <Image source={{ uri: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?auto=format&fit=crop&w=150&q=80' }} style={styles.riderAvatar} />
-              <View style={[styles.riderStatusDot, { backgroundColor: colors.success }]} />
-            </View>
-            <View style={styles.riderInfo}>
-              <Text style={styles.riderLabel}>TU REPARTIDOR</Text>
-              <Text style={styles.riderName}>{orderDetails?.nombre || 'Juan'} {orderDetails?.apellido || 'Pérez'}</Text>
-              <View style={styles.riderPhoneRow}>
-                <FontAwesome5 name="motorcycle" size={12} color={colors.text.secondary} />
-                <Text style={styles.riderVehiculo}>{orderDetails?.vehiculo || 'Honda Super Cub'}</Text>
+          {isDelivery && (
+            <GlassPanel intensity={20} style={styles.riderCard}>
+              <View style={styles.riderAvatarContainer}>
+                <Image source={{ uri: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?auto=format&fit=crop&w=150&q=80' }} style={styles.riderAvatar} />
+                <View style={[styles.riderStatusDot, { backgroundColor: colors.success }]} />
               </View>
-              <View style={styles.premiumRatingRow}>
-                <View style={styles.premiumRatingItem}>
-                  <FontAwesome5 name="star" size={10} color={colors.warning} solid /><Text style={styles.premiumRatingText}>4.9</Text>
+              <View style={styles.riderInfo}>
+                <Text style={styles.riderLabel}>TU REPARTIDOR</Text>
+                <Text style={styles.riderName}>{orderDetails?.nombre || 'Juan'} {orderDetails?.apellido || 'Pérez'}</Text>
+                <View style={styles.riderPhoneRow}>
+                  <FontAwesome5 name="motorcycle" size={12} color={colors.text.secondary} />
+                  <Text style={styles.riderVehiculo}>{orderDetails?.vehiculo || 'Honda Super Cub'}</Text>
                 </View>
-                <View style={styles.ratingSeparator} />
-                <Text style={styles.deliveriesText}>1.2k pedidos</Text>
+                <View style={styles.premiumRatingRow}>
+                  <View style={styles.premiumRatingItem}>
+                    <FontAwesome5 name="star" size={10} color={colors.warning} solid /><Text style={styles.premiumRatingText}>4.9</Text>
+                  </View>
+                  <View style={styles.ratingSeparator} />
+                  <Text style={styles.deliveriesText}>1.2k pedidos</Text>
+                </View>
               </View>
-            </View>
-            <View style={styles.riderActions}>
-              <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.primary }]} onPress={() => Linking.openURL(`tel:${orderDetails?.telefono}`)} activeOpacity={0.7}><FontAwesome5 name="phone" size={16} color="#FFF" /></TouchableOpacity>
-              <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#25D366', marginTop: 12 }]} onPress={() => Linking.openURL(`https://wa.me/${orderDetails?.whatsapp?.replace(/\D/g,'')}`)} activeOpacity={0.7}><FontAwesome5 name="whatsapp" size={18} color="#FFF" /></TouchableOpacity>
-            </View>
-          </GlassPanel>
+              <View style={styles.riderActions}>
+                <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.primary }]} onPress={() => Linking.openURL(`tel:${orderDetails?.telefono}`)} activeOpacity={0.7}><FontAwesome5 name="phone" size={16} color="#FFF" /></TouchableOpacity>
+                <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#25D366', marginTop: 12 }]} onPress={() => Linking.openURL(`https://wa.me/${orderDetails?.whatsapp?.replace(/\D/g,'')}`)} activeOpacity={0.7}><FontAwesome5 name="whatsapp" size={18} color="#FFF" /></TouchableOpacity>
+              </View>
+            </GlassPanel>
+          )}
           
-          {currentStepIndex === 1 && (
+          {currentStepIndex === 1 && isDelivery && (
             <TouchableOpacity 
               style={[styles.receiveBtn, { backgroundColor: colors.success }]} 
               onPress={openScanner}
@@ -478,41 +517,42 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
             </TouchableOpacity>
           )}
 
+          {currentStepIndex === 1 && !isDelivery && isStaff && (
+            <TouchableOpacity 
+              style={[styles.receiveBtn, { backgroundColor: colors.success }]} 
+              onPress={async () => {
+                setIsProcessingQR(true);
+                try {
+                  await updateOrderStatus(orderId, 'delivered', { 
+                    entregadoPor: username || 'Empleado' 
+                  });
+                  await refreshOrder(orderId);
+                  Alert.alert('Éxito', 'Pedido entregado en local correctamente.');
+                } catch (e) {
+                  Alert.alert('Error', 'No se pudo confirmar la entrega.');
+                } finally {
+                  setIsProcessingQR(false);
+                }
+              }}
+            >
+              <FontAwesome5 name="check-circle" size={18} color="#FFF" />
+              <Text style={styles.receiveBtnText}>ENTREGAR PEDIDO</Text>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity style={styles.detailsBtn} onPress={() => navigation.navigate('Config')}><Text style={styles.detailsBtnText}>Detalles de la Factura</Text><FontAwesome5 name="chevron-right" size={12} color={colors.text.light} /></TouchableOpacity>
         </ScrollView>
       </Animated.View>
 
-      {/* 📸 MODAL DE ESCÁNER QR PARA EL CLIENTE */}
-      <Modal visible={isScannerVisible} animationType="slide" onRequestClose={() => setIsScannerVisible(false)}>
-        <SafeAreaView style={styles.scannerContainer}>
-          <View style={styles.scannerHeader}>
-            <TouchableOpacity onPress={() => setIsScannerVisible(false)} style={styles.closeScannerBtn}>
-              <FontAwesome5 name="times" size={24} color="#FFF" />
-            </TouchableOpacity>
-            <Text style={styles.scannerTitle}>ESCANEAR PARA CONFIRMAR</Text>
-          </View>
-          
-          <CameraView
-            onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
-            barcodeScannerSettings={{
-              barcodeTypes: ["qr"],
-            }}
-            style={StyleSheet.absoluteFillObject}
-          />
-
-          <View style={styles.scannerOverlay}>
-            <View style={styles.scannerFrame} />
-            <Text style={styles.scannerHint}>Enfoca el código QR del repartidor</Text>
-          </View>
-          
-          {isProcessingQR && (
-            <View style={styles.processingOverlay}>
-              <ActivityIndicator size="large" color={colors.primary} />
-              <Text style={styles.processingText}>Confirmando entrega...</Text>
-            </View>
-          )}
-        </SafeAreaView>
-      </Modal>
+      {/* 📸 MODAL DE ESCÁNER QR MODULARIZADO */}
+      <ScannerModal 
+        visible={isScannerVisible}
+        onClose={() => setIsScannerVisible(false)}
+        onScan={handleBarCodeScanned}
+        scanned={scanned}
+        isProcessing={isProcessingQR}
+        colors={colors}
+      />
     </SafeAreaView>
   );
 };

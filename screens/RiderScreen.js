@@ -26,6 +26,7 @@ import GlassPanel from '../components/GlassPanel';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useUser } from '../contexts/UserContext';
 import { useAuth } from '../contexts/AuthContext';
+import { CONFIG } from '../constants/Config';
 
 const RiderScreen = ({ navigation, route }) => {
   const { user, logout } = useAuth();
@@ -50,6 +51,7 @@ const RiderScreen = ({ navigation, route }) => {
   const [timeLeft, setTimeLeft] = useState(20);
   const [showQR, setShowQR] = useState(false);
   const [activeQRData, setActiveQRData] = useState(null);
+  const [selectedOrders, setSelectedOrders] = useState([]); // ✅ Estado para selección múltiple
   const timerRef = useRef(null);
 
   // Sincronización de propuesta y contador
@@ -202,7 +204,14 @@ const RiderScreen = ({ navigation, route }) => {
 
   const toggleAvailability = async (value) => {
     try {
-      const updatedRider = { ...stats.fullData, id_delivery: riderId, id: riderId, activo: value };
+      // Usar los datos completos del rider para no perder info al actualizar
+      const updatedRider = { 
+        ...stats.fullData, 
+        id_delivery: riderId, 
+        id: riderId, 
+        activo: value,
+        disponible: value // Sincronizamos activo con disponible por ahora
+      };
       setStats(prev => ({ ...prev, activo: value }));
       const res = await updateDelivery(updatedRider);
       if (!res || !(res.success || res.status === 'success')) {
@@ -221,6 +230,12 @@ const RiderScreen = ({ navigation, route }) => {
       if (activeTab === 'ready') {
         return ['pending', 'accepted', 'ready', 'listo'].includes(status);
       }
+      if (activeTab === 'on_the_way') {
+        return status === 'on_the_way' || status === 'transit' || status === 'en camino';
+      }
+      if (activeTab === 'route') {
+        return ['on_the_way', 'transit', 'en camino', 'ready', 'listo'].includes(status);
+      }
       return status === activeTab;
     });
   }, [orders, activeTab]);
@@ -235,7 +250,19 @@ const RiderScreen = ({ navigation, route }) => {
     }
   };
 
-  const handlePickup = async (orderId) => {
+  const handlePickup = async (order) => {
+    const orderId = order.id;
+    const orderTotal = parseFloat(order.total || order.Total || 0);
+    const availableFunds = (parseFloat(stats.cartera) || 0) + (parseFloat(stats.cupo) || 0);
+
+    if (orderTotal > availableFunds) {
+      Alert.alert(
+        'Saldo Insuficiente', 
+        `Tu saldo (RD$ ${availableFunds}) no alcanza para este pedido (RD$ ${orderTotal}).\n\nPor favor, recarga tu Cartera.`
+      );
+      return;
+    }
+
     const executePickup = async () => {
       setIsLoading(true);
       try {
@@ -261,6 +288,63 @@ const RiderScreen = ({ navigation, route }) => {
     }
   };
 
+  // ✅ Nueva función para recoger múltiples pedidos
+  const handleBulkPickup = async () => {
+    if (selectedOrders.length === 0) return;
+
+    // Calcular total de los pedidos seleccionados
+    const selectedData = orders.filter(o => selectedOrders.includes(o.id));
+    const totalBulk = selectedData.reduce((sum, o) => sum + (parseFloat(o.total || o.Total) || 0), 0);
+    const availableFunds = (parseFloat(stats.cartera) || 0) + (parseFloat(stats.cupo) || 0);
+
+    if (totalBulk > availableFunds) {
+      Alert.alert(
+        'Saldo Insuficiente', 
+        `El total (RD$ ${totalBulk}) supera tu saldo disponible (RD$ ${availableFunds}).`
+      );
+      return;
+    }
+
+    const executeBulk = async () => {
+      setIsLoading(true);
+      try {
+        // Ejecutamos todos los pickups en paralelo
+        await Promise.all(selectedOrders.map(id => pickupOrder(id, riderId)));
+        setSelectedOrders([]); // Limpiar selección
+        await loadData(true);
+        setActiveTab('on_the_way');
+        Alert.alert('✅ Éxito', `${selectedOrders.length} pedidos recogidos correctamente.`);
+      } catch (error) {
+        Alert.alert('Error', 'No se pudieron recoger algunos pedidos.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(`¿Confirmas que recoges estos ${selectedOrders.length} pedidos?`)) {
+        executeBulk();
+      }
+    } else {
+      Alert.alert(
+        'Recoger Múltiples', 
+        `¿Confirmas que ya tienes los ${selectedOrders.length} pedidos seleccionados?`, 
+        [
+          { text: 'No', style: 'cancel' },
+          { text: 'Sí', onPress: executeBulk }
+        ]
+      );
+    }
+  };
+
+  const toggleSelection = (orderId) => {
+    setSelectedOrders(prev => 
+      prev.includes(orderId) 
+        ? prev.filter(id => id !== orderId) 
+        : [...prev, orderId]
+    );
+  };
+
   const handleDeliver = (order) => {
     // En lugar de confirmar nosotros, generamos el QR para que el cliente lo escanee
     const qrPayload = JSON.stringify({
@@ -279,33 +363,33 @@ const RiderScreen = ({ navigation, route }) => {
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     statsHeader: { 
-      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight + 20) : 45, 
-      paddingBottom: spacing.xl, 
+      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight + 2) : 10, 
+      paddingBottom: 25, 
       paddingHorizontal: spacing.md, 
-      borderBottomLeftRadius: 35, 
-      borderBottomRightRadius: 35, 
+      borderBottomLeftRadius: 25, 
+      borderBottomRightRadius: 25, 
       elevation: 8, 
       shadowColor: '#000', 
       shadowOffset: { width: 0, height: 4 }, 
       shadowOpacity: 0.3, 
       shadowRadius: 5 
     },
-    headerTop: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg },
+    headerTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
     backBtn: { padding: 5 },
-    profileBadge: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.3)', alignItems: 'center', justifyContent: 'center', marginHorizontal: 10 },
-    profileInitial: { color: '#FFF', fontWeight: 'bold', fontSize: 18 },
-    riderName: { flex: 1, color: '#FFF', fontSize: 18, fontWeight: 'bold' },
-    availabilityCard: { marginHorizontal: spacing.md, marginVertical: spacing.sm, padding: spacing.md, borderRadius: 20, borderWidth: 1 },
+    profileBadge: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.3)', alignItems: 'center', justifyContent: 'center', marginHorizontal: 10 },
+    profileInitial: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
+    riderName: { flex: 1, color: '#FFF', fontSize: 16, fontWeight: 'bold' },
+    availabilityCard: { marginHorizontal: spacing.md, marginVertical: 2, padding: 8, borderRadius: 15, borderWidth: 1 },
     availabilityRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     availabilityInfo: { flexDirection: 'row', alignItems: 'center' },
     statusDot: { width: 12, height: 12, borderRadius: 6, marginRight: spacing.sm },
     availabilityText: { fontWeight: '900', fontSize: 16, letterSpacing: 1 },
-    statsGrid: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: 20, paddingVertical: 15 },
+    statsGrid: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: 20, paddingVertical: 8, marginBottom: 15 },
     statItem: { flex: 1, alignItems: 'center' },
     statDivider: { width: 1, height: '60%', backgroundColor: 'rgba(255,255,255,0.2)' },
     statLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 9, fontWeight: 'bold', marginBottom: 4 },
-    statValue: { color: '#FFF', fontSize: 14, fontWeight: '900' },
-    tabContainer: { flexDirection: 'row', paddingHorizontal: spacing.md, marginTop: -20, zIndex: 10 },
+    statValue: { color: '#FFF', fontSize: 13, fontWeight: '900' },
+    tabContainer: { flexDirection: 'row', paddingHorizontal: spacing.md, marginTop: -15, zIndex: 10 },
     tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, paddingVertical: 12, marginHorizontal: 4, borderRadius: 15, gap: 8, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 3 },
     activeTab: { borderBottomWidth: 3, borderBottomColor: colors.primary },
     tabText: { fontSize: 10, color: colors.text.secondary },
@@ -387,7 +471,53 @@ const RiderScreen = ({ navigation, route }) => {
     qrSubtitle: { fontSize: 13, color: colors.text.secondary, textAlign: 'center', marginTop: 8, paddingHorizontal: 20 },
     qrContainer: { padding: 20, backgroundColor: '#FFF', borderRadius: 25, elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 15 },
     qrFooter: { marginTop: 25, width: '100%' },
-    statusBadge: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 15, borderRadius: 20, width: '100%' }
+    statusBadge: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 15, borderRadius: 20, width: '100%' },
+    // ✅ Badges de tipo
+    typeBadge: { 
+      paddingHorizontal: 8, 
+      paddingVertical: 2, 
+      borderRadius: 8, 
+      borderWidth: 1, 
+      borderColor: 'transparent' 
+    },
+    typeText: { 
+      fontSize: 10, 
+      fontWeight: 'bold' 
+    },
+    // ✅ Estilos para recogida múltiple
+    footerAction: { 
+      padding: spacing.md, 
+      backgroundColor: colors.surface, 
+      borderTopWidth: 1, 
+      borderColor: colors.border,
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      elevation: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -4 },
+      shadowOpacity: 0.2,
+      shadowRadius: 10
+    },
+    bulkPickupBtn: { 
+      borderRadius: 20, 
+      overflow: 'hidden',
+      elevation: 5
+    },
+    bulkGradient: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 18,
+      gap: 12
+    },
+    bulkPickupText: {
+      color: '#FFF',
+      fontSize: 16,
+      fontWeight: '900',
+      letterSpacing: 1
+    }
   }), [colors, darkMode]);
 
   const renderOrderItem = ({ item }) => {
@@ -395,66 +525,112 @@ const RiderScreen = ({ navigation, route }) => {
     const isReady = status === 'ready' || status === 'listo';
     const isPending = status === 'pending';
     const isAccepted = status === 'accepted';
-    const isOnTheWay = status === 'on_the_way';
     const isDelivered = status === 'delivered';
     const isCancelled = status === 'cancelado' || status === 'rechazado';
+    const isSelected = selectedOrders.includes(item.id);
+    const isAssignedToMe = String(item.riderId || '').toLowerCase() === String(riderId).toLowerCase();
 
     return (
-      <GlassPanel intensity={20} style={styles.orderCard}>
-        <View style={styles.cardHeader}>
-          <View style={styles.idBadge}><Text style={styles.orderId}>#{String(item.id).slice(-4)}</Text></View>
-          <Text style={styles.orderTotal}>{formatPrice(item.Total || item.total)}</Text>
-        </View>
-        <Text style={styles.customerName}>{item.Cliente || item.cliente || 'Desconocido'}</Text>
-        <View style={styles.addressBox}>
-          <Ionicons name="location-sharp" size={14} color={colors.primary} />
-          <Text style={styles.infoText} numberOfLines={2}>{item.Direccion || item.direccion || 'No especificada'}</Text>
-        </View>
-        <View style={styles.itemsBrief}>
-           <Text style={styles.itemsText} numberOfLines={2}>{item.items?.map(i => `${i.cantidad}x ${i.nombre}`).join(', ') || 'Sin items'}</Text>
-        </View>
-        
-        <View style={styles.actionsRow}>
-          {isDelivered ? (
-            <View style={[styles.mainBtn, { backgroundColor: colors.success + '20', borderWidth: 1, borderColor: colors.success }]}>
-              <FontAwesome5 name="check-circle" size={16} color={colors.success} />
-              <Text style={[styles.mainBtnText, { color: colors.success }]}>ENTREGADO</Text>
-            </View>
-          ) : isCancelled ? (
-            <View style={[styles.mainBtn, { backgroundColor: colors.error + '20', borderWidth: 1, borderColor: colors.error }]}>
-              <FontAwesome5 name="times-circle" size={16} color={colors.error} />
-              <Text style={[styles.mainBtnText, { color: colors.error }]}>PEDIDO CANCELADO</Text>
-            </View>
-          ) : isAccepted ? (
-            <View style={[styles.mainBtn, { backgroundColor: colors.text.disabled + '20', borderWidth: 1, borderColor: colors.border }]}>
-              <FontAwesome5 name="user-clock" size={16} color={colors.text.disabled} />
-              <Text style={[styles.mainBtnText, { color: colors.text.disabled }]}>ESPERANDO CLIENTE</Text>
-            </View>
-          ) : isPending ? (
-            <View style={[styles.mainBtn, { backgroundColor: colors.text.disabled + '20', borderWidth: 1, borderColor: colors.border }]}>
-              <FontAwesome5 name="fire" size={16} color={colors.text.disabled} />
-              <Text style={[styles.mainBtnText, { color: colors.text.disabled }]}>EN COCINA</Text>
-            </View>
-          ) : (
-            <TouchableOpacity 
-              style={[styles.mainBtn, { backgroundColor: isReady ? colors.primary : colors.success }]} 
-              onPress={() => isReady ? handlePickup(item.id) : handleDeliver(item)}
-            >
-              <FontAwesome5 name={isReady ? "motorcycle" : "qrcode"} size={16} color="#FFF" />
-              <Text style={styles.mainBtnText}>{isReady ? 'RECOGER' : 'GENERAR QR'}</Text>
-            </TouchableOpacity>
-          )}
+      <TouchableOpacity 
+        activeOpacity={isReady ? 0.7 : 1}
+        onPress={() => isReady ? toggleSelection(item.id) : null}
+      >
+        <GlassPanel intensity={20} style={[
+          styles.orderCard, 
+          isSelected && { borderColor: colors.primary, borderWidth: 2, backgroundColor: colors.primary + '10' }
+        ]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {/* ✅ Checkbox para selección múltiple */}
+            {isReady && (
+              <View style={{ marginRight: 12 }}>
+                <Ionicons 
+                  name={isSelected ? "checkbox" : "square-outline"} 
+                  size={24} 
+                  color={isSelected ? colors.primary : colors.text.disabled} 
+                />
+              </View>
+            )}
 
-          <View style={styles.secondaryActions}>
-            <TouchableOpacity style={[styles.circleBtn, { backgroundColor: '#25D366' }]} onPress={() => handleAction('whatsapp', item.whatsapp)}>
-              <FontAwesome5 name="whatsapp" size={18} color="#FFF" />
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.circleBtn, { backgroundColor: '#4285F4' }]} onPress={() => handleAction('gps', item.direccion)}>
-              <Ionicons name="map" size={18} color="#FFF" />
-            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <View style={styles.cardHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={styles.idBadge}><Text style={styles.orderId}>#{String(item.id).slice(-4)}</Text></View>
+                  <View style={[styles.typeBadge, { backgroundColor: (item.tipo || item.Tipo) ? colors.primary + '20' : colors.text.disabled + '20' }]}>
+                    <Text style={[styles.typeText, { color: (item.tipo || item.Tipo) ? colors.primary : colors.text.disabled }]}>
+                      {String(item.tipo || item.Tipo || 'DESCONOCIDO').toUpperCase()}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.orderTotal}>{formatPrice(item.Total || item.total)}</Text>
+              </View>
+              <Text style={styles.customerName}>{item.Cliente || item.cliente || 'Desconocido'}</Text>
+              <View style={styles.addressBox}>
+                <Ionicons name="location-sharp" size={14} color={colors.primary} />
+                <Text style={styles.infoText} numberOfLines={2}>{item.Direccion || item.direccion || 'No especificada'}</Text>
+              </View>
+              <View style={styles.itemsBrief}>
+                 <Text style={styles.itemsText} numberOfLines={2}>{item.items?.map(i => `${i.cantidad}x ${i.nombre}`).join(', ') || 'Sin items'}</Text>
+              </View>
+
+              {isReady && !isAssignedToMe && (
+                <TouchableOpacity 
+                  style={[styles.mainBtn, { backgroundColor: colors.primary, marginTop: 10 }]} 
+                  onPress={() => handlePickup(item)}
+                >
+                  <FontAwesome5 name="hand-holding-heart" size={16} color="#FFF" />
+                  <Text style={styles.mainBtnText}>RECOGER PEDIDO</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
-        </View>
-      </GlassPanel>
+          
+          <View style={styles.actionsRow}>
+            {isDelivered ? (
+              <View style={[styles.mainBtn, { backgroundColor: colors.success + '20', borderWidth: 1, borderColor: colors.success }]}>
+                <FontAwesome5 name="check-circle" size={16} color={colors.success} />
+                <Text style={[styles.mainBtnText, { color: colors.success }]}>ENTREGADO</Text>
+              </View>
+            ) : isCancelled ? (
+              <View style={[styles.mainBtn, { backgroundColor: colors.error + '20', borderWidth: 1, borderColor: colors.error }]}>
+                <FontAwesome5 name="times-circle" size={16} color={colors.error} />
+                <Text style={[styles.mainBtnText, { color: colors.error }]}>PEDIDO CANCELADO</Text>
+              </View>
+            ) : isAccepted ? (
+              <View style={[styles.mainBtn, { backgroundColor: colors.text.disabled + '20', borderWidth: 1, borderColor: colors.border }]}>
+                <FontAwesome5 name="user-clock" size={16} color={colors.text.disabled} />
+                <Text style={[styles.mainBtnText, { color: colors.text.disabled }]}>ESPERANDO CLIENTE</Text>
+              </View>
+            ) : isPending ? (
+              <View style={[styles.mainBtn, { backgroundColor: colors.text.disabled + '20', borderWidth: 1, borderColor: colors.border }]}>
+                <FontAwesome5 name="fire" size={16} color={colors.text.disabled} />
+                <Text style={[styles.mainBtnText, { color: colors.text.disabled }]}>EN COCINA</Text>
+              </View>
+            ) : isReady ? (
+               <View style={[styles.mainBtn, { backgroundColor: colors.warning + '20', borderWidth: 1, borderColor: colors.warning }]}>
+                 <FontAwesome5 name="box-open" size={16} color={colors.warning} />
+                 <Text style={[styles.mainBtnText, { color: colors.warning }]}>LISTO PARA RECOGER</Text>
+               </View>
+            ) : (
+              <TouchableOpacity 
+                style={[styles.mainBtn, { backgroundColor: colors.success }]} 
+                onPress={() => handleDeliver(item)}
+              >
+                <FontAwesome5 name="qrcode" size={16} color="#FFF" />
+                <Text style={styles.mainBtnText}>GENERAR QR</Text>
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.secondaryActions}>
+              <TouchableOpacity style={[styles.circleBtn, { backgroundColor: '#25D366' }]} onPress={() => handleAction('whatsapp', item.whatsapp)}>
+                <FontAwesome5 name="whatsapp" size={18} color="#FFF" />
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.circleBtn, { backgroundColor: '#4285F4' }]} onPress={() => handleAction('gps', item.direccion)}>
+                <Ionicons name="map" size={18} color="#FFF" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </GlassPanel>
+      </TouchableOpacity>
     );
   };
 
@@ -485,22 +661,7 @@ const RiderScreen = ({ navigation, route }) => {
             <Ionicons name="log-out-outline" size={24} color="#FFF" />
           </TouchableOpacity>
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <TouchableOpacity 
-                onPress={() => {
-                  import('../utils/notifications').then(m => {
-                    m.sendWebBrowserNotification({
-                      cliente: 'SISTEMA (Prueba)',
-                      total: 0,
-                      orderId: 'TEST-123'
-                    });
-                    Alert.alert('Prueba enviada', 'Deberías ver una notificación del navegador en unos segundos.');
-                  });
-                }}
-                style={[styles.statItem, { backgroundColor: colors.primary + '20' }]}
-              >
-                <FontAwesome5 name="bell" size={16} color={colors.primary} />
-                <Text style={[styles.statLabel, { color: colors.primary }]}>Probar Campana</Text>
-              </TouchableOpacity>
+
 
               <TouchableOpacity onPress={() => loadData()} style={styles.syncBtn}>
                 <FontAwesome5 name="sync-alt" size={16} color={colors.primary} />
@@ -517,62 +678,13 @@ const RiderScreen = ({ navigation, route }) => {
             </View>
         </GlassPanel>
 
-        <TouchableOpacity 
-          onPress={() => {
-            import('../utils/notifications').then(m => {
-              m.sendWebBrowserNotification({
-                cliente: 'PRUEBA DE DSICARIO',
-                total: '0.00',
-                orderId: 'TEST-OK'
-              });
-            });
-          }}
-          style={{ 
-            backgroundColor: 'rgba(255,255,255,0.2)', 
-            marginHorizontal: 20, 
-            padding: 10, 
-            borderRadius: 12, 
-            flexDirection: 'row', 
-            justifyContent: 'center', 
-            alignItems: 'center',
-            gap: 10,
-            marginTop: 5
-          }}
-        >
-          <FontAwesome5 name="bell" size={14} color="#FFF" />
-          <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 12 }}>PROBAR ALERTAS</Text>
-        </TouchableOpacity>
 
-        <TouchableOpacity 
-          onPress={() => {
-            setProposal({
-              id: 'MOCK-' + Math.random().toString(36).substr(2, 5),
-              cliente: 'CLIENTE DE PRUEBA',
-              total: '550.00',
-              estado: 'propuesta'
-            });
-          }}
-          style={{ 
-            backgroundColor: 'rgba(255,165,0,0.2)', 
-            marginHorizontal: 20, 
-            padding: 10, 
-            borderRadius: 12, 
-            flexDirection: 'row', 
-            justifyContent: 'center', 
-            alignItems: 'center',
-            gap: 10,
-            marginTop: 10
-          }}
-        >
-          <FontAwesome5 name="vial" size={14} color="#FFA500" />
-          <Text style={{ color: '#FFA500', fontWeight: 'bold', fontSize: 12 }}>SIMULAR PEDIDO (PRUEBA)</Text>
-        </TouchableOpacity>
         <View style={styles.statsGrid}>
-          <View style={styles.statItem}><Text style={styles.statLabel}>BOLSILLO</Text><Text style={styles.statValue}>{formatPrice(stats.cartera)}</Text></View>
+          <View style={styles.statItem}><Text style={styles.statLabel}>CARTERA</Text><Text style={styles.statValue}>{formatPrice(stats.cartera)}</Text></View>
           <View style={styles.statDivider} />
-          <View style={styles.statItem}><Text style={styles.statLabel}>DEUDA</Text><Text style={[styles.statValue, { color: '#FFD700' }]}>{formatPrice(stats.deuda)}</Text></View>
+          <View style={styles.statItem}><Text style={styles.statLabel}>POR ENTREGAR</Text><Text style={[styles.statValue, { color: '#FFD700' }]}>{formatPrice(stats.deuda)}</Text></View>
           <View style={styles.statDivider} />
-          <View style={styles.statItem}><Text style={styles.statLabel}>CUPO</Text><Text style={[styles.statValue, { color: '#90EE90' }]}>{formatPrice(stats.cupo)}</Text></View>
+          <View style={styles.statItem}><Text style={styles.statLabel}>CREDITO DISP.</Text><Text style={[styles.statValue, { color: '#90EE90' }]}>{formatPrice(stats.cupo)}</Text></View>
         </View>
       </LinearGradient>
       <View style={styles.tabContainer}>
@@ -586,15 +698,39 @@ const RiderScreen = ({ navigation, route }) => {
           <Text style={[styles.tabText, activeTab === 'on_the_way' && { color: colors.primary, fontWeight: 'bold' }]}>EN CAMINO</Text>
           {orders.filter(o => o.estado === 'on_the_way').length > 0 && <View style={styles.badgeCount}><Text style={styles.badgeText}>{orders.filter(o => o.estado === 'on_the_way').length}</Text></View>}
         </TouchableOpacity>
+        <TouchableOpacity style={[styles.tab, activeTab === 'route' && styles.activeTab]} onPress={() => setActiveTab('route')}>
+          <MaterialCommunityIcons name="map-marker-path" size={20} color={activeTab === 'route' ? colors.primary : colors.text.secondary} />
+          <Text style={[styles.tabText, activeTab === 'route' && { color: colors.primary, fontWeight: 'bold' }]}>RUTA</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={[styles.tab, activeTab === 'delivered' && styles.activeTab]} onPress={() => setActiveTab('delivered')}>
           <MaterialCommunityIcons name="history" size={20} color={activeTab === 'delivered' ? colors.primary : colors.text.secondary} />
           <Text style={[styles.tabText, activeTab === 'delivered' && { color: colors.primary, fontWeight: 'bold' }]}>HISTORIAL</Text>
         </TouchableOpacity>
       </View>
       <View style={styles.content}>
-        {isLoading && !refreshing ? <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View> : (
-          <FlatList data={filteredOrders} renderItem={renderOrderItem} keyExtractor={item => item?.id?.toString() || Math.random().toString()} contentContainerStyle={styles.listContainer} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />} ListEmptyComponent={<View style={styles.emptyContainer}><Ionicons name="bicycle-outline" size={80} color={colors.border} /><Text style={styles.emptyText}>Sin entregas activas.</Text></View>} />
-        )}
+        {isLoading && !refreshing ? <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View> : 
+          activeTab === 'route' ? (
+            <View style={{ flex: 1, borderRadius: 20, overflow: 'hidden', margin: 10 }}>
+               {Platform.OS === 'web' ? (
+                 <iframe
+                   width="100%"
+                   height="100%"
+                   frameBorder="0"
+                   style={{ border: 0 }}
+                   src={`https://maps.google.com/maps?q=Santo+Domingo&hl=es&z=14&output=embed`}
+                   allowFullScreen
+                 ></iframe>
+               ) : (
+                 <View style={{ flex: 1, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' }}>
+                   <Ionicons name="map" size={50} color={colors.border} />
+                   <Text style={{ color: colors.text.secondary, marginTop: 10 }}>Mapa de Ruta (Nativo)</Text>
+                 </View>
+               )}
+            </View>
+          ) : (
+            <FlatList data={filteredOrders} renderItem={renderOrderItem} keyExtractor={item => item?.id?.toString() || Math.random().toString()} contentContainerStyle={styles.listContainer} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />} ListEmptyComponent={<View style={styles.emptyContainer}><Ionicons name="bicycle-outline" size={80} color={colors.border} /><Text style={styles.emptyText}>Sin entregas activas.</Text></View>} />
+          )
+        }
       </View>
       {/* 📱 MODAL PARA CÓDIGO QR DE ENTREGA */}
       <Modal visible={showQR} transparent animationType="slide" onRequestClose={() => setShowQR(false)}>
@@ -664,6 +800,33 @@ const RiderScreen = ({ navigation, route }) => {
               </TouchableOpacity>
             </View>
           </GlassPanel>
+        </View>
+      )}
+      {/* ✅ Botón Global de Recogida (Siempre visible) */}
+      {activeTab === 'ready' && (
+        <View style={styles.footerAction}>
+          <TouchableOpacity 
+            style={[
+              styles.bulkPickupBtn, 
+              { opacity: selectedOrders.length > 0 ? 1 : 0.5 }
+            ]} 
+            onPress={handleBulkPickup}
+            disabled={selectedOrders.length === 0}
+          >
+            <LinearGradient 
+              colors={selectedOrders.length > 0 ? [colors.success, '#2D6A4F'] : [colors.text.disabled, '#666']} 
+              start={{ x: 0, y: 0 }} 
+              end={{ x: 1, y: 0 }} 
+              style={styles.bulkGradient}
+            >
+              <FontAwesome5 name="motorcycle" size={20} color="#FFF" />
+              <Text style={styles.bulkPickupText}>
+                {selectedOrders.length > 0 
+                  ? `RECOGER SELECCIONADOS (${selectedOrders.length})` 
+                  : 'SELECCIONA PEDIDOS PARA RECOGER'}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
       )}
     </SafeAreaView>

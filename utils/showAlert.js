@@ -8,7 +8,27 @@ import { Alert } from 'react-native';
  */
 export function showAlert(title, message, buttons) {
   if (typeof window !== 'undefined' && window.alert) {
-    window.alert(`${title}\n${message}`);
+    if (buttons && buttons.length > 0) {
+      // 🕵️ Lógica inteligente para Web:
+      // Buscamos el botón que NO es "cancel" para la confirmación.
+      // Si hay varios, el último suele ser la acción principal (ej: Borrar, Cobrar).
+      const actionButtons = buttons.filter(b => b.style !== 'cancel');
+      const confirmButton = actionButtons[actionButtons.length - 1]; // El botón de acción principal
+      const cancelButton = buttons.find(b => b.style === 'cancel');
+
+      if (window.confirm(`${title}\n${message}`)) {
+        if (confirmButton && confirmButton.onPress) {
+          console.log('✅ [showAlert] Ejecutando:', confirmButton.text);
+          confirmButton.onPress();
+        }
+      } else {
+        if (cancelButton && cancelButton.onPress) {
+          cancelButton.onPress();
+        }
+      }
+    } else {
+      window.alert(`${title}\n${message}`);
+    }
   } else {
     Alert.alert(title, message, buttons);
   }
