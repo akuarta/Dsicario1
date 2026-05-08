@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { View } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -8,7 +9,7 @@ import { Home, Compass, ShoppingCart, User, ClipboardList, History, CalendarCloc
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useUser } from '../contexts/UserContext';
-import { ProductsContext } from '../contexts/AppContext';
+import { ProductsContext, useCart } from '../contexts/AppContext';
 
 import InicioStack from './InicioStack';
 import CartStack from './CartStack';
@@ -33,6 +34,7 @@ import ProductListScreen from '../screens/ProductListScreen';
 import OrderCenterScreen from '../screens/OrderCenterScreen';
 import AdminDeliveryScreen from '../screens/AdminDeliveryScreen';
 import ProductEditorScreen from '../screens/ProductEditorScreen';
+import InventoryScreen from '../screens/InventoryScreen';
 
 const Tab = createBottomTabNavigator();
 const Drawer = createDrawerNavigator();
@@ -101,14 +103,47 @@ const PreOrderStack = () => {
 const MainTabs = () => {
   const { colors } = useTheme();
   const { role, isClientMode } = useUser();
+  const { activeStaffMode } = useCart();
   const roleLow = role ? role.toLowerCase() : '';
   
   const isCocina = roleLow.includes('cocina') || roleLow.includes('cosina');
   const isDelivery = roleLow.includes('delivery') || roleLow.includes('repartidor');
   const isMesero = roleLow.includes('mesero');
-  const isAdmin = roleLow.includes('admin');
+  const isAdmin = roleLow.includes('admin') || roleLow === 'owner';
+  const isStaff = isCocina || isDelivery || isMesero || isAdmin;
   
-  const showServiceScreen = !isClientMode && (isCocina || isDelivery || isMesero);
+  // La pantalla de Inicio depende del modo activo, no solo del rol
+  const getInicioScreen = () => {
+    if (!isClientMode) {
+      // Por modo activo (Cualquier empleado con switch)
+      if (activeStaffMode === 'cocina') return KitchenScreen;
+      if (activeStaffMode === 'mesero') return WaiterScreen;
+      if (activeStaffMode === 'repartidor') return RiderScreen;
+      if (activeStaffMode === 'personal') return AdminStaffScreen;
+      
+      // Por rol (empleados sin modo admin por defecto)
+      if (isCocina && !isAdmin) return KitchenScreen;
+      if (isDelivery && !isAdmin) return RiderScreen;
+      if (isMesero && !isAdmin) return WaiterScreen;
+    }
+    return InicioStack;
+  };
+
+  const getInicioLabel = () => {
+    if (!isClientMode) {
+      if (activeStaffMode === 'cocina') return 'COCINA';
+      if (activeStaffMode === 'mesero') return 'MESAS';
+      if (activeStaffMode === 'repartidor') return 'REPARTIDOR';
+      if (activeStaffMode === 'personal') return 'PERSONAL';
+
+      if (isCocina && !isAdmin) return 'MONITOR';
+      if (isDelivery && !isAdmin) return 'ENTREGAS';
+      if (isMesero && !isAdmin) return 'SERVICIO';
+    }
+    return 'INICIO';
+  };
+
+  const InicioScreen = getInicioScreen();
 
   return (
     <Tab.Navigator
@@ -121,9 +156,9 @@ const MainTabs = () => {
     >
       <Tab.Screen
         name="InicioTab"
-        component={showServiceScreen ? (isCocina ? KitchenScreen : (isDelivery ? RiderScreen : WaiterScreen)) : InicioStack}
+        component={InicioScreen}
         options={{
-          tabBarLabel: showServiceScreen ? (isCocina ? 'MONITOR' : (isDelivery ? 'ENTREGAS' : 'SERVICIO')) : 'INICIO',
+          tabBarLabel: getInicioLabel(),
           tabBarIcon: ({ color }) => <Home color={color} size={24} />,
         }}
       />
@@ -165,16 +200,17 @@ const MainTabs = () => {
       <Tab.Screen name="DeliveryTracking" component={DeliveryTrackingScreen} options={{ tabBarButton: () => null }} />
       <Tab.Screen name="CarritoTab" component={CartStack} options={{ tabBarButton: () => null }} />
       
-      {(isAdmin || isCocina) && (
+      {(isStaff) && (
         <Tab.Screen name="CocinaAdmin" component={KitchenScreen} options={{ tabBarButton: () => null }} />
       )}
-      {(isAdmin || isMesero) && (
+      {(isStaff) && (
         <Tab.Screen name="WaiterHome" component={WaiterScreen} options={{ tabBarButton: () => null }} />
+      )}
+      {(isStaff) && (
+        <Tab.Screen name="RiderView" component={RiderScreen} options={{ tabBarButton: () => null }} />
       )}
       {isAdmin && (
         <>
-          <Tab.Screen name="RiderView" component={RiderScreen} options={{ tabBarButton: () => null }} />
-          <Tab.Screen name="RiderAdmin" component={AdminDeliveryScreen} options={{ tabBarButton: () => null }} />
           <Tab.Screen name="AdminStaff" component={AdminStaffScreen} options={{ tabBarButton: () => null }} />
         </>
       )}
@@ -184,18 +220,25 @@ const MainTabs = () => {
 
 const DrawerNavigator = () => {
   const { colors } = useTheme();
+  const { isClientMode, role } = useUser();
+  const roleLow = role ? role.toLowerCase() : '';
+  const isAdmin = roleLow.includes('admin') || roleLow === 'owner';
+  
   return (
-    <Drawer.Navigator
-      useLegacyImplementation={false}
-      drawerContent={(props) => <ProfileDrawerContent {...props} />}
-      screenOptions={{
-        headerShown: false,
-        drawerActiveTintColor: colors.primary,
-        drawerStyle: { backgroundColor: colors.background, width: 300 },
-      }}
-    >
-      <Drawer.Screen name="MainTabs" component={MainTabs} options={{ drawerLabel: 'Inicio' }} />
-    </Drawer.Navigator>
+    <View style={{ flex: 1 }}>
+      <Drawer.Navigator
+        drawerContent={(props) => <ProfileDrawerContent {...props} />}
+        screenOptions={{
+          headerShown: false,
+          drawerActiveTintColor: colors.primary,
+          drawerStyle: { backgroundColor: colors.background, width: 300 },
+        }}
+      >
+        <Drawer.Screen name="MainTabs" component={MainTabs} options={{ drawerLabel: 'Inicio' }} />
+        <Drawer.Screen name="Inventory" component={InventoryScreen} options={{ drawerLabel: 'Inventario' }} />
+      </Drawer.Navigator>
+      {(isClientMode || isAdmin) && <FloatingCartButton />}
+    </View>
   );
 };
 
@@ -243,8 +286,6 @@ const AppNavigator = () => {
           <Stack.Screen name="Main" component={DrawerNavigator} />
         )}
       </Stack.Navigator>
-      {/* 🛒 Botón flotante ahora visible para Modo Cliente O para el Admin */}
-      {isAuthenticated && (isClientMode || isAdmin) && <FloatingCartButton />}
     </NavigationContainer>
   );
 };

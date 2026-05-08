@@ -7,7 +7,8 @@ import {
   SafeAreaView,
   ScrollView,
   Alert,
-  Switch
+  Switch,
+  Image
 } from 'react-native';
 import { useUser } from '../contexts/UserContext';
 import { FontAwesome5 } from '@expo/vector-icons';
@@ -24,7 +25,7 @@ const ProfileScreen = ({ navigation }) => {
   const globalStyles = useGlobalStyles(colors);
   
   const { clearCart, getTotalItems } = useCart();
-  const { username, email, role, isClientMode, setIsClientMode } = useUser();
+  const { username, email, role, userTypeId, isClientMode, setIsClientMode } = useUser();
   const totalItems = getTotalItems();
 
   const isOwner = email?.toLowerCase()?.trim() === 'hairoman28@gmail.com';
@@ -329,11 +330,15 @@ const ProfileScreen = ({ navigation }) => {
           </TouchableOpacity>
           <View style={styles.profileInfo}>
             <View style={styles.avatarContainer}>
-              <FontAwesome5 name="user" size={32} color={colors.text.white} />
+              <Image 
+                source={require('../assets/logo.png')} 
+                style={{ width: 56, height: 56, borderRadius: 28 }} 
+                resizeMode="contain" 
+              />
             </View>
             <View style={styles.userInfo}>
               <Text style={styles.userName}>{username || 'Usuario'}</Text>
-              <Text style={styles.userEmail}>{email || 'usuario@dsicario.com'}</Text>
+              <Text style={styles.userEmail}>{userTypeId ? `Código: ${userTypeId}` : email}</Text>
             </View>
           </View>
         </View>

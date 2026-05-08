@@ -16,7 +16,7 @@ import {
 import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { CustomHeader } from '../components/CustomHeader';
-import { updateProduct, formatPrice } from '../utils/api';
+import { updateProduct, formatPrice, uploadProductImage } from '../utils/api';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import GlassPanel from '../components/GlassPanel';
@@ -26,7 +26,7 @@ import { useUser } from '../contexts/UserContext';
 const ProductEditorScreen = ({ navigation, route }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
-  const { refetchProducts } = useProducts();
+  const { refetchProducts, updateProductLocally } = useProducts();
   const { user } = useUser();
   const { product, isSuggestionFlow } = route.params || {};
   const isEditing = !!product && !isSuggestionFlow;
@@ -97,28 +97,53 @@ const ProductEditorScreen = ({ navigation, route }) => {
 
     setIsLoading(true);
     try {
+      let finalImageUrl = formData.imagen;
+
+      // Si la imagen es un base64 (nueva imagen elegida), subir a Firebase
+      if (formData.imagen && formData.imagen.startsWith('data:')) {
+        const productId = formData.id || `PROD_${Date.now()}`;
+        const uploadedUrl = await uploadProductImage(formData.imagen, productId);
+        if (uploadedUrl) {
+          finalImageUrl = uploadedUrl;
+        }
+      }
+
       const dataToSave = {
         ...formData,
+        imagen: finalImageUrl,
         precio: parseFloat(formData.precio),
         descuento: parseFloat(formData.descuento),
       };
 
       const result = await updateProduct(dataToSave);
+      console.log('📦 [API RESPONSE] Result:', result);
       
       if (result.success || result.status === 'success') {
         const msg = `Producto ${isEditing ? 'actualizado' : 'creado'} correctamente.`;
+        
+        // 🚀 ACTUALIZACIÓN INMEDIATA EN LOCAL
+        updateProductLocally(dataToSave);
+
         if (Platform.OS === 'web') {
           window.alert('¡Éxito! ' + msg);
         } else {
           Alert.alert('¡Éxito!', msg);
         }
-        await refetchProducts();
+        
+        // Sincronización en segundo plano (forzada)
+        await refetchProducts(true);
         navigation.goBack();
       } else {
-        throw new Error(result.error || 'Error desconocido del servidor');
+        console.error('❌ [API ERROR] Payload rejected:', result);
+        throw new Error(result.error || result.message || 'Error desconocido del servidor');
       }
     } catch (error) {
-      console.error('Error saving product:', error);
+      console.error('💥 [CRITICAL ERROR] handleSave failed:', error);
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        raw: error
+      });
       if (Platform.OS === 'web') {
         window.alert('Error: No se pudo guardar el producto. Verifica tu conexión.');
       } else {

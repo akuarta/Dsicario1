@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, Alert, Platform, Switch } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, Alert, Platform, Switch, Image } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -9,12 +9,12 @@ import { useCart } from '../contexts/AppContext';
 const ProfileDrawerContent = (props) => {
   const { colors } = useTheme();
   const { signOut } = useAuth();
-  const { username, email, role, isClientMode, setIsClientMode, userId } = useUser();
-  const { clearCart, getTotalItems } = useCart();
+  const { username, email, role, isClientMode, setIsClientMode, userId, userTypeId, firebaseUid } = useUser();
+  const { clearCart, getTotalItems, activeStaffMode, setActiveStaffMode } = useCart();
   const totalItems = getTotalItems();
   
   const roleLow = role ? role.toLowerCase() : '';
-  const isAdmin = roleLow.includes('admin');
+  const isAdmin = roleLow.includes('admin') || roleLow === 'owner';
   const isDelivery = roleLow.includes('delivery') || roleLow.includes('repartidor');
   const isCocina = roleLow.includes('cocina') || roleLow.includes('cosina');
   const isMesero = roleLow.includes('mesero');
@@ -47,43 +47,76 @@ const ProfileDrawerContent = (props) => {
     );
   };
 
+  const navigate = (screen) => {
+    props.navigation.closeDrawer();
+    props.navigation.navigate('MainTabs', { screen });
+  };
+
+  // Log de depuración para ver cambios de modo en tiempo real
+  React.useEffect(() => {
+    console.log('[DRAWER] Estado de Modo Personal:', activeStaffMode);
+  }, [activeStaffMode]);
+
+  const staffSwitches = [
+    {
+      id: 'cocina',
+      label: '🍳 Monitor de Cocina',
+      sub: activeStaffMode === 'cocina' ? 'Modo cocina activo' : 'Ver pedidos en cocina',
+      color: '#E67E22',
+      visible: isStaff && !isClientMode,
+      value: activeStaffMode === 'cocina',
+      onToggle: () => { 
+        const turningOff = activeStaffMode === 'cocina';
+        setActiveStaffMode('cocina'); 
+        if (turningOff) navigate('InicioTab');
+        else navigate('CocinaAdmin');
+      },
+    },
+    {
+      id: 'mesero',
+      label: '🤵 Modo Mesero',
+      sub: activeStaffMode === 'mesero' ? 'Tomando órdenes de mesa' : 'Activar para tomar órdenes',
+      color: '#FF8C00',
+      visible: isStaff && !isClientMode,
+      value: activeStaffMode === 'mesero',
+      onToggle: () => { 
+        const turningOff = activeStaffMode === 'mesero';
+        setActiveStaffMode('mesero'); 
+        if (turningOff) navigate('InicioTab');
+        else navigate('WaiterHome');
+      },
+    },
+    {
+      id: 'repartidor',
+      label: '🚴 Vista de Repartidor',
+      sub: activeStaffMode === 'repartidor' ? 'Modo repartidor activo' : 'Ver rutas y pedidos',
+      color: '#2980B9',
+      visible: isStaff && !isClientMode,
+      value: activeStaffMode === 'repartidor',
+      onToggle: () => { 
+        const turningOff = activeStaffMode === 'repartidor';
+        setActiveStaffMode('repartidor'); 
+        if (turningOff) navigate('InicioTab');
+        else navigate('RiderView');
+      },
+    },
+    {
+      id: 'personal',
+      label: '👥 Gestión de Personal',
+      sub: activeStaffMode === 'personal' ? 'Gestión activa' : 'Roles y permisos del staff',
+      color: '#16A085',
+      visible: isAdmin && !isClientMode,
+      value: activeStaffMode === 'personal',
+      onToggle: () => { 
+        const turningOff = activeStaffMode === 'personal';
+        setActiveStaffMode('personal'); 
+        if (turningOff) navigate('InicioTab');
+        else navigate('AdminStaff');
+      },
+    },
+  ];
   const menuItems = [
-    // --- SECCIÓN ADMIN / STAFF (Solo si NO está en modo cliente) ---
-    {
-      id: 7,
-      title: 'Monitor de Cocina',
-      icon: 'utensils',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'CocinaAdmin' }),
-      visible: (isAdmin || isCocina) && !isClientMode,
-    },
-    {
-      id: 11,
-      title: 'Panel de Servicio',
-      icon: 'walking',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'WaiterHome' }),
-      visible: (isAdmin || isMesero) && !isClientMode,
-    },
-    {
-      id: 12,
-      title: 'Vista de Repartidor',
-      icon: 'biking',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'RiderView' }),
-      visible: isAdmin && !isClientMode,
-    },
-    {
-      id: 8,
-      title: 'Administrar Repartidores',
-      icon: 'motorcycle',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'RiderAdmin' }),
-      visible: isAdmin && !isClientMode,
-    },
-    {
-      id: 9,
-      title: 'Gestión de Personal',
-      icon: 'users-cog',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'AdminStaff' }),
-      visible: isAdmin && !isClientMode,
-    },
+    // --- SECCIÓN CLIENTE (PARA TODOS O SI ESTÁ EN MODO CLIENTE) ---
     {
       id: 10,
       title: 'Centro de Pedidos',
@@ -91,14 +124,12 @@ const ProfileDrawerContent = (props) => {
       onPress: () => props.navigation.navigate('MainTabs', { screen: 'OrderCenter' }),
       visible: (isAdmin || isCocina || isDelivery) && !isClientMode,
     },
-    
-    // --- SECCIÓN CLIENTE (PARA TODOS O SI ESTÁ EN MODO CLIENTE) ---
     {
       id: 1,
       title: 'Comprar / Menú',
       icon: 'store',
       onPress: () => props.navigation.navigate('MainTabs', { screen: 'InicioTab' }),
-      visible: isClientMode || !isStaff || isAdmin // 👈 Admin siempre lo ve
+      visible: isClientMode || !isStaff || isAdmin
     },
     {
       id: 13,
@@ -107,7 +138,7 @@ const ProfileDrawerContent = (props) => {
       onPress: () => props.navigation.navigate('MainTabs', { screen: 'CarritoTab' }),
       showBadge: totalItems > 0,
       badgeCount: totalItems,
-      visible: isClientMode || isAdmin // 👈 Admin siempre lo ve
+      visible: isClientMode || isAdmin
     },
     {
       id: 2,
@@ -125,12 +156,19 @@ const ProfileDrawerContent = (props) => {
     },
     {
       id: 4,
+      title: 'Inventario Inteligente',
+      icon: 'boxes',
+      onPress: () => props.navigation.navigate('Inventory'),
+      visible: isAdmin
+    },
+    {
+      id: 5,
       title: 'Configuraciones',
       icon: 'cog',
       onPress: () => props.navigation.navigate('MainTabs', { screen: 'Configuracion' }),
     },
     {
-      id: 5,
+      id: 6,
       title: 'Vaciar Carrito',
       icon: 'trash',
       onPress: handleClearCart,
@@ -138,7 +176,7 @@ const ProfileDrawerContent = (props) => {
       visible: isClientMode && totalItems > 0
     },
     {
-      id: 6,
+      id: 7,
       title: 'Acerca de',
       icon: 'info-circle',
       onPress: () => showAlert('DSicario v1.0', 'Aplicación de e-commerce desarrollada con React Native\n\n© 2024 DSicario'),
@@ -169,12 +207,16 @@ const ProfileDrawerContent = (props) => {
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <FontAwesome5 name="user-shield" size={48} color="#fff" />
+          <Image 
+            source={require('../assets/logo.png')} 
+            style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: 'rgba(255,255,255,0.2)' }} 
+            resizeMode="contain" 
+          />
           <Text style={styles.userName}>{username}</Text>
           <Text style={styles.userEmail}>{email}</Text>
           <View style={{ flexDirection: 'row', gap: 5 }}>
             <Text style={styles.userRole}>{role?.toUpperCase() || 'CLIENTE'}</Text>
-            <Text style={[styles.userRole, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>ID: {userId || 'N/A'}</Text>
+            <Text style={[styles.userRole, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>ID: {userTypeId || 'Cargando...'}</Text>
           </View>
         </View>
         {isStaff && (
@@ -189,6 +231,38 @@ const ProfileDrawerContent = (props) => {
               trackColor={{ false: '#767577', true: colors.primary + '80' }}
               thumbColor={isClientMode ? colors.primary : '#f4f3f4'}
             />
+          </View>
+        )}
+        {/* Panel de accesos del personal — switches por modo */}
+        {isStaff && !isClientMode && (
+          <View style={{ marginHorizontal: 10, marginTop: 6 }}>
+            <Text style={{ fontSize: 11, fontWeight: 'bold', color: colors.text?.secondary || '#888', paddingHorizontal: 4, marginBottom: 4 }}>ACCESOS DE PERSONAL</Text>
+            {staffSwitches.filter(s => s.visible !== false).map(sw => (
+              <View
+                key={sw.id}
+                style={[
+                  styles.modeSection,
+                  { backgroundColor: sw.color + '15', borderBottomWidth: 0, borderRadius: 12, marginBottom: 5, paddingVertical: 10 }
+                ]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.modeText, { color: sw.color }]}>{sw.label}</Text>
+                  <Text style={styles.modeSub}>{sw.sub}</Text>
+                </View>
+                {sw.isLink ? (
+                  <TouchableOpacity onPress={sw.onToggle} style={{ padding: 4 }}>
+                    <FontAwesome5 name="chevron-right" size={14} color={sw.color} />
+                  </TouchableOpacity>
+                ) : (
+                  <Switch
+                    value={sw.value || false}
+                    onValueChange={sw.onToggle}
+                    trackColor={{ false: '#767577', true: sw.color + '80' }}
+                    thumbColor={sw.value ? sw.color : '#f4f3f4'}
+                  />
+                )}
+              </View>
+            ))}
           </View>
         )}
         <View style={styles.menuContainer}>
@@ -221,10 +295,25 @@ const ProfileDrawerContent = (props) => {
         <TouchableOpacity 
           style={[styles.menuItem, { marginTop: 20, borderTopWidth: 1, borderTopColor: colors.border || '#eee' }]}
           onPress={() => {
+            const handleLogout = async () => {
+              console.log(`[USER_PRESENCE] 🔴 CIERRE DE SESIÓN INICIADO para UID: ${firebaseUid}`);
+              try {
+                const { setOffline } = require('../utils/api');
+                if ((userId && userId !== 'N/A') || firebaseUid) {
+                  console.log(`[USER_PRESENCE] 🔴 Enviando estado OFFLINE al servidor para UID: ${firebaseUid}, DeliveryID: ${userId}, Name: ${username}`);
+                  await setOffline(userId, firebaseUid, username);
+                }
+              } catch (e) {
+                console.warn('[USER_PRESENCE] Error marcando offline al salir:', e);
+              }
+              console.log(`[USER_PRESENCE] 🔴 Cerrando sesión en Firebase...`);
+              signOut();
+            };
+
             if (Platform.OS === 'web') {
               const confirm = window.confirm('¿Estás seguro de que quieres salir?');
               if (confirm) {
-                signOut();
+                handleLogout();
               }
             } else {
               Alert.alert(
@@ -232,7 +321,7 @@ const ProfileDrawerContent = (props) => {
                 "¿Estás seguro de que quieres salir?",
                 [
                   { text: "Cancelar", style: "cancel" },
-                  { text: "Salir", onPress: signOut, style: "destructive" }
+                  { text: "Salir", onPress: handleLogout, style: "destructive" }
                 ]
               );
             }

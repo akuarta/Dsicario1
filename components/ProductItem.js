@@ -4,10 +4,10 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Image,
   StyleSheet,
   Platform
 } from 'react-native';
+import { Image } from 'expo-image';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useProducts, useCart } from '../contexts/AppContext';
@@ -22,6 +22,7 @@ import { getThemeColors, spacing, typography, borders, shadows } from '../theme/
 const ProductItem = memo(({
   product,
   onPress,
+  onRecipePress,
   style,
   showCategory = true,
   showBadges = true,
@@ -33,8 +34,10 @@ const ProductItem = memo(({
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const { products, isEditorMode, refetchProducts } = useProducts();
-  const { cart, addToCart, updateCartItemQuantity } = useCart();
+  const { cart, addToCart, updateCartItemQuantity, businessInfo, isWaiterMode, waiterActiveSession } = useCart();
   const { role, isClientMode } = useUser(); // 🛡️ Seguridad
+
+  const isClosed = businessInfo?.closed === true;
 
   const isSuggestion = product.isSuggestion;
 
@@ -55,8 +58,9 @@ const ProductItem = memo(({
     ? calculateDiscountedPrice(originalPrice, product.descuento)
     : originalPrice;
 
-  // 🛡️ Determinamos si este usuario tiene permiso para comprar
-  const canPurchase = isClientMode || role === 'Cliente' || role === 'Admin';
+  // 🛡️ Puede comprar si es cliente o si el mesero tiene una sesión activa (cliente seleccionado)
+  const isWaiterWithSession = isWaiterMode && waiterActiveSession?.cliente;
+  const canPurchase = isClientMode || isWaiterWithSession || role?.toLowerCase() === 'cliente';
 
   const styles = useMemo(() => StyleSheet.create({
     gridCard: {
@@ -169,6 +173,7 @@ const ProductItem = memo(({
     discountPriceContainer: {
       flexDirection: 'row',
       alignItems: 'baseline',
+      height: 24,
     },
     originalPrice: {
       fontSize: 12,
@@ -195,6 +200,27 @@ const ProductItem = memo(({
       ...shadows.medium,
       borderWidth: 1.5,
       borderColor: 'rgba(255,255,255,0.3)',
+    },
+    recipeBtn: {
+      position: 'absolute',
+      bottom: 12,
+      right: 55, // Espacio para el botón de editar
+      backgroundColor: '#27ae60', // Verde para recetas
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 30,
+      ...shadows.medium,
+      borderWidth: 1.5,
+      borderColor: 'rgba(255,255,255,0.3)',
+    },
+    preOrderBtn: {
+      backgroundColor: '#6A5ACD',
+      width: 40,
+      height: 40,
+      borderRadius: 12,
     },
     suggestionOverlay: {
       position: 'absolute',
@@ -232,11 +258,23 @@ const ProductItem = memo(({
       color: '#FFF',
       fontSize: 10,
       fontWeight: 'bold',
+      gap: 4,
+    },
+    voteCountText: {
+      color: '#FFF',
+      fontSize: 10,
+      fontWeight: 'bold',
     },
   }), [colors, darkMode]);
 
   const handlePress = () => {
     if (product.agotado && !isEditorMode) return;
+    
+    // 🤵 Bloqueo para meseros sin sesión
+    if (isWaiterMode && !waiterActiveSession?.cliente && !isEditorMode) {
+      return; // No hacer nada, el banner ya indica que debe elegir mesa
+    }
+
     onPress?.(product);
   };
 
@@ -250,6 +288,9 @@ const ProductItem = memo(({
           product.agotado && styles.outOfStockImage,
           !product.imagen && { opacity: 0.8 }
         ]}
+        contentFit="cover"
+        transition={300}
+        cachePolicy="memory-disk"
       />
       {showRating && product.rating > 0 && (
         <View style={styles.topRightBadge}>
@@ -269,27 +310,40 @@ const ProductItem = memo(({
       </LinearGradient>
       {!isSuggestion && (
         isEditorMode ? (
-          <TouchableOpacity 
-            style={[styles.quickAddBtn, { backgroundColor: colors.info }]}
-            onPress={(e) => {
-              if (e && e.stopPropagation) e.stopPropagation();
-              handlePress();
-            }}
-            activeOpacity={0.7}
-          >
-            <FontAwesome5 name="edit" size={14} color="#FFF" />
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity 
+              style={[styles.quickAddBtn, { backgroundColor: colors.info }]}
+              onPress={(e) => {
+                if (e && e.stopPropagation) e.stopPropagation();
+                handlePress();
+              }}
+              activeOpacity={0.7}
+            >
+              <FontAwesome5 name="edit" size={14} color="#FFF" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.recipeBtn}
+              onPress={(e) => {
+                if (e && e.stopPropagation) e.stopPropagation();
+                onRecipePress?.(product);
+              }}
+              activeOpacity={0.7}
+            >
+              <FontAwesome5 name="book" size={14} color="#FFF" />
+            </TouchableOpacity>
+          </>
         ) : (
           !product.agotado && canPurchase && (
             <TouchableOpacity 
-              style={styles.quickAddBtn}
+              style={[styles.quickAddBtn, isClosed && styles.preOrderBtn]}
               onPress={(e) => {
                 if (e && e.stopPropagation) e.stopPropagation();
                 addToCart(product);
               }}
               activeOpacity={0.7}
             >
-              <FontAwesome5 name="plus" size={14} color="#FFF" />
+              <FontAwesome5 name={isClosed ? "moon" : "plus"} size={14} color="#FFF" />
             </TouchableOpacity>
           )
         )

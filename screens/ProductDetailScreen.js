@@ -61,10 +61,12 @@ const ProductDetailScreen = ({ navigation, route }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const { product, isPreOrder } = route.params;
-  const { addToCart } = useCart();
+  const { addToCart, businessInfo, isWaiterMode, waiterActiveSession } = useCart();
   const { products } = useProducts();
   const { username, email, isClientMode, role } = useUser();
   
+  const isClosed = businessInfo?.closed === true;
+
   const [quantity, setQuantity] = useState(1);
   const [subtotal, setSubtotal] = useState(0);
   const [kitchenNote, setKitchenNote] = useState('');
@@ -134,16 +136,19 @@ const ProductDetailScreen = ({ navigation, route }) => {
   }, [quantity, finalPrice]);
 
   const handleAddToCart = useCallback(() => {
+    const isActuallyPreOrder = !!isPreOrder || isClosed;
     console.log(`[🛒 AÑADIR AL CARRITO] Botón presionado para: ${product.nombre}`);
-    console.log(`- ID Producto: ${product.id || product.ID_Producto}`);
-    console.log(`- Cantidad Seleccionada: ${quantity}`);
-    console.log(`- Precio Unitario: $${finalPrice}`);
-    console.log(`- Subtotal a registrar: $${subtotal}`);
-    console.log(`- Es Pre-Orden: ${!!isPreOrder}`);
+    console.log(`- Es Pre-Orden: ${isActuallyPreOrder}`);
     
-    addToCart({ ...product, quantity, subtotal, orderNote: kitchenNote, isPreOrder: !!isPreOrder });
+    addToCart({ 
+      ...product, 
+      quantity, 
+      subtotal, 
+      orderNote: kitchenNote, 
+      isPreOrder: isActuallyPreOrder 
+    });
     showAlert('¡Listo!', `${product.nombre} se agregó al carrito.`);
-  }, [product, quantity, subtotal, kitchenNote, addToCart, finalPrice, isPreOrder]);
+  }, [product, quantity, subtotal, kitchenNote, addToCart, finalPrice, isPreOrder, isClosed]);
 
   const handleSubmitReview = async () => {
     if (!reviewText.trim()) return;
@@ -160,7 +165,7 @@ const ProductDetailScreen = ({ navigation, route }) => {
       setSubmittedReview({ note: reviewText, rating: reviewRating });
       setReviewText('');
     } catch (e) {
-      Alert.alert('Error', 'No se pudo enviar la reseña');
+      showAlert('Error', 'No se pudo enviar la reseña');
     } finally {
       setIsSubmittingReview(false);
     }
@@ -272,13 +277,14 @@ const ProductDetailScreen = ({ navigation, route }) => {
       </ScrollView>
 
       <GlassPanel intensity={30} style={styles.fixedFooter}>
-        {/* 🛒 Botón exclusivo para Clientes, Modo Cliente o el ADMIN */}
-        {(isClientMode || role === 'Cliente' || role === 'Admin') ? (
+        {/* 🛒 Botón de Compra / Agregar */}
+        {((isClientMode || role === 'Cliente' || role === 'Admin' || role === 'Owner') && 
+          (!isWaiterMode || (isWaiterMode && waiterActiveSession?.cliente))) ? (
           <TouchableOpacity 
             activeOpacity={0.8}
             onPress={handleAddToCart}
             style={{ 
-              shadowColor: colors.primary, 
+              shadowColor: isClosed ? '#6A5ACD' : colors.primary, 
               shadowOffset: { width: 0, height: 5 }, 
               shadowOpacity: 0.4, 
               shadowRadius: 10, 
@@ -286,13 +292,15 @@ const ProductDetailScreen = ({ navigation, route }) => {
             }}
           >
             <LinearGradient
-              colors={[colors.primary, colors.primary + 'DD']}
+              colors={isClosed ? ['#6A5ACD', '#483D8B'] : [colors.primary, colors.primary + 'DD']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={[styles.addToCartBtn, { marginTop: 0 }]}
             >
-              <FontAwesome5 name="shopping-cart" size={20} color="#FFF" style={{ marginRight: 8 }} />
-              <Text style={[styles.addToCartText, { flex: 1 }]}>Agregar</Text>
+              <FontAwesome5 name={isClosed ? "moon" : "shopping-cart"} size={20} color="#FFF" style={{ marginRight: 12 }} />
+              <Text style={[styles.addToCartText, { flex: 1 }]}>
+                {isClosed ? 'Pre-ordenar' : 'Agregar'}
+              </Text>
               <View style={{ 
                 backgroundColor: 'rgba(255,255,255,0.25)', 
                 paddingHorizontal: 16, 
@@ -308,7 +316,7 @@ const ProductDetailScreen = ({ navigation, route }) => {
         ) : (
           <View style={{ alignItems: 'center', paddingVertical: 10 }}>
             <Text style={{ color: colors.text.secondary, fontWeight: 'bold' }}>
-              Modo Personal: Consulta de Productos
+              {isWaiterMode ? 'Selecciona una mesa para poder pedir' : 'Modo Personal: Consulta de Productos'}
             </Text>
           </View>
         )}

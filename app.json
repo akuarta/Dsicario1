@@ -10,7 +10,7 @@
 
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/logo.png",
@@ -22,14 +22,14 @@
     ],
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/logo.png",
+        "backgroundColor": "#1a1a1a"
       },
       "package": "com.akuarta.dsicario",
       "googleServicesFile": "./google-services.json",
       "config": {
         "googleMaps": {
-          "apiKey": "TU_API_KEY_AQUI"
+          "apiKey": "AIzaSyAHlSOFsyfIUNPeECflWwpdHcSZqxgVp3U"
         }
       }
     },
@@ -37,7 +37,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.akuarta.dsicarioapp",
       "config": {
-        "googleMapsApiKey": "TU_API_KEY_AQUI"
+        "googleMapsApiKey": "AIzaSyAHlSOFsyfIUNPeECflWwpdHcSZqxgVp3U"
       }
     },
     "owner": "hairoman28",
@@ -48,6 +48,13 @@
         "expo-camera",
         {
           "cameraPermission": "Permite escanear QRs para entregas."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/logo.png",
+          "color": "#E31837"
         }
       ]
     ],

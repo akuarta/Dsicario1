@@ -34,15 +34,38 @@ const AdminDeliveryScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const { role } = useUser();
-  const isAdmin = role?.toLowerCase() === 'admin';
+  const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
   const [updatingId, setUpdatingId] = useState(null);
 
   useEffect(() => {
     if (!isAdmin) {
       Alert.alert('Acceso Denegado', 'No tienes permisos para acceder a esta sección.');
-      navigation.goBack();
+      navigation.replace('ConfigScreen');
     }
   }, [isAdmin]);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          style={{ marginRight: 15, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}
+          onPress={() => {
+            setEditDelivery(null);
+            setForm({
+              id_delivery: '', nombre: '', apellido: '',
+              telefono: '', whatsapp: '', vehiculo: '',
+              costo_pedido: '', cartera: 5.0,
+              rapidez: 5.0, servicio: 5.0, honestidad: 5.0, activo: true
+            });
+            setModalVisible(true);
+          }}
+        >
+          <FontAwesome5 name="plus" size={13} color="#FFF" />
+          <Text style={{ color: '#FFF', marginLeft: 6, fontWeight: 'bold', fontSize: 13 }}>Nuevo</Text>
+        </TouchableOpacity>
+      )
+    });
+  }, [navigation]);
 
   const { deliveries: deliverys, isSyncing, syncAllData, setDeliveries } = useDataSync();
   const [modalVisible, setModalVisible] = useState(false);
@@ -442,9 +465,23 @@ const AdminDeliveryScreen = ({ navigation }) => {
         <View style={styles.deliveryInfo}>
           <Text style={styles.deliveryName}>{item.nombre} {item.apellido}</Text>
           <Text style={styles.deliveryId}>#{item.id_delivery}</Text>
+          {(() => {
+            const lastSeen = item.ultima_conexion ? new Date(item.ultima_conexion) : null;
+            const isOnline = lastSeen && (new Date() - lastSeen) < 300000; // 5 min
+            return isOnline ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#4CAF50', marginRight: 5 }} />
+                <Text style={{ fontSize: 10, color: '#4CAF50', fontWeight: 'bold' }}>EN LÍNEA</Text>
+              </View>
+            ) : (
+              <Text style={{ fontSize: 10, color: colors.text.tertiary, marginTop: 4 }}>
+                Últ. vez: {lastSeen ? lastSeen.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Nunca'}
+              </Text>
+            );
+          })()}
         </View>
         <View style={styles.activeSwitch}>
-          <Text style={{ color: item.activo ? colors.success : colors.error }}>
+          <Text style={{ color: item.activo ? colors.success : colors.error, fontSize: 10, fontWeight: 'bold' }}>
             {item.activo ? 'ACTIVO' : 'INACTIVO'}
           </Text>
           <Switch
@@ -454,6 +491,28 @@ const AdminDeliveryScreen = ({ navigation }) => {
             trackColor={{ false: colors.border, true: colors.success + '40' }}
           />
         </View>
+      </View>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 10 }}>
+        <View style={{ 
+          backgroundColor: item.disponible ? colors.success + '15' : colors.warning + '15',
+          paddingHorizontal: 8,
+          paddingVertical: 4,
+          borderRadius: 8,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 5
+        }}>
+          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: item.disponible ? colors.success : colors.warning }} />
+          <Text style={{ fontSize: 10, fontWeight: 'bold', color: item.disponible ? colors.success : colors.warning }}>
+            {item.disponible ? 'DISPONIBLE' : 'OCUPADO / NO DISP.'}
+          </Text>
+        </View>
+        {item.id_user ? (
+          <View style={{ backgroundColor: colors.primary + '15', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
+            <Text style={{ fontSize: 10, fontWeight: 'bold', color: colors.primary }}>VINCULADO</Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.detailsRow}>
@@ -546,38 +605,6 @@ const AdminDeliveryScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <TouchableOpacity 
-            onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('InicioTab')} 
-            style={{ paddingRight: 15, paddingVertical: 5 }}
-          >
-            <FontAwesome5 name="arrow-left" size={20} color="#FFF" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>📋 Administrar</Text>
-        </View>
-        <TouchableOpacity style={styles.addBtn} onPress={() => {
-          setEditDelivery(null);
-          setForm({
-            id_delivery: '',
-            nombre: '',
-            apellido: '',
-            telefono: '',
-            whatsapp: '',
-            vehiculo: '',
-            costo_pedido: '',
-            cartera: 5.0,
-            rapidez: 5.0,
-            servicio: 5.0,
-            honestidad: 5.0,
-            activo: true
-          });
-          setModalVisible(true);
-        }}>
-          <FontAwesome5 name="plus" size={14} color="#FFF" />
-          <Text style={{ color: '#FFF', marginLeft: 5 }}>Nuevo</Text>
-        </TouchableOpacity>
-      </View>
 
       <FlatList
         data={deliverys}
@@ -615,11 +642,60 @@ const AdminDeliveryScreen = ({ navigation }) => {
                 <View style={styles.inputRow}>
                   <View style={styles.inputGroup}>
                     <Text style={styles.inputLabel}>Nombre</Text>
-                    <TextInput style={[styles.input, { backgroundColor: colors.surface }]} value={form.nombre} onChangeText={v => setForm({ ...form, nombre: v })} />
+                    <TextInput 
+                      style={[styles.input, { backgroundColor: colors.surface }]} 
+                      value={form.nombre} 
+                      onChangeText={v => setForm({ ...form, nombre: v })} 
+                    />
                   </View>
                   <View style={styles.inputGroup}>
                     <Text style={styles.inputLabel}>Apellido</Text>
-                    <TextInput style={[styles.input, { backgroundColor: colors.surface }]} value={form.apellido} onChangeText={v => setForm({ ...form, apellido: v })} />
+                    <TextInput 
+                      style={[styles.input, { backgroundColor: colors.surface }]} 
+                      value={form.apellido} 
+                      onChangeText={v => setForm({ ...form, apellido: v })} 
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.inputRow}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Teléfono</Text>
+                    <TextInput 
+                      style={[styles.input, { backgroundColor: colors.surface }]} 
+                      value={form.telefono} 
+                      onChangeText={v => setForm({ ...form, telefono: v })} 
+                      keyboardType="phone-pad"
+                    />
+                  </View>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>WhatsApp</Text>
+                    <TextInput 
+                      style={[styles.input, { backgroundColor: colors.surface }]} 
+                      value={form.whatsapp} 
+                      onChangeText={v => setForm({ ...form, whatsapp: v })} 
+                      keyboardType="phone-pad"
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.inputRow}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Vehículo</Text>
+                    <TextInput 
+                      style={[styles.input, { backgroundColor: colors.surface }]} 
+                      value={form.vehiculo} 
+                      onChangeText={v => setForm({ ...form, vehiculo: v })} 
+                    />
+                  </View>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Costo Delivery</Text>
+                    <TextInput 
+                      style={[styles.input, { backgroundColor: colors.surface }]} 
+                      value={String(form.costo_pedido || '')} 
+                      onChangeText={v => setForm({ ...form, costo_pedido: v })} 
+                      keyboardType="numeric"
+                    />
                   </View>
                 </View>
               </View>

@@ -561,7 +561,15 @@ const RiderScreen = ({ navigation, route }) => {
                     </Text>
                   </View>
                 </View>
-                <Text style={styles.orderTotal}>{formatPrice(item.Total || item.total)}</Text>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={styles.orderTotal}>{formatPrice(item.Total || item.total)}</Text>
+                  {item.envio > 0 && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <FontAwesome5 name="motorcycle" size={10} color={colors.success} />
+                      <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700' }}>+{formatPrice(item.envio)}</Text>
+                    </View>
+                  )}
+                </View>
               </View>
               <Text style={styles.customerName}>{item.Cliente || item.cliente || 'Desconocido'}</Text>
               <View style={styles.addressBox}>

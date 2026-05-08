@@ -59,13 +59,60 @@ function doPost(e) {
         });
       }
     }
-
-    const headers = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0];
-    if (headers[0] === "" && Object.keys(data).length > 0) sheet.appendRow(Object.keys(data));
     
-    const lowerHeaders = headers.map(h => String(h).toLowerCase().trim());
+    let headers = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0];
+    if (headers[0] === "" && Object.keys(data).length > 0) {
+      headers = Object.keys(data);
+      sheet.appendRow(headers);
+    }
+    
+    let lowerHeaders = headers.map(h => String(h).toLowerCase().trim());
+
+    // --- ACCIONES DE ADMINISTRACIÓN DE ESTRUCTURA ---
+    
+    if (action === "CREATE_SHEET") {
+      const newName = body.sheet || body.name;
+      if (ss.getSheetByName(newName)) return createJsonResponse({ success: false, message: "La hoja ya existe" });
+      ss.insertSheet(newName);
+      return createJsonResponse({ success: true, message: "Hoja '" + newName + "' creada correctamente" });
+    }
+
+    if (action === "DELETE_SHEET") {
+      const target = ss.getSheetByName(body.sheet);
+      if (!target) return createJsonResponse({ success: false, message: "Hoja no encontrada" });
+      if (ss.getSheets().length <= 1) return createJsonResponse({ success: false, message: "No puedes eliminar la única hoja" });
+      ss.deleteSheet(target);
+      return createJsonResponse({ success: true, message: "Hoja eliminada" });
+    }
+
+    if (action === "DELETE_COLUMN") {
+      const colName = body.columnName || body.column;
+      const headers = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0];
+      const colIdx = headers.indexOf(colName);
+      if (colIdx === -1) return createJsonResponse({ success: false, message: "Columna '" + colName + "' no encontrada" });
+      sheet.deleteColumn(colIdx + 1);
+      return createJsonResponse({ success: true, message: "Columna eliminada" });
+    }
+
+    if (action === "LIST_SHEETS") {
+      const names = ss.getSheets().map(s => s.getName());
+      return createJsonResponse({ success: true, sheets: names });
+    }
+
+    // --- ACCIONES DE DATOS (UPSERT, ADD, UPDATE, DELETE) ---
 
     if (action === "UPSERT" || action === "ADD") {
+      // (Lógica de auto-creación de columnas que ya implementamos)
+      for (let k in data) {
+        const kl = k.toLowerCase().trim();
+        if (!lowerHeaders.includes(kl)) {
+          const nextCol = sheet.getLastColumn() + 1;
+          sheet.getRange(1, nextCol).setValue(k);
+          headers.push(k);
+          lowerHeaders.push(kl);
+        }
+      }
+
       const idField = (body.idField || "ID_Pedido").toLowerCase().trim();
       const idToFind = data[body.idField] || data["ID_Pedido"] || data.id || data.orderId;
       const lastRow = getSafeLastRow(sheet);
@@ -88,18 +135,6 @@ function doPost(e) {
           const hl = h.toLowerCase().trim();
           for (let k in data) { if (k.toLowerCase().trim() === hl) { sheet.getRange(foundIndex, ci + 1).setValue(data[k]); break; } }
         });
-        
-        // AUTO-CREAR COLUMNAS FALTANTES
-        for (let k in data) {
-          const kl = k.toLowerCase().trim();
-          if (!lowerHeaders.includes(kl)) {
-            const nextCol = headers.length + 1;
-            sheet.getRange(1, nextCol).setValue(k);
-            sheet.getRange(foundIndex, nextCol).setValue(data[k]);
-            headers.push(k);
-            lowerHeaders.push(kl);
-          }
-        }
         return createJsonResponse({ success: true, message: "OK" });
       } else {
         const nr = headers.map(h => {
@@ -113,7 +148,6 @@ function doPost(e) {
     }
 
     if (action === "UPDATE") {
-      // Buscar el ID del pedido para actualizar la fila correspondiente
       const idField = (body.idField || "ID_Pedido").toLowerCase().trim();
       const idToFind = data[body.idField] || data["ID_Pedido"] || data.id;
       const lastRow = getSafeLastRow(sheet);
@@ -132,12 +166,11 @@ function doPost(e) {
       }
 
       if (foundIndex !== -1) {
-        // Escribir TODOS los campos enviados, incluyendo los vacíos (para limpiar celdas)
         headers.forEach((h, ci) => {
           const hl = h.toLowerCase().trim();
           for (let k in data) {
             if (k.toLowerCase().trim() === hl) {
-              sheet.getRange(foundIndex, ci + 1).setValue(data[k]); // Escribe "" si está vacío
+              sheet.getRange(foundIndex, ci + 1).setValue(data[k]);
               break;
             }
           }

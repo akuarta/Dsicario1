@@ -120,6 +120,7 @@ export const AuthProvider = ({ children }) => {
       };
 
       // Guardar nuevo usuario en Google Sheets
+      console.log('[AuthContext] Intentando guardar usuario en Excel tras registro...');
       await saveUser({
         id: userData.uid,
         username: userData.displayName,
@@ -127,6 +128,7 @@ export const AuthProvider = ({ children }) => {
         role: 'Cliente',
         active: true
       });
+      console.log('[AuthContext] Proceso de guardado completado.');
 
       setUser(userData);
       await AsyncStorage.setItem('@dsicario_user', JSON.stringify(userData));
@@ -185,6 +187,21 @@ export const AuthProvider = ({ children }) => {
 
       setUser(userData);
       await AsyncStorage.setItem('@dsicario_user', JSON.stringify(userData));
+
+      // Guardar usuario en Google Sheets (por si es nuevo)
+      try {
+        console.log('[AuthContext] Sincronizando usuario Google (Native) con Sheets...');
+        await saveUser({
+          id: userData.uid,
+          username: userData.displayName,
+          email: userData.email,
+          role: 'Cliente',
+          active: true
+        });
+      } catch (sheetError) {
+        console.warn('[AuthContext] No se pudo sincronizar con Sheets, pero el login continuará:', sheetError.message);
+      }
+
       return userData;
     } catch (err) {
       setError(err.message);
@@ -208,6 +225,17 @@ export const AuthProvider = ({ children }) => {
         photoURL: result.user.photoURL,
         emailVerified: result.user.emailVerified,
       };
+
+      // Guardar usuario en Google Sheets (por si es nuevo)
+      console.log('[AuthContext] Intentando guardar usuario de Google en Excel...');
+      await saveUser({
+        id: userData.uid,
+        username: userData.displayName,
+        email: userData.email,
+        role: 'Cliente',
+        active: true
+      });
+      console.log('[AuthContext] Proceso de guardado Google completado.');
 
 
 

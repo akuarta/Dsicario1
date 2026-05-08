@@ -149,33 +149,6 @@ const CartScreen = ({ navigation }) => {
       flex: 1,
       backgroundColor: colors.background,
     },
-    listContainer: {
-      padding: spacing.md,
-      paddingBottom: 100,
-    },
-    emptyList: {
-      flexGrow: 1,
-      justifyContent: 'center',
-    },
-    cartItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: colors.surface,
-      padding: spacing.sm,
-      borderRadius: borders.radius.lg,
-      ...shadows.small,
-    },
-    itemImage: {
-      width: 70,
-      height: 70,
-      borderRadius: borders.radius.md,
-      backgroundColor: colors.background,
-    },
-    itemInfo: {
-      flex: 1,
-      marginLeft: spacing.sm,
-      justifyContent: 'center',
-    },
     header: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -192,26 +165,33 @@ const CartScreen = ({ navigation }) => {
     },
     listContainer: {
       paddingVertical: spacing.sm,
+      paddingBottom: 100,
     },
     emptyList: {
       flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     cartItem: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: colors.background,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
+      backgroundColor: colors.surface,
+      padding: spacing.sm,
+      marginHorizontal: spacing.md,
+      marginVertical: spacing.xs,
+      borderRadius: borders.radius.lg,
+      ...shadows.small,
     },
     itemImage: {
-      width: 60,
-      height: 60,
-      borderRadius: borders.radius.sm,
-      marginRight: spacing.sm,
+      width: 70,
+      height: 70,
+      borderRadius: borders.radius.md,
+      backgroundColor: colors.background,
     },
     itemInfo: {
       flex: 1,
-      marginRight: spacing.sm,
+      marginLeft: spacing.sm,
+      justifyContent: 'center',
     },
     preOrderBadge: {
       backgroundColor: colors.primary + '20',
@@ -220,6 +200,8 @@ const CartScreen = ({ navigation }) => {
       borderRadius: 4,
       alignSelf: 'flex-start',
       marginBottom: 4,
+      borderWidth: 1,
+      borderColor: colors.primary + '40',
     },
     preOrderText: {
       fontSize: 10,
@@ -283,22 +265,6 @@ const CartScreen = ({ navigation }) => {
       backgroundColor: colors.border,
       marginHorizontal: spacing.md,
     },
-    preOrderBadge: {
-      backgroundColor: colors.primary + '20',
-      paddingHorizontal: 8,
-      paddingVertical: 2,
-      borderRadius: 4,
-      alignSelf: 'flex-start',
-      marginBottom: 4,
-      borderWidth: 1,
-      borderColor: colors.primary + '40',
-    },
-    preOrderText: {
-      fontSize: 10,
-      fontWeight: 'bold',
-      color: colors.primary,
-      textTransform: 'uppercase',
-    },
     footer: {
       backgroundColor: colors.surface,
       paddingHorizontal: spacing.md,
@@ -355,42 +321,6 @@ const CartScreen = ({ navigation }) => {
       color: colors.primary,
       fontWeight: '500',
     },
-    paymentSection: {
-      marginBottom: spacing.md,
-    },
-    paymentLabel: {
-      fontSize: typography.sizes.md,
-      fontWeight: typography.weights.medium,
-      color: colors.text.primary,
-      marginBottom: spacing.sm,
-    },
-    paymentToggle: {
-      flexDirection: 'row',
-      borderRadius: borders.radius.md,
-      borderWidth: 1,
-      borderColor: colors.primary,
-      overflow: 'hidden',
-    },
-    paymentOption: {
-      flex: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingVertical: 10,
-      paddingHorizontal: 15,
-      backgroundColor: 'transparent',
-    },
-    paymentOptionActive: {
-      backgroundColor: colors.primary,
-    },
-    paymentOptionText: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: colors.text.secondary,
-    },
-    paymentOptionTextActive: {
-      color: colors.text.white,
-    },
     checkoutSection: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -409,19 +339,50 @@ const CartScreen = ({ navigation }) => {
       color: colors.text.primary,
     },
     checkoutButton: {
-      backgroundColor: colors.success,
+      backgroundColor: colors.primary,
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: spacing.lg,
+      justifyContent: 'center',
       paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
       borderRadius: borders.radius.lg,
       ...shadows.medium,
     },
     checkoutButtonText: {
       fontSize: typography.sizes.md,
       fontWeight: typography.weights.bold,
-      color: colors.text.white,
+      color: '#FFF',
       marginLeft: spacing.sm,
+    },
+    emptyStateContainer: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: spacing.xl,
+    },
+    emptyStateTitle: {
+      fontSize: typography.sizes.xl,
+      fontWeight: typography.weights.bold,
+      color: colors.text.primary,
+      marginTop: spacing.md,
+      marginBottom: spacing.xs,
+    },
+    emptyStateText: {
+      fontSize: typography.sizes.md,
+      color: colors.text.secondary,
+      textAlign: 'center',
+      marginBottom: spacing.xl,
+    },
+    shopNowButton: {
+      backgroundColor: colors.primary,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      borderRadius: borders.radius.lg,
+      ...shadows.medium,
+    },
+    shopNowButtonText: {
+      fontSize: typography.sizes.md,
+      fontWeight: typography.weights.bold,
+      color: '#FFF',
     },
   }), [colors, darkMode]);
 
@@ -484,6 +445,8 @@ const CartScreen = ({ navigation }) => {
               autoFocus
               multiline
               numberOfLines={2}
+              onSubmitEditing={() => confirmNote(itemId)}
+              blurOnSubmit={true}
             />
             <TouchableOpacity style={styles.noteConfirmBtn} onPress={() => confirmNote(itemId)}>
               <FontAwesome5 name="arrow-right" size={13} color="#FFF" />
@@ -496,9 +459,13 @@ const CartScreen = ({ navigation }) => {
 
   const renderEmptyCart = () => (
     <View style={globalStyles.emptyContainer}>
-      <FontAwesome5 name="shopping-cart" size={64} color={colors.text.light} />
+      <Image 
+        source={require('../assets/logo.png')} 
+        style={{ width: 120, height: 120, marginBottom: spacing.lg, opacity: 0.6 }} 
+        resizeMode="contain" 
+      />
       <Text style={globalStyles.emptyText}>Tu carrito está vacío</Text>
-      <TouchableOpacity style={globalStyles.primaryButton} onPress={() => navigation.navigate('Inicio')}>
+      <TouchableOpacity style={globalStyles.primaryButton} onPress={() => navigation.navigate('InicioTab')}>
         <Text style={globalStyles.primaryButtonText}>Ir de compras</Text>
       </TouchableOpacity>
     </View>
@@ -507,8 +474,18 @@ const CartScreen = ({ navigation }) => {
   return (
     <SafeAreaView style={globalStyles.container}>
       <CustomHeader 
-        title="Mi Carrito" 
-        rightIcon={<Text style={{ color: colors.error, fontWeight: 'bold' }}>Vaciar</Text>}
+        title={
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <FontAwesome5 name="shopping-cart" size={18} color={colors.text.primary} style={{ marginRight: 8 }} />
+            <Text style={styles.headerTitle}>Mi Carrito</Text>
+          </View>
+        }
+        rightIcon={
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <FontAwesome5 name="trash-alt" size={14} color={colors.error} style={{ marginRight: 4 }} />
+            <Text style={{ color: colors.error, fontWeight: 'bold' }}>Vaciar</Text>
+          </View>
+        }
         rightAction={cart.length > 0 ? handleClearCart : null}
       />
       <View style={styles.container}>
@@ -524,34 +501,14 @@ const CartScreen = ({ navigation }) => {
 
         {cart.length > 0 && (
           <View style={styles.footer}>
-            <View style={styles.paymentSection}>
-              <Text style={styles.paymentLabel}>Método de pago:</Text>
-              <View style={styles.paymentToggle}>
-                <TouchableOpacity
-                  style={[styles.paymentOption, paymentType === 'cash' && styles.paymentOptionActive]}
-                  onPress={() => setPaymentType('cash')}
-                >
-                  <FontAwesome5 name="money-bill-wave" size={14} color={paymentType === 'cash' ? '#FFF' : colors.text.secondary} />
-                  <Text style={[styles.paymentOptionText, paymentType === 'cash' && styles.paymentOptionTextActive]}>Efectivo</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.paymentOption, paymentType === 'card' && styles.paymentOptionActive]}
-                  onPress={() => setPaymentType('card')}
-                >
-                  <FontAwesome5 name="credit-card" size={14} color={paymentType === 'card' ? '#FFF' : colors.text.secondary} />
-                  <Text style={[styles.paymentOptionText, paymentType === 'card' && styles.paymentOptionTextActive]}>Tarjeta</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
             <View style={styles.checkoutSection}>
               <View style={styles.totalContainer}>
                 <Text style={styles.totalLabel}>Total:</Text>
                 <Text style={styles.totalAmount}>{formatPrice(totalCost)}</Text>
               </View>
               <TouchableOpacity style={styles.checkoutButton} onPress={handleCheckout} activeOpacity={0.8}>
-                <FontAwesome5 name="credit-card" size={18} color="#FFF" />
-                <Text style={styles.checkoutButtonText}>Finalizar Compra</Text>
+                <FontAwesome5 name="arrow-right" size={18} color="#FFF" />
+                <Text style={styles.checkoutButtonText}>Continuar</Text>
               </TouchableOpacity>
             </View>
           </View>

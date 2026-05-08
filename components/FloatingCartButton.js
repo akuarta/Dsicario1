@@ -12,24 +12,20 @@ const FloatingCartButton = () => {
   const navigation = useNavigation();
   const { getTotalItems } = useCart();
   
-  // ✅ Selector de ruta con seguridad mejorada para evitar errores de contexto
+  // Obtener el nombre de la ruta actual para ocultar el botón si es necesario
   const routeName = useNavigationState(state => {
-    try {
-      if (!state) return '';
-      let route = state.routes[state.index];
-      while (route && route.state) {
-        route = route.state.routes[route.state.index];
-      }
-      return route ? route.name : '';
-    } catch (e) {
-      return '';
+    if (!state) return "";
+    let route = state.routes[state.index];
+    while (route.state) {
+      route = route.state.routes[route.state.index];
     }
+    return route.name;
   });
 
   const totalItems = getTotalItems();
 
   // Pantallas donde NO debe aparecer el botón
-  const hiddenScreens = ['Cart', 'Carrito', 'Checkout', 'DeliveryTracking', 'CocinaAdmin', 'RiderAdmin', 'AdminStaff', 'CarritoTab'];
+  const hiddenScreens = ['Cart', 'Carrito', 'Checkout', 'DeliveryTracking', 'CocinaAdmin', 'RiderAdmin', 'AdminStaff', 'CarritoTab', 'CartScreen'];
   
   // Ajustar posición si hay elementos fijos abajo (como en ProductDetail)
   const isProductDetail = routeName === 'ProductDetail';

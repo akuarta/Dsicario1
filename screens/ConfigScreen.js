@@ -16,19 +16,78 @@ import { useUser } from '../contexts/UserContext';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { useCart } from '../contexts/AppContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
-import { TextInput, Modal } from 'react-native';
+import { TextInput, Modal, ActivityIndicator } from 'react-native';
+import { saveUser, saveBusinessInfo, savePaymentMethod, saveTransferDetail } from '../utils/api';
 
 const ConfigScreen = () => {
   const { darkMode, setThemeMode, themeMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const navigation = useNavigation();
   const { user, signOut } = useAuth();
-  const { role } = useUser();
-  const isAdmin = !!(role && role.toLowerCase() === 'admin');
+  const { 
+    username, setUsername, 
+    address, setAddress, 
+    phone, setPhone, 
+    role, userTypeId, syncUserRole,
+    isSyncing: isUserSyncing
+  } = useUser();
+  const isAdmin = !!(role && (role.toLowerCase() === 'admin' || role.toLowerCase() === 'owner'));
   const [notifications, setNotifications] = useState(true);
-  const { exchangeRates, updateExchangeRates } = useCart();
+  const { exchangeRates, updateExchangeRates, businessInfo, updateBusinessInfo } = useCart();
   const [ratesModalVisible, setRatesModalVisible] = useState(false);
+  const [deliveryModalVisible, setDeliveryModalVisible] = useState(false);
+  const [personalDataModalVisible, setPersonalDataModalVisible] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [tempRates, setTempRates] = useState({});
+  const [tempDelivery, setTempDelivery] = useState({
+    baseFee: '100',
+    expressFee: '50'
+  });
+  const PREDEFINED_METHODS = ['Efectivo', 'Tarjeta', 'Transferencia BHD', 'Transferencia Popular', 'Transferencia Banreservas', 'Binance', 'PayPal', 'Zelle'];
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [transferModalVisible, setTransferModalVisible] = useState(false);
+  const [tempTransfer, setTempTransfer] = useState({ Banco: '', No_Cuenta: '', Titular: '' });
+  const [tempPaymentMethods, setTempPaymentMethods] = useState([]);
+  const [tempPaymentNotes, setTempPaymentNotes] = useState({});
+  const [tempPaymentNote, setTempPaymentNote] = useState('');
+  const [customMethod, setCustomMethod] = useState('');
+  const [tempUser, setTempUser] = useState({
+    nombre: username,
+    direccion: address,
+    telefono: phone
+  });
+
+  const openDeliveryModal = () => {
+    setTempDelivery({
+      baseFee: String(businessInfo?.deliveryBaseFee || 100),
+      expressFee: String(businessInfo?.expressFee || 50)
+    });
+    setDeliveryModalVisible(true);
+  };
+
+  const saveDeliverySettings = async () => {
+    setIsSaving(true);
+    try {
+      const payload = {
+        ...businessInfo,
+        deliveryBaseFee: parseFloat(tempDelivery.baseFee) || 0,
+        expressFee: parseFloat(tempDelivery.expressFee) || 0
+      };
+
+      const result = await saveBusinessInfo(payload);
+      if (result && result.success) {
+        updateBusinessInfo(payload); // Actualizar globalmente
+        Alert.alert('Éxito', 'Configuración de envíos actualizada.');
+        setDeliveryModalVisible(false);
+      } else {
+        throw new Error(result.error || 'Error al guardar');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo guardar la configuración.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const openRatesModal = () => {
     setTempRates(exchangeRates || { USD: 58.00, EUR: 63.00, COP: 0.015, MXN: 3.50 });
@@ -39,6 +98,178 @@ const ConfigScreen = () => {
     updateExchangeRates(tempRates);
     setRatesModalVisible(false);
     Alert.alert('Éxito', 'Tasas de cambio actualizadas correctamente.');
+  };
+
+  const openPaymentModal = () => {
+    setTempPaymentMethods(businessInfo?.paymentMethods || ['Efectivo', 'Tarjeta']);
+    setTempPaymentNotes(businessInfo?.paymentNotes || {});
+    setTempPaymentNote(businessInfo?.generalPaymentNote || '');
+    setCustomMethod('');
+    setPaymentModalVisible(true);
+  };
+
+  const togglePaymentMethod = (method) => {
+    if (tempPaymentMethods.includes(method)) {
+      setTempPaymentMethods(tempPaymentMethods.filter(m => m !== method));
+    } else {
+      setTempPaymentMethods([...tempPaymentMethods, method]);
+    }
+  };
+
+  const addCustomPaymentMethod = () => {
+    const trimmed = customMethod.trim();
+    if (trimmed && !tempPaymentMethods.includes(trimmed)) {
+      setTempPaymentMethods([...tempPaymentMethods, trimmed]);
+      setCustomMethod('');
+    }
+  };
+
+  const savePaymentMethodsConfig = async () => {
+    setIsSaving(true);
+    try {
+      if (tempPaymentMethods.length === 0) {
+        Alert.alert('Error', 'Debes incluir al menos un método de pago (ej. Efectivo)');
+        setIsSaving(false);
+        return;
+      }
+      
+      const payload = {
+        ...businessInfo,
+        paymentMethods: tempPaymentMethods,
+        paymentNotes: tempPaymentNotes,
+        generalPaymentNote: tempPaymentNote
+      };
+
+      const result = await saveBusinessInfo(payload);
+      if (result && result.success) {
+        // Guardar cada método en la hoja Metodos_pagos para sincronizar Tipo Entrega
+        for (const method of tempPaymentMethods) {
+          const detailed = businessInfo.paymentMethodsDetailed?.find(m => m['Metodo Pago'] === method);
+          await savePaymentMethod({
+            'Metodo Pago': method,
+            'Tipo Entrega': detailed ? detailed['Tipo Entrega'] : 'ambos'
+          });
+        }
+        
+        updateBusinessInfo(payload);
+        Alert.alert('Éxito', 'Métodos de pago actualizados.');
+        setPaymentModalVisible(false);
+      } else {
+        throw new Error(result.error || 'Error al guardar');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'No se pudieron guardar los métodos de pago.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const openPersonalDataModal = () => {
+    if (isAdmin && businessInfo) {
+      setTempUser({
+        nombre: businessInfo.name || '',
+        direccion: businessInfo.address || '',
+        telefono: businessInfo.phone || ''
+      });
+    } else {
+      setTempUser({
+        nombre: username,
+        direccion: address,
+        telefono: phone
+      });
+    }
+    setPersonalDataModalVisible(true);
+  };
+
+  const savePersonalData = async () => {
+    if (!tempUser.nombre.trim()) {
+      Alert.alert('Error', isAdmin ? 'El nombre del local es obligatorio' : 'El nombre es obligatorio');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      if (isAdmin) {
+        const payload = {
+          ...businessInfo,
+          name: tempUser.nombre,
+          address: tempUser.direccion,
+          phone: tempUser.telefono
+        };
+
+        const result = await saveBusinessInfo(payload);
+        if (result && result.success) {
+          updateBusinessInfo(payload);
+          setPersonalDataModalVisible(false);
+          Alert.alert('Éxito', 'Información del local actualizada correctamente.');
+        } else {
+          throw new Error('Error al guardar en el servidor');
+        }
+      } else {
+        const payload = {
+          id: user?.uid,
+          username: tempUser.nombre,
+          email: user?.email,
+          direccion: tempUser.direccion,
+          telefono: tempUser.telefono,
+          role: role
+        };
+
+        const result = await saveUser(payload);
+        
+        if (result && result.success) {
+          setUsername(tempUser.nombre);
+          setAddress(tempUser.direccion);
+          setPhone(tempUser.telefono);
+          setPersonalDataModalVisible(false);
+          Alert.alert('Éxito', 'Datos actualizados correctamente.');
+        } else {
+          throw new Error('No se pudo guardar en el servidor');
+        }
+      }
+    } catch (error) {
+      console.error('Error saving data:', error);
+      Alert.alert('Error', 'Hubo un problema al guardar los datos. Intente de nuevo.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSyncProfile = async () => {
+    if (!user?.email) return;
+    try {
+      await syncUserRole(user.email);
+      Alert.alert('Sincronización', 'Tus datos han sido actualizados desde el servidor.');
+    } catch (error) {
+      Alert.alert('Error', 'No se pudieron sincronizar los datos.');
+    }
+  };
+
+  const toggleBusinessStatus = async () => {
+    const newStatus = !businessInfo?.closed;
+    setIsSaving(true);
+    try {
+      const payload = {
+        ...businessInfo,
+        closed: newStatus
+      };
+      const result = await saveBusinessInfo(payload);
+      if (result && result.success) {
+        updateBusinessInfo(payload);
+        Alert.alert(
+          newStatus ? '🌙 Modo Pre-orden' : '☀️ Negocio Abierto',
+          newStatus 
+            ? 'El local ahora está cerrado. Los clientes solo pueden realizar pre-órdenes.' 
+            : 'El local está abierto y operando normalmente.'
+        );
+      } else {
+        throw new Error('Error al actualizar');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo cambiar el estado del negocio.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const styles = useMemo(() => StyleSheet.create({
@@ -87,7 +318,7 @@ const ConfigScreen = () => {
     modalTitle: { fontSize: typography.sizes.lg, fontWeight: 'bold', color: colors.text.primary, marginBottom: spacing.lg, textAlign: 'center' },
     rateInputRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
     rateCurrency: { fontSize: typography.sizes.md, fontWeight: 'bold', color: colors.primary, width: 60 },
-    rateInput: { flex: 1, backgroundColor: colors.surface, padding: spacing.md, borderRadius: borders.radius.md, color: colors.text.primary, borderWidth: 1, borderColor: colors.border },
+    rateInput: { backgroundColor: colors.surface, padding: spacing.md, borderRadius: borders.radius.md, color: colors.text.primary, borderWidth: 1, borderColor: colors.border, minHeight: 50, width: '100%' },
     modalBtnRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.lg },
     modalBtn: { flex: 1, padding: spacing.md, borderRadius: borders.radius.md, alignItems: 'center' },
     modalBtnCancel: { backgroundColor: colors.surface, marginRight: spacing.sm },
@@ -125,14 +356,29 @@ const ConfigScreen = () => {
             <FontAwesome5 name="arrow-left" size={20} color="#FFFFFF" />
           </TouchableOpacity>
           <View style={styles.avatarContainer}>
-            <Text style={styles.avatarText}>{(user?.displayName || user?.email || 'U')[0].toUpperCase()}</Text>
+            {isAdmin && businessInfo?.logo ? (
+              <TextInput style={{ display: 'none' }} /> // Hack to avoid potential issues with empty views
+            ) : null}
+            <Text style={styles.avatarText}>
+              {isAdmin ? (businessInfo?.name || 'D')[0].toUpperCase() : (user?.displayName || user?.email || 'U')[0].toUpperCase()}
+            </Text>
           </View>
-          <Text style={styles.userName}>{user?.displayName || 'Usuario DSicario'}</Text>
-          <Text style={styles.userEmail}>{user?.email || 'cliente@dsicario.com'}</Text>
+          <Text style={styles.userName}>{isAdmin ? (businessInfo?.name || 'Local DSicario') : (username || 'Usuario DSicario')}</Text>
+          <Text style={styles.userEmail}>{isAdmin ? (businessInfo?.email || 'admin@dsicario.com') : (userTypeId ? `Código: ${userTypeId}` : (user?.email || 'cliente@dsicario.com'))}</Text>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Mi Cuenta</Text>
+          <Text style={styles.sectionTitle}>{isAdmin ? 'Perfil del Local' : 'Mi Cuenta'}</Text>
+          <SettingItem 
+            icon={isAdmin ? "store" : "user-edit"} 
+            title={isAdmin ? "Información del Local" : "Datos Personales"} 
+            onPress={openPersonalDataModal} 
+          />
+          <SettingItem 
+            icon={isUserSyncing ? "spinner" : "sync"} 
+            title={isUserSyncing ? "Sincronizando..." : "Sincronizar Perfil"} 
+            onPress={handleSyncProfile} 
+          />
           <SettingItem icon="history" title="Historial de Pedidos" onPress={() => navigation.navigate('PurchaseHistory')} />
           <SettingItem icon="heart" title="Mis Favoritos" onPress={() => navigation.navigate('Favorites')} />
         </View>
@@ -140,8 +386,51 @@ const ConfigScreen = () => {
         {isAdmin && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>⚙️ ADMINISTRACIÓN</Text>
-            <SettingItem icon="motorcycle" title="Administrar Repartidores" onPress={() => navigation.navigate('RiderAdmin')} />
+            <SettingItem icon="motorcycle" title="Administrar Repartidores" onPress={() => navigation.navigate('AdminDeliveryScreen')} />
+            <SettingItem icon="shipping-fast" title="Costos de Envío" onPress={openDeliveryModal} />
             <SettingItem icon="money-bill-wave" title="Tasas de Cambio" onPress={openRatesModal} />
+            <SettingItem icon="credit-card" title="Métodos de Pago" onPress={openPaymentModal} />
+          </View>
+        )}
+
+        {/* SECCIÓN DE STAFF: ABRIR/CERRAR NEGOCIO */}
+        {role && role.toLowerCase() !== 'cliente' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>🏬 GESTIÓN DE NEGOCIO</Text>
+            <SettingItem 
+              icon="store" 
+              title={businessInfo?.closed ? "Estado: CERRADO" : "Estado: ABIERTO"} 
+              isSwitch 
+              value={!businessInfo?.closed} 
+              onPress={async (newValue) => {
+                setIsSaving(true);
+                try {
+                  // Aseguramos que el nombre coincida exactamente con el de la DB para el UPSERT
+                  const updatedInfo = { 
+                    ...businessInfo, 
+                    closed: !newValue // Si newValue es true (abierto), closed es false.
+                  };
+                  
+                  const res = await saveBusinessInfo(updatedInfo);
+                  if (res && res.success) {
+                    updateBusinessInfo(updatedInfo);
+                    Alert.alert(
+                      !updatedInfo.closed ? '☀️ Negocio Abierto' : '🌙 Modo Pre-orden',
+                      !updatedInfo.closed 
+                        ? 'El local está abierto y operando normalmente.' 
+                        : 'El local ahora está cerrado. Los clientes solo pueden realizar pre-órdenes.'
+                    );
+                  } else {
+                    throw new Error(res?.message || 'Error en servidor');
+                  }
+                } catch (e) {
+                  console.error('Error toggling status:', e);
+                  Alert.alert('Error', 'No se pudo actualizar el estado en la nube.');
+                } finally {
+                  setIsSaving(false);
+                }
+              }} 
+            />
           </View>
         )}
 
@@ -162,6 +451,21 @@ const ConfigScreen = () => {
             </View>
           </View>
           <SettingItem icon="bell" title="Notificaciones" isSwitch value={notifications} onPress={() => setNotifications(!notifications)} />
+          {isAdmin && (
+            <TouchableOpacity style={styles.menuItem} onPress={() => {
+              if (businessInfo?.transferDetails?.length > 0) {
+                const first = businessInfo.transferDetails[0];
+                setTempTransfer({ Banco: first.Banco, No_Cuenta: first.No_Cuenta || first.Cuenta, Titular: first.Titular });
+              }
+              setTransferModalVisible(true);
+            }}>
+              <View style={styles.iconContainer}>
+                <FontAwesome5 name="university" size={16} color={colors.primary} />
+              </View>
+              <Text style={styles.menuText}>Configurar Bancos</Text>
+              <FontAwesome5 name="chevron-right" size={12} color={colors.text.light} />
+            </TouchableOpacity>
+          )}
         </View>
 
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
@@ -187,8 +491,9 @@ const ConfigScreen = () => {
               <View key={curr} style={styles.rateInputRow}>
                 <Text style={styles.rateCurrency}>{curr}</Text>
                 <TextInput
-                  style={styles.rateInput}
+                  style={[styles.rateInput, { flex: 1 }]}
                   keyboardType="numeric"
+                  placeholderTextColor={colors.text.light}
                   value={String(tempRates[curr])}
                   onChangeText={(val) => {
                     const parsed = parseFloat(val.replace(',', '.')) || 0;
@@ -207,6 +512,335 @@ const ConfigScreen = () => {
               </TouchableOpacity>
               <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSave]} onPress={saveRates}>
                 <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Guardar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+  
+      {/* MODAL DE DATOS PERSONALES / LOCAL */}
+      <Modal visible={personalDataModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{isAdmin ? 'Editar Datos del Local' : 'Editar Datos Personales'}</Text>
+            
+            <View style={{ marginBottom: spacing.md }}>
+              <Text style={{ color: colors.text.secondary, marginBottom: 5 }}>{isAdmin ? 'Nombre del Negocio' : 'Nombre Completo'}</Text>
+              <TextInput
+                style={styles.rateInput}
+                value={tempUser.nombre}
+                onChangeText={(text) => setTempUser(prev => ({ ...prev, nombre: text }))}
+                placeholder={isAdmin ? "Nombre del Local" : "Tu nombre"}
+                placeholderTextColor={colors.text.light}
+              />
+            </View>
+
+            <View style={{ marginBottom: spacing.md }}>
+              <Text style={{ color: colors.text.secondary, marginBottom: 5 }}>Teléfono</Text>
+              <TextInput
+                style={styles.rateInput}
+                value={String(tempUser.telefono || '')}
+                onChangeText={(text) => setTempUser(prev => ({ ...prev, telefono: text }))}
+                placeholder="809-000-0000"
+                placeholderTextColor={colors.text.light}
+                keyboardType="phone-pad"
+              />
+            </View>
+
+            <View style={{ marginBottom: spacing.md }}>
+              <Text style={{ color: colors.text.secondary, marginBottom: 5 }}>{isAdmin ? 'Dirección del Local' : 'Dirección de Envío'}</Text>
+              <TextInput
+                style={[styles.rateInput, { height: 80, textAlignVertical: 'top' }]}
+                value={tempUser.direccion}
+                onChangeText={(text) => setTempUser(prev => ({ ...prev, direccion: text }))}
+                placeholder={isAdmin ? "Dirección física..." : "Calle, Número, Sector..."}
+                placeholderTextColor={colors.text.light}
+                multiline
+              />
+            </View>
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.modalBtnCancel]} 
+                onPress={() => setPersonalDataModalVisible(false)}
+                disabled={isSaving}
+              >
+                <Text style={{ color: colors.text.primary, fontWeight: 'bold' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.modalBtnSave, { opacity: isSaving ? 0.7 : 1 }]} 
+                onPress={savePersonalData}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color="#FFF" size="small" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Guardar Cambios</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL DE CONFIGURACIÓN DE ENVÍOS */}
+      <Modal visible={deliveryModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Configurar Envíos</Text>
+            
+            <View style={{ marginBottom: spacing.md }}>
+              <Text style={{ color: colors.text.secondary, marginBottom: 5 }}>Tarifa Base de Envío (RD$)</Text>
+              <TextInput
+                style={styles.rateInput}
+                keyboardType="numeric"
+                value={tempDelivery.baseFee}
+                onChangeText={(val) => setTempDelivery(prev => ({ ...prev, baseFee: val }))}
+                placeholder="Ej: 100"
+                placeholderTextColor={colors.text.light}
+              />
+            </View>
+
+            <View style={{ marginBottom: spacing.md }}>
+              <Text style={{ color: colors.text.secondary, marginBottom: 5 }}>Tarifa Express Adicional (RD$)</Text>
+              <TextInput
+                style={styles.rateInput}
+                keyboardType="numeric"
+                value={tempDelivery.expressFee}
+                onChangeText={(val) => setTempDelivery(prev => ({ ...prev, expressFee: val }))}
+                placeholder="Ej: 50"
+                placeholderTextColor={colors.text.light}
+              />
+              <Text style={{ color: colors.text.light, fontSize: 11, marginTop: 5 }}>
+                Este monto se suma a la tarifa base cuando el cliente elige "Envío Express".
+              </Text>
+            </View>
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.modalBtnCancel]} 
+                onPress={() => setDeliveryModalVisible(false)}
+                disabled={isSaving}
+              >
+                <Text style={{ color: colors.text.primary, fontWeight: 'bold' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.modalBtnSave]} 
+                onPress={saveDeliverySettings}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color="#FFF" size="small" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Guardar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL DE MÉTODOS DE PAGO */}
+      <Modal visible={paymentModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Métodos de Pago</Text>
+            <Text style={{ color: colors.text.secondary, marginBottom: 15, fontSize: 12, textAlign: 'center' }}>
+              Activa los métodos de pago que deseas aceptar. También puedes añadir nuevos.
+            </Text>
+            
+            <ScrollView style={{ maxHeight: 300, marginBottom: spacing.md }} showsVerticalScrollIndicator={false}>
+              {Array.from(new Set([...PREDEFINED_METHODS, ...tempPaymentMethods])).map(method => {
+                const isEnabled = tempPaymentMethods.includes(method);
+                return (
+                  <View key={method} style={{ marginBottom: 15, paddingHorizontal: 5 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ color: colors.text.primary, fontSize: 16 }}>{method}</Text>
+                      <Switch 
+                        value={isEnabled} 
+                        onValueChange={() => togglePaymentMethod(method)}
+                        trackColor={{ false: colors.border, true: colors.primary }} 
+                        thumbColor="white" 
+                      />
+                    </View>
+                    {isEnabled && (
+                      <View style={{ marginTop: 8, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: colors.primary + '30' }}>
+                        <Text style={{ color: colors.text.secondary, fontSize: 11, marginBottom: 5 }}>Disponible para:</Text>
+                        <View style={{ flexDirection: 'row', gap: 10 }}>
+                          {['delivery', 'local', 'ambos'].map(type => {
+                            const detailed = businessInfo.paymentMethodsDetailed?.find(m => m['Metodo Pago'] === method);
+                            const currentType = detailed ? (detailed['Tipo Entrega'] || 'ambos').toLowerCase() : 'ambos';
+                            const isTypeActive = type === 'ambos' ? (currentType !== 'delivery' && currentType !== 'local') : currentType.includes(type);
+                            
+                            return (
+                              <TouchableOpacity 
+                                key={type}
+                                onPress={async () => {
+                                  const updatedDetailed = (businessInfo.paymentMethodsDetailed || []).map(m => 
+                                    m['Metodo Pago'] === method ? { ...m, 'Tipo Entrega': type } : m
+                                  );
+                                  if (!updatedDetailed.find(m => m['Metodo Pago'] === method)) {
+                                    updatedDetailed.push({ 'Metodo Pago': method, 'Tipo Entrega': type });
+                                  }
+                                  updateBusinessInfo({ ...businessInfo, paymentMethodsDetailed: updatedDetailed });
+                                }}
+                                style={{ 
+                                  paddingHorizontal: 10, 
+                                  paddingVertical: 5, 
+                                  borderRadius: 15, 
+                                  backgroundColor: isTypeActive ? colors.primary : colors.background,
+                                  borderWidth: 1,
+                                  borderColor: isTypeActive ? colors.primary : colors.border
+                                }}
+                              >
+                                <Text style={{ fontSize: 10, color: isTypeActive ? 'white' : colors.text.secondary, fontWeight: 'bold' }}>
+                                  {type.toUpperCase()}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                        <TextInput
+                          style={[styles.rateInput, { marginTop: 8, height: 40, minHeight: 40, padding: 10, fontSize: 12 }]}
+                          value={tempPaymentNotes[method] || ''}
+                          onChangeText={(text) => setTempPaymentNotes(prev => ({ ...prev, [method]: text }))}
+                          placeholder="Instrucción corta (opcional)"
+                          placeholderTextColor={colors.text.light}
+                        />
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            <View style={{ marginBottom: spacing.md }}>
+              <Text style={{ color: colors.text.secondary, fontSize: 13, marginBottom: 8, fontWeight: 'bold' }}>
+                Nota / Instrucción General (Opcional):
+              </Text>
+              <TextInput
+                style={[styles.rateInput, { height: 60, padding: 10, fontSize: 13, textAlignVertical: 'top' }]}
+                value={tempPaymentNote}
+                onChangeText={setTempPaymentNote}
+                placeholder="Ej. Cta BHD 123456 a nombre de Juan. O 'Por temas de seguridad no aceptamos tarjetas.'"
+                placeholderTextColor={colors.text.light}
+                multiline
+              />
+            </View>
+
+            <View style={{ flexDirection: 'row', marginBottom: spacing.md, alignItems: 'center' }}>
+              <TextInput
+                style={[styles.rateInput, { flex: 1, minHeight: 40, height: 40, padding: 10, marginRight: 10 }]}
+                value={customMethod}
+                onChangeText={setCustomMethod}
+                placeholder="Añadir otro (ej. Zelle)"
+                placeholderTextColor={colors.text.light}
+              />
+              <TouchableOpacity 
+                onPress={addCustomPaymentMethod} 
+                style={{ backgroundColor: colors.primary, width: 40, height: 40, borderRadius: 8, justifyContent: 'center', alignItems: 'center' }}
+              >
+                <FontAwesome5 name="plus" size={16} color="#FFF" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.modalBtnCancel]} 
+                onPress={() => setPaymentModalVisible(false)}
+                disabled={isSaving}
+              >
+                <Text style={{ color: colors.text.primary, fontWeight: 'bold' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.modalBtnSave]} 
+                onPress={savePaymentMethodsConfig}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color="#FFF" size="small" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Guardar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL DE TRANSFERENCIAS BANCARIAS */}
+      <Modal visible={transferModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Datos de Transferencia</Text>
+            
+            <View style={{ marginBottom: spacing.md }}>
+              <Text style={{ color: colors.text.secondary, marginBottom: 5 }}>Nombre del Banco</Text>
+              <TextInput
+                style={styles.rateInput}
+                value={tempTransfer.Banco}
+                onChangeText={(val) => setTempTransfer(prev => ({ ...prev, Banco: val }))}
+                placeholder="Ej: BanReservas"
+                placeholderTextColor={colors.text.light}
+              />
+            </View>
+
+            <View style={{ marginBottom: spacing.md }}>
+              <Text style={{ color: colors.text.secondary, marginBottom: 5 }}>Número de Cuenta</Text>
+              <TextInput
+                style={styles.rateInput}
+                value={tempTransfer.No_Cuenta}
+                onChangeText={(val) => setTempTransfer(prev => ({ ...prev, No_Cuenta: val }))}
+                placeholder="000-0000000-0"
+                placeholderTextColor={colors.text.light}
+                keyboardType="numeric"
+              />
+            </View>
+
+            <View style={{ marginBottom: spacing.md }}>
+              <Text style={{ color: colors.text.secondary, marginBottom: 5 }}>Titular de la Cuenta</Text>
+              <TextInput
+                style={styles.rateInput}
+                value={tempTransfer.Titular}
+                onChangeText={(val) => setTempTransfer(prev => ({ ...prev, Titular: val }))}
+                placeholder="Nombre completo"
+                placeholderTextColor={colors.text.light}
+              />
+            </View>
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.modalBtnCancel]} 
+                onPress={() => setTransferModalVisible(false)}
+                disabled={isSaving}
+              >
+                <Text style={{ color: colors.text.primary, fontWeight: 'bold' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.modalBtnSave]} 
+                onPress={async () => {
+                  setIsSaving(true);
+                  try {
+                    const res = await saveTransferDetail(tempTransfer);
+                    if (res && res.success) {
+                      const updated = businessInfo.transferDetails || [];
+                      const idx = updated.findIndex(t => t.Banco === tempTransfer.Banco);
+                      if (idx >= 0) updated[idx] = { ...updated[idx], ...tempTransfer };
+                      else updated.push(tempTransfer);
+                      
+                      updateBusinessInfo({ ...businessInfo, transferDetails: updated });
+                      Alert.alert('Éxito', 'Datos bancarios guardados.');
+                      setTransferModalVisible(false);
+                    }
+                  } catch (e) {
+                    Alert.alert('Error', 'No se pudo guardar.');
+                  } finally {
+                    setIsSaving(false);
+                  }
+                }}
+                disabled={isSaving}
+              >
+                {isSaving ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Guardar</Text>}
               </TouchableOpacity>
             </View>
           </View>

@@ -75,6 +75,7 @@ const RegisterScreen = () => {
       Alert.alert('¡Bienvenido! 🎉', `Gracias por registrarte, ${displayName}!`);
     } catch (err) {
       console.log('Error en registro:', err.message);
+      Alert.alert('Error de registro', err.message || 'No se pudo completar el registro. Verifica tu conexión.');
     }
   };
 
@@ -96,21 +97,49 @@ const RegisterScreen = () => {
             <Text style={styles.inputLabel}>Nombre completo</Text>
             <View style={styles.inputWrapper}>
               <FontAwesome5 name="user" size={16} color={colors.text.secondary} style={styles.inputIcon} />
-              <TextInput style={styles.input} placeholder="Tu nombre" placeholderTextColor={colors.text.light} value={displayName} onChangeText={setDisplayName} autoCapitalize="words" />
+              <TextInput 
+                style={styles.input} 
+                placeholder="Tu nombre" 
+                placeholderTextColor={colors.text.light} 
+                value={displayName} 
+                onChangeText={setDisplayName} 
+                autoCapitalize="words"
+                returnKeyType="next"
+                blurOnSubmit={false}
+              />
             </View>
           </View>
           <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>Correo electrónico</Text>
             <View style={styles.inputWrapper}>
               <FontAwesome5 name="envelope" size={16} color={colors.text.secondary} style={styles.inputIcon} />
-              <TextInput style={styles.input} placeholder="tu@email.com" placeholderTextColor={colors.text.light} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+              <TextInput 
+                style={styles.input} 
+                placeholder="tu@email.com" 
+                placeholderTextColor={colors.text.light} 
+                value={email} 
+                onChangeText={setEmail} 
+                keyboardType="email-address" 
+                autoCapitalize="none"
+                returnKeyType="next"
+                blurOnSubmit={false}
+              />
             </View>
           </View>
           <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>Contraseña</Text>
             <View style={styles.inputWrapper}>
               <FontAwesome5 name="lock" size={16} color={colors.text.secondary} style={styles.inputIcon} />
-              <TextInput style={styles.input} placeholder="Mínimo 6 caracteres" placeholderTextColor={colors.text.light} value={password} onChangeText={setPassword} secureTextEntry={!showPassword} />
+              <TextInput 
+                style={styles.input} 
+                placeholder="Mínimo 6 caracteres" 
+                placeholderTextColor={colors.text.light} 
+                value={password} 
+                onChangeText={setPassword} 
+                secureTextEntry={!showPassword}
+                returnKeyType="next"
+                blurOnSubmit={false}
+              />
               <TouchableOpacity style={styles.passwordToggle} onPress={() => setShowPassword(!showPassword)}>
                 <FontAwesome5 name={showPassword ? "eye-slash" : "eye"} size={16} color={colors.text.secondary} />
               </TouchableOpacity>
@@ -120,7 +149,16 @@ const RegisterScreen = () => {
             <Text style={styles.inputLabel}>Confirmar contraseña</Text>
             <View style={styles.inputWrapper}>
               <FontAwesome5 name="lock" size={16} color={colors.text.secondary} style={styles.inputIcon} />
-              <TextInput style={styles.input} placeholder="Repite la contraseña" placeholderTextColor={colors.text.light} value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry={!showPassword} />
+              <TextInput 
+                style={styles.input} 
+                placeholder="Repite la contraseña" 
+                placeholderTextColor={colors.text.light} 
+                value={confirmPassword} 
+                onChangeText={setConfirmPassword} 
+                secureTextEntry={!showPassword}
+                returnKeyType="done"
+                onSubmitEditing={handleRegister}
+              />
             </View>
           </View>
           <TouchableOpacity style={[styles.button, isAuthenticating && styles.buttonDisabled]} onPress={handleRegister} disabled={isAuthenticating}>

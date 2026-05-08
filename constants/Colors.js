@@ -19,6 +19,7 @@ const dark = {
     primary: '#FFFFFF',
     secondary: '#D1D1D6',
     light: '#8E8E93',
+    disabled: '#666666',
   },
   textPrimary: '#FFFFFF', // Alias para compatibilidad
   textSecondary: '#D1D1D6', // Alias para compatibilidad
@@ -35,6 +36,7 @@ const light = {
     primary: '#000000',
     secondary: '#3C3C43',
     light: '#8E8E93',
+    disabled: '#C7C7CC',
   },
   textPrimary: '#000000', // Alias para compatibilidad
   textSecondary: '#3C3C43', // Alias para compatibilidad

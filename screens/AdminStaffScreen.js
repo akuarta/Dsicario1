@@ -448,10 +448,10 @@ const AdminStaffScreen = ({ navigation }) => {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { backgroundColor: colors.primary }]}>
         <TouchableOpacity 
-          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('InicioTab')} 
+          onPress={() => navigation.openDrawer()} 
           style={styles.backBtn}
         >
-          <FontAwesome5 name="arrow-left" size={20} color="#FFF" />
+          <FontAwesome5 name="bars" size={20} color="#FFF" />
         </TouchableOpacity>
         <View>
           <Text style={styles.headerTitle}>Gestión de Personal</Text>

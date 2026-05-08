@@ -378,6 +378,26 @@ const OrderCenterScreen = ({ navigation }) => {
             </TouchableOpacity>
           )}
 
+          {/* ❌ BOTÓN DE CANCELACIÓN — Disponible en estados iniciales */}
+          {(activeTab === 'pendientes' || activeTab === 'preparando' || activeTab === 'listo') && isStaff && (
+            <TouchableOpacity 
+              style={[styles.actionBtn, { backgroundColor: colors.error + '15' }]}
+              onPress={() => {
+                Alert.alert(
+                  "Cancelar Pedido",
+                  "¿Quién cancela el pedido?",
+                  [
+                    { text: "Repartidor (Sin Pago)", onPress: () => handleUpdateStatus(id, 'cancelled') },
+                    { text: "Cliente (Lista Negra)", onPress: () => handleUpdateStatus(id, 'cancelado_cliente') },
+                    { text: "Volver", style: "cancel" }
+                  ]
+                );
+              }}
+            >
+              <Text style={[styles.actionText, { color: colors.error }]}>Cancelar</Text>
+            </TouchableOpacity>
+          )}
+
           {activeTab === 'listo' && isStaff && (
             <View style={{ flexDirection: 'row', gap: 10 }}>
               {(String(item.Tipo || item.tipo || '').toLowerCase() === 'domicilio' || String(item.Tipo || item.tipo || '').toLowerCase() === 'delivery') ? (

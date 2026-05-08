@@ -16,13 +16,15 @@ import { getThemeColors, spacing, typography, borders, shadows } from '../theme/
 import GlassPanel from '../components/GlassPanel';
 import { useAuth } from '../contexts/AuthContext';
 import { useUser } from '../contexts/UserContext';
+import { useCart } from '../contexts/AppContext';
 import { fetchOrders } from '../utils/api';
 
 const PurchaseHistoryScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const { user: authUser } = useAuth();
-  const { contextUserId, contextUserEmail } = useUser();
+  const { userId, email: contextUserEmail, role } = useUser();
+  const { activeStaffMode } = useCart();
   
   const [orders, setOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -30,12 +32,12 @@ const PurchaseHistoryScreen = ({ navigation }) => {
 
   useEffect(() => {
     loadOrders();
-  }, [contextUserId, contextUserEmail]);
+  }, [userId, contextUserEmail]);
 
   const loadOrders = async () => {
     try {
       // Si no hay identidad, no intentamos cargar nada por seguridad
-      if (!contextUserId && !contextUserEmail) {
+      if (!userId && !contextUserEmail) {
         setOrders([]);
         setIsLoading(false);
         return;
@@ -43,11 +45,14 @@ const PurchaseHistoryScreen = ({ navigation }) => {
 
       const allOrders = await fetchOrders();
       
-      const userOrders = allOrders.filter(o => {
+      // Filtro por Rol: Admin ve todo, Usuario normal solo lo suyo
+      const filtered = (role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'administrador')
+        ? allOrders 
+        : allOrders.filter(o => {
         const orderUserId = String(o.id_user || o.ID_Usuario || '').trim();
         const orderEmail = String(o.EmailUser || o.email || '').trim().toLowerCase();
         
-        const myId = String(contextUserId || '').trim();
+        const myId = String(userId || '').trim();
         const myEmail = String(contextUserEmail || authUser?.email || '').trim().toLowerCase();
 
         // 🛡️ FILTRO BLINDADO:
@@ -63,7 +68,7 @@ const PurchaseHistoryScreen = ({ navigation }) => {
         return dateB - dateA;
       });
       
-      setOrders(userOrders);
+      setOrders(filtered);
     } catch (error) {
       console.log('Error loading history:', error);
     } finally {
@@ -151,14 +156,15 @@ const PurchaseHistoryScreen = ({ navigation }) => {
   }), [colors, darkMode]);
 
   const renderOrder = ({ item }) => {
-    const status = getStatusConfig(item.Estado || item.status);
+    const s = (item.Estado || item.status || '').toLowerCase();
+    const status = getStatusConfig(s);
     return (
       <TouchableOpacity 
-        onPress={() => navigation.navigate('OrderDetail', { order: item })}
+        onPress={() => navigation.navigate('DeliveryTracking', { orderId: item.ID_Pedido || item.id })}
       >
         <GlassPanel intensity={10} style={styles.orderCard}>
           <View style={styles.orderHeader}>
-            <Text style={styles.orderId}>Orden #{(item.id || item.ID_Orden || '').slice(-6).toUpperCase()}</Text>
+            <Text style={styles.orderId}>Orden #{String(item.ID_Orden || item.ID_Pedido || item.id || '').toUpperCase()}</Text>
             <View style={[styles.statusBadge, { backgroundColor: status.color }]}>
               <Text style={styles.statusText}>{status.label}</Text>
             </View>
@@ -172,6 +178,30 @@ const PurchaseHistoryScreen = ({ navigation }) => {
             <Text style={styles.orderDate}>{item.Fecha || item.timestamp}</Text>
             <Text style={styles.orderTotal}>${item.Total || item.total}</Text>
           </View>
+
+          {/* 📍 BOTÓN DE RASTREO — Solo para pedidos no entregados */}
+          {s !== 'delivered' && s !== 'finalizado' && s !== 'entregado' && (
+            <TouchableOpacity 
+              style={{ 
+                marginTop: 15, 
+                backgroundColor: colors.primary + '15', 
+                padding: 10, 
+                borderRadius: 12,
+                flexDirection: 'row',
+                justifyContent: 'center',
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: colors.primary + '30'
+              }}
+              onPress={(e) => {
+                e.stopPropagation();
+                navigation.navigate('DeliveryTracking', { orderId: item.id || item.ID_Orden });
+              }}
+            >
+              <FontAwesome5 name="map-marked-alt" size={14} color={colors.primary} />
+              <Text style={{ color: colors.primary, fontWeight: 'bold', marginLeft: 8, fontSize: 13 }}>Rastrear Pedido</Text>
+            </TouchableOpacity>
+          )}
         </GlassPanel>
       </TouchableOpacity>
     );
@@ -183,7 +213,9 @@ const PurchaseHistoryScreen = ({ navigation }) => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <FontAwesome5 name="chevron-left" size={18} color={colors.text.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Mis Compras</Text>
+        <Text style={styles.headerTitle}>
+          {activeStaffMode === 'mesero' ? 'Mis Servicios 🤵' : 'Mis Compras'}
+        </Text>
       </View>
 
       {isLoading ? (
@@ -208,8 +240,12 @@ const PurchaseHistoryScreen = ({ navigation }) => {
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <FontAwesome5 name="shopping-bag" size={60} color={colors.border} />
-              <Text style={styles.emptyText}>Aún no has realizado ninguna compra.</Text>
+              <FontAwesome5 name={activeStaffMode === 'mesero' ? "concierge-bell" : "shopping-bag"} size={60} color={colors.border} />
+              <Text style={styles.emptyText}>
+                {activeStaffMode === 'mesero' 
+                  ? 'No tienes servicios registrados aún.' 
+                  : 'Aún no has realizado ninguna compra.'}
+              </Text>
             </View>
           }
         />

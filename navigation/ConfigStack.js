@@ -14,12 +14,7 @@ const ConfigStack = () => {
       <Stack.Screen
         name="ConfigScreen"
         component={ConfigScreen}
-        options={{
-          title: 'Configuración',
-          headerStyle: { backgroundColor: colors.primary },
-          headerTintColor: '#FFFFFF',
-          headerTitleStyle: { fontWeight: 'bold' },
-        }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="AdminDeliveryScreen"

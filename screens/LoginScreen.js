@@ -87,13 +87,27 @@ const LoginScreen = () => {
     
     // Flujo Nativo (Android/iOS)
     try {
-      await GoogleSignin.hasPlayServices();
-      try { await GoogleSignin.signOut(); } catch (e) {}
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      
+      // Forzamos la limpieza de cualquier sesión previa para que SIEMPRE muestre el selector de cuentas
+      // Esto soluciona el glitch de "Continuar como..." -> "Elegir cuenta"
+      try {
+        await GoogleSignin.signOut();
+      } catch (e) {
+        // Ignorar si no había sesión
+      }
+
       const response = await GoogleSignin.signIn();
       const idToken = response.data?.idToken || response.idToken;
-      if (idToken) await signInWithGoogle(idToken);
+      
+      if (idToken) {
+        await signInWithGoogle(idToken);
+      }
     } catch (error) {
-      Alert.alert('Error', 'Hubo un problema al iniciar sesión con Google en el dispositivo.');
+      console.log('Google Native Error:', error);
+      if (error.code !== 'status_codes.SIGN_IN_CANCELLED') {
+        Alert.alert('Error', 'No se pudo completar el inicio de sesión con Google.');
+      }
     }
   };
 
@@ -110,13 +124,32 @@ const LoginScreen = () => {
             <View style={styles.inputContainer}>
               <View style={styles.inputField}>
                 <FontAwesome5 name="envelope" size={18} color={colors.primary} />
-                <TextInput style={styles.input} placeholder="Email" placeholderTextColor={colors.text.light} value={email} onChangeText={setEmail} autoCapitalize="none" />
+                <TextInput 
+                  style={styles.input} 
+                  placeholder="Email" 
+                  placeholderTextColor={colors.text.light} 
+                  value={email} 
+                  onChangeText={setEmail} 
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                />
               </View>
             </View>
             <View style={styles.inputContainer}>
               <View style={styles.inputField}>
                 <FontAwesome5 name="lock" size={18} color={colors.primary} />
-                <TextInput style={styles.input} placeholder="Contraseña" placeholderTextColor={colors.text.light} value={password} onChangeText={setPassword} secureTextEntry={!showPassword} />
+                <TextInput 
+                  style={styles.input} 
+                  placeholder="Contraseña" 
+                  placeholderTextColor={colors.text.light} 
+                  value={password} 
+                  onChangeText={setPassword} 
+                  secureTextEntry={!showPassword}
+                  returnKeyType="done"
+                  onSubmitEditing={handleLogin}
+                />
                 <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
                    <FontAwesome5 name={showPassword ? "eye-slash" : "eye"} size={16} color={colors.text.secondary} />
                 </TouchableOpacity>

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fetchUserRoleByEmail, fetchDeliveries } from '../utils/api';
+import { fetchUserRoleByEmail, fetchDeliveries, saveUser, setOffline, setUserOnlineStatus } from '../utils/api';
 import { useAuth } from './AuthContext';
 
 const UserContext = createContext();
@@ -11,6 +11,9 @@ export const UserProvider = ({ children }) => {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('Cliente'); // Role por defecto
   const [userId, setUserId] = useState('');
+  const [userTypeId, setUserTypeId] = useState('');
+  const [address, setAddress] = useState('');
+  const [phone, setPhone] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isClientMode, setIsClientMode] = useState(false);
 
@@ -26,19 +29,38 @@ export const UserProvider = ({ children }) => {
   // Efecto para sincronizar el nombre desde Firebase inmediatamente
   useEffect(() => {
     if (user) {
+      console.log(`[USER_PRESENCE] 🟢 INICIO DE SESIÓN DETECTADO: ${user.email} (UID: ${user.uid})`);
       // 🛡️ Evitar usar el UID de Firebase como nombre (a veces FB lo pone como displayName)
       const isUid = user.displayName && (user.displayName.length > 20 || user.displayName.includes('-'));
       const cleanName = (user.displayName && !isUid) ? user.displayName : user.email?.split('@')[0];
       setUsername(cleanName || 'Usuario');
       setEmail(user.email);
       
+      // 🔄 Sincronizar automáticamente con Excel para traer el ID_UserType y otros datos
+      syncUserRole(user.email);
+      
+      // 🟢 PING UNIVERSAL: marcar Online?=TRUE en Usuarios para TODOS los usuarios
+      console.log(`[USER_PRESENCE] 🟢 Enviando estado ONLINE al servidor para: ${user.email}`);
+      markUserOnline(user.uid, true, user.email, cleanName);
+      
       // 🛡️ REFUERZO: Si es el dueño, asegurar que NO esté en modo cliente por defecto
       if (user.email?.toLowerCase().trim() === 'hairoman28@gmail.com') {
         setIsClientMode(false);
         setRole('Admin');
       }
+    } else {
+      console.log(`[USER_PRESENCE] 🔴 CIERRE DE SESIÓN DETECTADO (User es null)`);
+      // Usuario cerró sesión
+      // (El setOffline se llama explícitamente desde ProfileDrawerContent al hacer logout)
     }
   }, [user]);
+
+  // Marca Online?=TRUE o FALSE en la hoja Usuarios para CUALQUIER usuario
+  const markUserOnline = (firebaseUid, isOnline, email = null, name = null) => {
+    setUserOnlineStatus(firebaseUid, isOnline, email, name || username).catch(e =>
+      console.warn('[UserContext] Error marcando online status:', e)
+    );
+  };
 
   // Cargar perfil completo desde Google Sheets si hay un email
   const syncUserRole = async (userEmail) => {
@@ -50,46 +72,76 @@ export const UserProvider = ({ children }) => {
       const profile = await fetchUserRoleByEmail(userEmail);
       console.log('[UserContext] Perfil cargado de Usuarios:', profile);
       
-      if (profile && profile.rol) {
-        console.log('📄 Rol encontrado:', profile.rol, 'ID Inicial:', profile.id);
+      if (profile && !profile.notFound) {
+        console.log('📄 Perfil encontrado en Excel:', profile.rol);
         let finalRole = profile.rol;
         let finalId = profile.id || 'N/A';
 
-        // 🛵 Si es repartidor, necesitamos su ID_Delivery real para que coincida con los pedidos
+        // 👑 Soporte para el nuevo rol de "Owner"
+        const isOwner = cleanAuthEmail === 'hairoman28@gmail.com' || finalRole?.toLowerCase() === 'owner' || finalRole?.toLowerCase() === 'admin';
+        if (isOwner) {
+          finalRole = 'Owner'; 
+        }
+
         const roleLow = finalRole.toLowerCase();
-        if (roleLow.includes('rider') || roleLow.includes('delivery') || roleLow.includes('repartidor')) {
+        if (roleLow.includes('rider') || roleLow.includes('delivery') || roleLow.includes('repartidor') || isOwner) {
           try {
             const allRiders = await fetchDeliveries();
             const internalId = String(profile.id || '').trim();
-            
-            console.log(`[UserContext] Vinculando repartidor (ID Interno: "${internalId}", Email: "${cleanAuthEmail}")`);
-            
-            // Buscar por ID interno (id_user) primero, luego por email como fallback
             const myRiderInfo = allRiders.find(r => 
               (String(r.id_user || '').trim() === internalId && internalId !== '') ||
-              (String(r.email || '').toLowerCase().trim() === cleanAuthEmail)
+              (String(r.email || '').toLowerCase().trim() === cleanAuthEmail) ||
+              (isOwner && (r.id_delivery === 'DS01' || r.id_delivery === 'DS001'))
             );
-            
-            if (myRiderInfo) {
-              console.log('🛵 Repartidor encontrado! ID Delivery:', myRiderInfo.id_delivery);
-              finalId = myRiderInfo.id_delivery;
-            } else {
-              console.warn('[UserContext] ⚠️ No se encontró el ID de Delivery vinculado a este usuario.');
-            }
-          } catch (e) {
-            console.warn('[UserContext] Error vinculando repartidor:', e);
-          }
+            if (myRiderInfo) finalId = myRiderInfo.id_delivery;
+            else if (isOwner) finalId = 'DS01'; 
+          } catch (e) { console.warn('Error vinculando repartidor:', e); }
         }
-
+        
         setRole(finalRole);
         setUsername(profile.nombre || username);
         setUserId(finalId);
-      } else if (cleanAuthEmail === 'hairoman28@gmail.com') {
-        // Si no hay perfil pero es el dueño, forzamos Admin
-        console.log('🛡️ Owner detected but no role in sheet, forcing Admin');
-        setRole('Admin');
+        
+        if (!profile.userTypeId) {
+          let prefix = 'CLN';
+          const r = finalRole.toLowerCase();
+          if (r === 'owner' || r === 'admin') prefix = 'DS';
+          else if (r.includes('mesero')) prefix = 'MSR';
+          else if (r.includes('cocina') || r.includes('cosina')) prefix = 'CCN';
+          else if (r.includes('delivery') || r.includes('repartidor')) prefix = 'DLV';
+          
+          const currentCount = profile.roleCounts ? (profile.roleCounts[r] || 0) : 0;
+          const newTypeId = `${prefix}${String(currentCount + 1).padStart(2, '0')}`;
+          
+          setUserTypeId(newTypeId);
+          saveUser({ id: profile.id, id_usertype: newTypeId, role: finalRole, email: cleanAuthEmail });
+        } else {
+          setUserTypeId(profile.userTypeId);
+        }
+
+        setAddress(profile.direccion || '');
+        setPhone(profile.telefono || '');
       } else {
-        setRole('Cliente');
+        const isOwner = cleanAuthEmail === 'hairoman28@gmail.com';
+        const counts = profile?.roleCounts || {};
+        const roleToAssign = isOwner ? 'Owner' : 'Cliente';
+        const prefix = isOwner ? 'DS' : 'CLN';
+        const nextNumber = (counts[roleToAssign.toLowerCase()] || 0) + 1;
+        const newTypeId = `${prefix}${String(nextNumber).padStart(2, '0')}`;
+        
+        const newUser = {
+          id: user?.uid,
+          id_usertype: newTypeId,
+          username: username || user?.displayName || user?.email?.split('@')[0],
+          email: cleanAuthEmail,
+          role: roleToAssign,
+          active: true
+        };
+        
+        const saveResult = await saveUser(newUser);
+        if (saveResult && saveResult.success) {
+          setTimeout(() => syncUserRole(cleanAuthEmail), 1500);
+        }
       }
     } catch (error) {
       console.error('Error syncing role:', error);
@@ -110,10 +162,14 @@ export const UserProvider = ({ children }) => {
     email, setEmail, 
     role, setRole,
     userId, setUserId,
+    firebaseUid: user?.uid,
+    userTypeId, setUserTypeId,
+    address, setAddress,
+    phone, setPhone,
     isClientMode, setIsClientMode,
     syncUserRole,
     isSyncing
-  }), [username, email, role, userId, isClientMode, isSyncing]);
+  }), [username, email, role, userId, user?.uid, isClientMode, isSyncing]);
 
   return (
     <UserContext.Provider value={value}>
