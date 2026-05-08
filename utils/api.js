@@ -446,6 +446,7 @@ export const fetchBusinessInfo = async () => {
         currencies: (getRobustProp(b, 'Monedas') || 'DOP, USD, EUR, COP, MXN').split(',').map(s => s.trim()),
         deliveryBaseFee: parseFloat(getRobustProp(b, 'CostoEnvioBase')) || 100,
         expressFee: parseFloat(getRobustProp(b, 'CostoEnvioExpress')) || 50,
+        deliveryMaxRadius: parseFloat(getRobustProp(b, 'RadioEntregaMax')) || 15, // km
         paymentMethods: mP.length > 0 
           ? mP.map(m => getRobustProp(m, 'Metodo Pago')).filter(Boolean)
           : (getRobustProp(b, 'MetodosPago') || 'Efectivo, Tarjeta').split(',').map(s => s.trim()),
@@ -2552,8 +2553,42 @@ export default {
  * @param {Object} destination {latitude, longitude}
  * @returns {Promise<Object>} {distance, duration, polyline, points}
  */
-export const getRouteDetails = async (origin, destination) => { if (Platform.OS === 'web') return null;
+export const getRouteDetails = async (origin, destination) => {
   const apiKey = CONFIG.GOOGLE_MAPS_API_KEY;
+  if (!apiKey) {
+    console.warn('Google Maps API Key no configurada en Config.js');
+    return null;
+  }
+
+  const originStr = origin.latitude + ',' + origin.longitude;
+  const destinationStr = destination.latitude + ',' + destination.longitude;
+
+  // En web: proxy via GAS para evitar CORS
+  if (Platform.OS === 'web') {
+    try {
+      const gasUrl = CONFIG.GAS_API_URL + '?action=GET_ROUTE&origin=' + originStr + '&destination=' + destinationStr + '&key=' + apiKey;
+      const response = await fetch(gasUrl);
+      const data = await response.json();
+      if (!data.success) {
+        console.error('Error en ruta (GAS proxy):', data.message);
+        return null;
+      }
+      return {
+        distance: data.distance,
+        distanceValue: data.distanceValue,
+        duration: data.duration,
+        durationValue: data.durationValue,
+        polyline: data.polyline,
+        bounds: data.bounds,
+      };
+    } catch (err) {
+      console.error('Error fetching route via GAS:', err);
+      return null;
+    }
+  }
+
+  // En movil: llamada directa a Directions API
+  const apiKey2 = CONFIG.GOOGLE_MAPS_API_KEY;
   
   if (!apiKey) {
     console.warn('Google Maps API Key no configurada en Config.js');

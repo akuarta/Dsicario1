@@ -4,6 +4,7 @@ function doGet(e) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const params = e?.parameter || {};
   if (params.action === 'getReviews') return handleGetReviews(ss, params.id);
+  if (params.action === 'GET_ROUTE') return handleGetRoute(params.origin, params.destination, params.key);
   const result = { success: true };
   let targetSheetName = params.sheet;
   let sheets = targetSheetName ? [ss.getSheetByName(targetSheetName)] : ss.getSheets();
@@ -219,6 +220,33 @@ function handleGetReviews(ss, pid) {
   return createJsonResponse({ success: true, reviews: d.slice(1).filter(r => String(r[ci]) === String(pid)).map(r => {
     let o = {}; h.forEach((sh, i) => o[sh] = r[i]); return o;
   })});
+}
+
+function handleGetRoute(origin, destination, key) {
+  try {
+    if (!origin || !destination || !key) {
+      return createJsonResponse({ success: false, message: "Missing origin, destination, or key." });
+    }
+    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&key=${key}&mode=driving`;
+    const response = UrlFetchApp.fetch(url);
+    const data = JSON.parse(response.getContentText());
+    if (data.status !== 'OK') {
+      return createJsonResponse({ success: false, message: data.status + ' - ' + (data.error_message || '') });
+    }
+    const route = data.routes[0];
+    const leg = route.legs[0];
+    return createJsonResponse({
+      success: true,
+      distance: leg.distance.text,
+      distanceValue: leg.distance.value,
+      duration: leg.duration.text,
+      durationValue: leg.duration.value,
+      polyline: route.overview_polyline.points,
+      bounds: route.bounds
+    });
+  } catch(err) {
+    return createJsonResponse({ success: false, message: err.message });
+  }
 }
 
 function createJsonResponse(d) { return ContentService.createTextOutput(JSON.stringify(d)).setMimeType(ContentService.MimeType.JSON); }

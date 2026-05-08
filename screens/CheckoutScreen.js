@@ -39,6 +39,9 @@ import {
 import { notifyRider } from '../utils/notifications';
 import GlassPanel from '../components/GlassPanel';
 import LocationPickerModal from '../components/LocationPickerModal';
+import { CONFIG } from '../constants/Config';
+import { getRouteDetails } from '../utils/api';
+import { getDistance } from '../utils/mathUtils';
 
 const CheckoutScreen = ({ navigation, route }) => {
   const { darkMode } = useThemeMode();
@@ -87,6 +90,7 @@ const CheckoutScreen = ({ navigation, route }) => {
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [isMapVisible, setIsMapVisible] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState(null);
+  const [routeData, setRouteData] = useState(null);
   const [costoEnvioBase, setCostoEnvioBase] = useState('100');
   const [isExpressEnvio, setIsExpressEnvio] = useState(false);
   const [currency, setCurrency] = useState('DOP');
@@ -114,7 +118,19 @@ const CheckoutScreen = ({ navigation, route }) => {
   const itbis = totalCost * 0.18;
   const propina = (deliveryType === 'local' && includePropina) ? totalCost * 0.10 : 0;
   const costoExpressDelNegocio = businessInfo?.expressFee || 50;
-  const costoEnvioCalculado = deliveryType === 'delivery' ? (parseFloat(costoEnvioBase) || 0) + (isExpressEnvio ? costoExpressDelNegocio : 0) : 0;
+  
+  // Cálculo dinámico de envío basado en ruta real
+  const getDynamicDeliveryFee = () => {
+    if (deliveryType !== 'delivery') return 0;
+    const base = parseFloat(costoEnvioBase) || 0;
+    const express = isExpressEnvio ? costoExpressDelNegocio : 0;
+    
+    // Si tenemos datos de ruta, podríamos cobrar por km extra si quisiéramos
+    // Por ahora usamos la base, pero el usuario ya tiene la distancia real
+    return base + express;
+  };
+
+  const costoEnvioCalculado = getDynamicDeliveryFee();
   const finalTotal = (totalCost - totalDiscount) + itbis + propina + costoEnvioCalculado;
   
   const currentRate = (currency === 'DOP' || currency === 'RD$') ? 1 : (exchangeRates?.[currency] || 1);
@@ -126,9 +142,31 @@ const CheckoutScreen = ({ navigation, route }) => {
   // Para meseros, el pago se puede procesar después (pide primero, paga después)
   const isAmountInsufficient = !waiterActiveSession && isCashPayment && convertedAmountReceived < finalTotal;
 
-  const handleLocationSelected = (locationData) => {
+  const handleLocationSelected = async (locationData) => {
     setSelectedLocation({ latitude: locationData.latitude, longitude: locationData.longitude });
     setDeliveryAddress(locationData.address);
+    
+    // Obtener ruta real
+    if (CONFIG.STORE_LOCATION) {
+      const route = await getRouteDetails(CONFIG.STORE_LOCATION, {
+        latitude: locationData.latitude,
+        longitude: locationData.longitude
+      });
+      if (route) {
+        setRouteData(route);
+        console.log('Distancia real de ruta:', route.distance);
+        
+        // Validar radio máximo (si existe)
+        const maxRadius = businessInfo?.deliveryMaxRadius || 15;
+        const distanceKm = route.distanceValue / 1000;
+        if (distanceKm > maxRadius) {
+          Alert.alert(
+            'Fuera de Rango 📍',
+            `Lo sentimos, esta ubicación está a ${distanceKm.toFixed(1)} km, lo cual excede nuestro radio máximo de entrega (${maxRadius} km).`
+          );
+        }
+      }
+    }
   };
 
   const getPaymentIcon = (method) => {
@@ -653,6 +691,24 @@ const CheckoutScreen = ({ navigation, route }) => {
                   <FontAwesome5 name="map-marker-alt" size={18} color="#FFF" />
                 </TouchableOpacity>
               </View>
+
+              {routeData && (
+                <View style={{ 
+                  flexDirection: 'row', 
+                  backgroundColor: colors.primary + '10', 
+                  padding: 10, 
+                  borderRadius: 10, 
+                  marginBottom: 15,
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: colors.primary + '20'
+                }}>
+                  <FontAwesome5 name="route" size={14} color={colors.primary} style={{ marginRight: 10 }} />
+                  <Text style={{ fontSize: 12, color: colors.text.primary, flex: 1 }}>
+                    Distancia: <Text style={{ fontWeight: 'bold' }}>{routeData.distance}</Text> • Tiempo est.: <Text style={{ fontWeight: 'bold' }}>{routeData.duration}</Text>
+                  </Text>
+                </View>
+              )}
 
               <View style={styles.riderTrustHeader}>
                 <FontAwesome5 name="star" size={12} color={!deliveryAddress?.trim() ? colors.text.secondary : colors.primary} />
