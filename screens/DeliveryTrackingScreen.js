@@ -195,8 +195,8 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     stepText: { fontSize: 11, textAlign: 'center' },
     stepConnector: {
       flex: 1,
-      height: 4,
-      borderRadius: 2,
+      height: 3,
+      borderRadius: 1.5,
       marginHorizontal: -15,
       marginTop: -25,
       zIndex: 1,
@@ -230,16 +230,18 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
       flexDirection: 'row',
       alignItems: 'center',
       marginTop: 10,
-      backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+      backgroundColor: darkMode ? 'rgba(255,215,0,0.1)' : 'rgba(255,215,0,0.15)',
       alignSelf: 'flex-start',
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 15,
+      borderWidth: 1,
+      borderColor: 'rgba(255,215,0,0.3)',
     },
     premiumRatingItem: { flexDirection: 'row', alignItems: 'center' },
-    premiumRatingText: { fontSize: 12, fontWeight: '700', marginLeft: 4, color: colors.text.primary },
-    ratingSeparator: { width: 1, height: 12, marginHorizontal: 8, backgroundColor: colors.border },
-    deliveriesText: { fontSize: 11, fontWeight: '500', color: colors.text.light },
+    premiumRatingText: { fontSize: 13, fontWeight: '900', marginLeft: 6, color: colors.text.primary },
+    ratingSeparator: { width: 1, height: 12, marginHorizontal: 10, backgroundColor: 'rgba(0,0,0,0.1)' },
+    deliveriesText: { fontSize: 11, fontWeight: '700', color: colors.text.secondary, textTransform: 'uppercase' },
     riderVehiculo: { fontSize: 13, fontWeight: '500', color: colors.text.secondary, marginLeft: 6 },
     riderActions: { alignItems: 'center', justifyContent: 'center', paddingLeft: 10 },
     actionButton: {
@@ -404,14 +406,19 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
             pulseAnim={pulseAnim} 
             progreso={orderDetails?.progreso || 0.4} 
           />
-          <Animated.View style={[styles.etaSection, { opacity: fadeAnim, transform: [{ scale: fadeAnim }] }]}>
-            <GlassPanel intensity={35} style={styles.etaContainer}>
+          <Animated.View style={[styles.etaSection, { opacity: fadeAnim, transform: [{ scale: fadeAnim }, { translateY: pulseAnim.interpolate({ inputRange: [1, 1.1], outputRange: [0, -5] }) }] }]}>
+            <GlassPanel intensity={40} style={styles.etaContainer}>
               <View style={{ alignItems: 'center' }}>
-                <Text style={styles.etaLabel}>{isDelivery ? 'LLEGADA ESTIMADA' : 'RECOGIDA ESTIMADA'}</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                  <FontAwesome5 name="clock" size={16} color={colors.primary} style={{ marginRight: 8 }} />
-                  <Text style={styles.etaTime}>{routeData?.duration || orderDetails?.eta || '20 min'}</Text>
+                <Text style={[styles.etaLabel, { color: colors.primary, fontWeight: '900' }]}>{isDelivery ? 'LLEGADA ESTIMADA' : 'RECOGIDA ESTIMADA'}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+                  <FontAwesome5 name="clock" size={20} color={colors.primary} style={{ marginRight: 10 }} />
+                  <Text style={[styles.etaTime, { fontSize: 28 }]}>{routeData?.duration || orderDetails?.eta || '20 min'}</Text>
                 </View>
+                {routeData?.distance && (
+                   <Text style={{ fontSize: 12, color: colors.text.secondary, marginTop: 4, fontWeight: '600' }}>
+                     A {routeData.distance} de distancia
+                   </Text>
+                )}
               </View>
             </GlassPanel>
           </Animated.View>
