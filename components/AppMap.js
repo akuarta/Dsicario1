@@ -1,6 +1,6 @@
 import React from 'react';
-import MapView from 'react-native-maps';
+import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
 
 export default function AppMap(props) {
-  return <MapView {...props} />;
+  return <MapView provider={PROVIDER_GOOGLE} {...props} />;
 }

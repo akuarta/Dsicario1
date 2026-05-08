@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { CONFIG } from '../constants/Config';
 import { storage } from '../config/firebaseConfig';
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
@@ -34,6 +35,7 @@ const STATUS_MAP = {
       'accepted': 'Aceptado',
       'proposal': 'Propuesta',
       'cancelled': 'Cancelado',
+      'cancelado_cliente': 'Cancelado por Cliente',
       'completed': 'Cobrado'
     };
     return map[status?.toLowerCase()] || status || 'Pendiente';
@@ -55,6 +57,7 @@ const STATUS_MAP = {
       'completado': 'completed',
       'cobrado': 'completed',
       'cancelado': 'cancelled',
+      'cancelado por cliente': 'cancelado_cliente',
       'rechazado': 'cancelled',
       'propuesta': 'proposal',
       'aceptado': 'accepted',
@@ -184,6 +187,8 @@ export const mapOrderData = (order, itemsMap = {}) => {
     Estado: normalizedStatus,
     status: normalizedStatus,
     estado_original: excelStatus,
+    envio: parseFloat(getRobustProp(order, 'Envio') || getRobustProp(order, 'Costo_Envio') || 0) || 0,
+    Envio: parseFloat(getRobustProp(order, 'Envio') || getRobustProp(order, 'Costo_Envio') || 0) || 0,
     fecha: getRobustProp(order, 'Fecha') || '',
     Fecha: getRobustProp(order, 'Fecha') || '',
     hora: getRobustProp(order, 'Entrada') || getRobustProp(order, 'Hora') || '',
@@ -624,6 +629,25 @@ export const updateOrderStatus = async (orderId, newStatus, extraData = {}) => {
       );
     }
 
+    // 🚀 [AUTO-COMISION] Si el pedido se marca como ENTREGADO, procesar pago al repartidor
+    if (newStatus === 'delivered' || newStatus === 'entregado') {
+      console.log(`🚀 [COMISION] Pedido ${idStr} entregado. Procesando comisión...`);
+      processRiderCommission(idStr).catch(err => 
+        console.error('❌ [COMISION] Fallo en pago automático:', err)
+      );
+    }
+
+    // 🚀 [BLACKLIST] Si el cliente cancela, poner en lista negra
+    if (newStatus === 'cancelado_cliente') {
+      console.log(`🚀 [BLACKLIST] Pedido ${idStr} cancelado por cliente. Aplicando sanción...`);
+      fetchOrders().then(orders => {
+        const order = orders.find(o => String(o.id).split('.')[0].trim() === idStr);
+        if (order && order.email) {
+          blacklistUser(order.email).catch(err => console.error('❌ [BLACKLIST] Fallo:', err));
+        }
+      });
+    }
+
     return response;
   } catch (error) {
     console.error('Error updating status:', error);
@@ -644,6 +668,76 @@ export const updateOrderStatus = async (orderId, newStatus, extraData = {}) => {
        return { success: true, offline: true };
     }
     throw error;
+  }
+};
+
+/**
+ * Procesa la comisión del repartidor basada en el costo de envío
+ */
+export const processRiderCommission = async (orderId) => {
+  try {
+    const orders = await fetchOrders();
+    const idStr = String(orderId).split('.')[0].trim();
+    const order = orders.find(o => String(o.id).split('.')[0].trim() === idStr);
+    
+    if (!order) {
+      console.warn(`[COMISION] No se encontró el pedido ${orderId} para pagar comisión.`);
+      return;
+    }
+
+    const riderId = order.riderId || order.id_repartidor;
+    const envio = parseFloat(order.envio || order.Envio || 0);
+
+    if (riderId && envio > 0) {
+      console.log(`[COMISION] Intentando pagar RD$${envio} al rider ${riderId}`);
+      const stats = await fetchRiderStats(riderId);
+      
+      // Actualizar cartera del rider
+      const currentCartera = parseFloat(stats.cartera) || 0;
+      const newCartera = currentCartera + envio;
+      
+      await updateDelivery({
+        ...stats.fullData,
+        id_delivery: riderId,
+        ID_UserType: riderId, // Asegurar que el ID field esté presente
+        cartera: newCartera
+      });
+      
+      console.log(`✅ [COMISION] Pago completado. Nueva cartera: RD$${newCartera}`);
+    } else {
+      console.log(`[COMISION] Pedido ${orderId} sin rider o sin costo de envío (Envio: ${envio}). No se procesa pago.`);
+    }
+  } catch (error) {
+    console.error('Error in processRiderCommission:', error);
+  }
+};
+
+/**
+ * Agrega un cliente a la lista negra
+ */
+export const blacklistUser = async (emailOrId) => {
+  try {
+    const payload = {
+      action: "UPDATE",
+      sheet: "usuarios", // Corregido a minúsculas
+      idField: "EmailUser",
+      data: {
+        'EmailUser': emailOrId,
+        'activo?': 'FALSE',
+        'Blacklist': 'TRUE',
+        'Notas': 'Bloqueado por cancelaciones excesivas'
+      }
+    };
+    
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      redirect: 'follow'
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error blacklisting user:', error);
+    return { success: false };
   }
 };
 
@@ -1057,6 +1151,7 @@ export const fetchRiderOrders = async (riderId) => {
           whatsapp: getRobustProp(d, 'whatsapp') || getRobustProp(d, 'Telefono') || '',
           direccion: getRobustProp(d, 'direccion') || getRobustProp(d, 'Direccion') || getRobustProp(d, 'Dirección') || getRobustProp(d, 'Ubicacion') || getRobustProp(d, 'Ubicación') || '',
           estado: finalStatus,
+          envio: parseFloat(getRobustProp(d, 'Envio') || getRobustProp(d, 'Costo_Envio') || 0) || 0,
           items: itemsBrief.map(it => {
             const name = it.nombre || it.name || it.product || (it['Pedido_Items'] || 'Producto');
             const qty = it.cantidad || it.quantity || (it['Cantidad'] || 1);
@@ -1939,7 +2034,9 @@ export const saveOrder = async (orderData) => {
         'Devuelta': orderData.Devuelta !== undefined ? orderData.Devuelta : '',
         'Ref_Pago': orderData.Ref_Pago || orderData.ref_pago || '',
         'Delivery?': (orderData['Delivery?'] === true || orderData.tipo === 'delivery' || orderData.Tipo === 'Domicilio' || orderData.Tipo === 'Delivery') ? 'TRUE' : 'FALSE',
-        'Tipo': orderData.tipo || orderData.Tipo || 'Local'
+        'Tipo': orderData.tipo || orderData.Tipo || 'Local',
+        'Envio': orderData.Envio || orderData.costoEnvio || 0,
+        'Costo_Envio': orderData.Envio || orderData.costoEnvio || 0
       }
     };
 
@@ -2455,7 +2552,7 @@ export default {
  * @param {Object} destination {latitude, longitude}
  * @returns {Promise<Object>} {distance, duration, polyline, points}
  */
-export const getRouteDetails = async (origin, destination) => {
+export const getRouteDetails = async (origin, destination) => { if (Platform.OS === 'web') return null;
   const apiKey = CONFIG.GOOGLE_MAPS_API_KEY;
   
   if (!apiKey) {

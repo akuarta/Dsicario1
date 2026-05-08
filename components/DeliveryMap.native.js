@@ -1,69 +1,96 @@
-import React, { useRef, useEffect } from 'react';
-import { View, StyleSheet, Animated } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, StyleSheet, Text, Platform } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { FontAwesome5 } from '@expo/vector-icons';
+import { decodePolyline } from '../utils/api';
+
+/**
+ * DeliveryMap - Versión Nativa (Android/iOS) con Google Maps Real
+ */
+const DeliveryMap = ({ 
+  darkMode, 
+  colors, 
+  origin,
+  destination,
+  routeData,
+  isPickup = false
+}) => {
+  const mapRef = useRef(null);
+  const [routePoints, setRoutePoints] = useState([]);
+
+  useEffect(() => {
+    if (routeData?.polyline) {
+      const points = decodePolyline(routeData.polyline);
+      setRoutePoints(points);
+      
+      if (mapRef.current && points.length > 0) {
+        mapRef.current.fitToCoordinates(points, {
+          edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
+          animated: true,
+        });
+      }
+    }
+  }, [routeData]);
+
+  return (
+    <View style={styles.container}>
+      <MapView
+        ref={mapRef}
+        provider={PROVIDER_GOOGLE}
+        style={styles.map}
+        customMapStyle={darkMode ? darkMapStyle : []}
+        initialRegion={{
+          latitude: origin?.latitude || 18.486,
+          longitude: origin?.longitude || -69.931,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        }}
+      >
+        <Marker coordinate={origin} title={isPickup ? "Tu Ubicación" : "DSicario Local"}>
+          <View style={[styles.markerIcon, { backgroundColor: colors.primary }]}>
+            <FontAwesome5 name={isPickup ? "user-alt" : "store-alt"} size={14} color="#FFF" />
+          </View>
+        </Marker>
+
+        <Marker coordinate={destination} title={isPickup ? "DSicario Local" : "Cliente"}>
+          <View style={[styles.markerIcon, { backgroundColor: colors.accent }]}>
+            <FontAwesome5 name={isPickup ? "store-alt" : "home"} size={14} color="#FFF" />
+          </View>
+        </Marker>
+
+        {routePoints.length > 0 && (
+          <Polyline
+            coordinates={routePoints}
+            strokeColor={colors.primary}
+            strokeWidth={4}
+          />
+        )}
+      </MapView>
+    </View>
+  );
+};
 
 const darkMapStyle = [
   { "elementType": "geometry", "stylers": [{ "color": "#242f3e" }] },
   { "elementType": "labels.text.fill", "stylers": [{ "color": "#746855" }] },
   { "elementType": "labels.text.stroke", "stylers": [{ "color": "#242f3e" }] },
-  { "featureType": "administrative.locality", "elementType": "labels.text.fill", "stylers": [{ "color": "#d59563" }] },
   { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#38414e" }] },
-  { "featureType": "road", "elementType": "geometry.stroke", "stylers": [{ "color": "#212a37" }] },
-  { "featureType": "road", "elementType": "labels.text.fill", "stylers": [{ "color": "#9ca5b3" }] },
   { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#17263c" }] }
 ];
 
-const DeliveryMap = ({ darkMode, colors, pulseAnim }) => {
-  return (
-    <MapView
-      provider={PROVIDER_GOOGLE}
-      style={StyleSheet.absoluteFillObject}
-      customMapStyle={darkMode ? darkMapStyle : []}
-      initialRegion={{
-        latitude: 18.4861,
-        longitude: -69.9312,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
-      }}
-    >
-      <Marker coordinate={{ latitude: 18.4861, longitude: -69.9312 }}>
-        <View style={[styles.markerShadow, { backgroundColor: colors.accent }]}>
-          <FontAwesome5 name="store" size={12} color="#FFF" />
-        </View>
-      </Marker>
-      <Marker coordinate={{ latitude: 18.4761, longitude: -69.9412 }} flat>
-         <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-            <View style={[styles.markerShadow, { backgroundColor: colors.primary }]}>
-              <FontAwesome5 name="motorcycle" size={12} color="#FFF" />
-            </View>
-         </Animated.View>
-      </Marker>
-      <Polyline
-        coordinates={[
-          { latitude: 18.4861, longitude: -69.9312 },
-          { latitude: 18.4761, longitude: -69.9412 },
-          { latitude: 18.4661, longitude: -69.9512 },
-        ]}
-        strokeColor={colors.primary}
-        strokeWidth={3}
-      />
-    </MapView>
-  );
-};
-
 const styles = StyleSheet.create({
-  markerShadow: {
-    padding: 8,
-    borderRadius: 20,
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
+  container: { flex: 1, overflow: 'hidden', borderRadius: 25 },
+  map: { width: '100%', height: '100%' },
+  markerIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderWidth: 2,
     borderColor: '#FFF',
-  },
+    elevation: 5
+  }
 });
 
 export default DeliveryMap;
