@@ -34,6 +34,30 @@ const DeliveryMap = ({
     }
   }, [routeData]);
 
+  if (Platform.OS === 'web') {
+    const originStr = `${origin?.latitude},${origin?.longitude}`;
+    const destStr = `${destination?.latitude},${destination?.longitude}`;
+    const mapUrl = `https://www.google.com/maps/embed/v1/directions?key=${CONFIG.GOOGLE_MAPS_API_KEY}&origin=${originStr}&destination=${destStr}&mode=driving&theme=${darkMode ? 'dark' : 'light'}`;
+
+    return (
+      <View style={[styles.container, { backgroundColor: darkMode ? '#1A1A1A' : '#F0F2F5' }]}>
+        <iframe
+          width="100%"
+          height="100%"
+          style={{ border: 0, borderRadius: 25 }}
+          loading="lazy"
+          allowFullScreen
+          src={mapUrl}
+        />
+        <View style={styles.webOverlay}>
+          <GlassPanel intensity={20} style={styles.webBadge}>
+            <Text style={{ fontSize: 10, color: colors.text.secondary, fontWeight: 'bold' }}>MODO WEB OPTIMIZADO</Text>
+          </GlassPanel>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <MapView

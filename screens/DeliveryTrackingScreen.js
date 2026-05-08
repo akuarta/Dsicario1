@@ -125,7 +125,7 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     },
     headerOrderId: { fontSize: 14, fontWeight: 'bold', color: colors.text.primary },
     mapWrapper: {
-      height: height * 0.45,
+      height: Platform.OS === 'web' && width > 768 ? height : height * 0.45,
       width: '100%',
     },
     etaSection: {
@@ -150,14 +150,18 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     etaLabel: { fontSize: 10, letterSpacing: 1.5, fontWeight: '700', color: colors.text.secondary },
     etaTime: { fontSize: 24, fontWeight: '900', marginTop: 2, color: colors.primary },
     infoSheet: {
-      flex: 1,
-      borderTopLeftRadius: 25,
-      borderTopRightRadius: 25,
-      marginTop: -25,
-      paddingHorizontal: 16,
-      paddingTop: 8,
+      flex: Platform.OS === 'web' && width > 768 ? 0 : 1,
+      width: Platform.OS === 'web' && width > 768 ? 450 : '100%',
+      height: Platform.OS === 'web' && width > 768 ? height - 100 : 'auto',
+      position: Platform.OS === 'web' && width > 768 ? 'absolute' : 'relative',
+      top: Platform.OS === 'web' && width > 768 ? 50 : 0,
+      right: Platform.OS === 'web' && width > 768 ? 50 : 0,
+      borderRadius: 25,
+      paddingHorizontal: 20,
+      paddingTop: 15,
       ...shadows.large,
-      backgroundColor: darkMode ? 'rgba(30, 30, 30, 0.9)' : 'rgba(255, 255, 255, 0.9)',
+      backgroundColor: darkMode ? 'rgba(30, 30, 30, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+      backdropFilter: Platform.OS === 'web' ? 'blur(10px)' : 'none',
     },
     dragHandle: {
       width: 40,
@@ -380,7 +384,12 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
         <GlassPanel intensity={10} style={styles.headerBadge}>
           <Text style={styles.headerOrderId}>Orden {orderId}</Text>
         </GlassPanel>
-        <View style={{ width: 44 }} />
+        <TouchableOpacity 
+          onPress={() => refreshOrder(orderId)} 
+          style={[styles.backButton, { backgroundColor: colors.primary + '20' }]}
+        >
+          <FontAwesome5 name="sync-alt" size={16} color={colors.primary} />
+        </TouchableOpacity>
       </View>
 
       {isDelivery || showMapForLocal ? (
