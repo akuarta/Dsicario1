@@ -1,9 +1,9 @@
+import { showAlert } from '../utils/showAlert';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   FlatList,
   TouchableOpacity,
   TextInput,
@@ -14,6 +14,7 @@ import {
   Platform,
   StatusBar
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
@@ -121,7 +122,7 @@ const AdminStaffScreen = ({ navigation }) => {
 
   const handleSave = async () => {
     if (!username || !email) {
-      Alert.alert('Error', 'Nombre y Email son obligatorios');
+      showAlert('Error', 'Nombre y Email son obligatorios');
       return;
     }
     setIsSaving(true);
@@ -153,11 +154,11 @@ const AdminStaffScreen = ({ navigation }) => {
         }
         return [userToSave, ...prev];
       });
-      Alert.alert('Éxito', 'Personal actualizado');
+      showAlert('Éxito', 'Personal actualizado');
       setIsModalVisible(false);
       syncAllData();
     } catch (error) {
-      Alert.alert('Error', 'No se pudo guardar el usuario');
+      showAlert('Error', 'No se pudo guardar el usuario');
     } finally {
       setIsSaving(false);
     }
@@ -166,7 +167,7 @@ const AdminStaffScreen = ({ navigation }) => {
   const handleDelete = () => {
     if (!editingUser) return;
     const staffDisplayName = editingUser.NombreUser || editingUser.nombreuser || editingUser.username || 'este usuario';
-    Alert.alert(
+    showAlert(
       '¿Quitar de Personal?',
       `¿Deseas quitar a ${staffDisplayName} como empleado? Seguirá siendo usuario (Cliente) pero ya no tendrá acceso administrativo o de staff.`,
       [
@@ -185,10 +186,10 @@ const AdminStaffScreen = ({ navigation }) => {
               };
               await saveUser(updatedUser);
               setUsers(prev => prev.map(u => (u.ID_User || u.id_user || u.id) === (editingUser.ID_User || editingUser.id_user || editingUser.id) ? updatedUser : u));
-              Alert.alert('Éxito', 'Se ha reasignado como Cliente.');
+              showAlert('Éxito', 'Se ha reasignado como Cliente.');
               setIsModalVisible(false);
             } catch (err) {
-              Alert.alert('Error', 'No se pudo actualizar el rol: ' + err.message);
+              showAlert('Error', 'No se pudo actualizar el rol: ' + err.message);
             } finally {
               setIsSaving(false);
             }
@@ -448,10 +449,10 @@ const AdminStaffScreen = ({ navigation }) => {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { backgroundColor: colors.primary }]}>
         <TouchableOpacity 
-          onPress={() => navigation.openDrawer()} 
+          onPress={() => navigation.goBack()} 
           style={styles.backBtn}
         >
-          <FontAwesome5 name="bars" size={20} color="#FFF" />
+          <FontAwesome5 name="arrow-left" size={20} color="#FFF" />
         </TouchableOpacity>
         <View>
           <Text style={styles.headerTitle}>Gestión de Personal</Text>

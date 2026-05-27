@@ -119,16 +119,7 @@ export const AuthProvider = ({ children }) => {
         emailVerified: result.user.emailVerified,
       };
 
-      // Guardar nuevo usuario en Google Sheets
-      console.log('[AuthContext] Intentando guardar usuario en Excel tras registro...');
-      await saveUser({
-        id: userData.uid,
-        username: userData.displayName,
-        email: userData.email,
-        role: 'Cliente',
-        active: true
-      });
-      console.log('[AuthContext] Proceso de guardado completado.');
+      console.log('[AuthContext] Registro exitoso. UserContext se encargará de la sincronización.');
 
       setUser(userData);
       await AsyncStorage.setItem('@dsicario_user', JSON.stringify(userData));
@@ -188,19 +179,7 @@ export const AuthProvider = ({ children }) => {
       setUser(userData);
       await AsyncStorage.setItem('@dsicario_user', JSON.stringify(userData));
 
-      // Guardar usuario en Google Sheets (por si es nuevo)
-      try {
-        console.log('[AuthContext] Sincronizando usuario Google (Native) con Sheets...');
-        await saveUser({
-          id: userData.uid,
-          username: userData.displayName,
-          email: userData.email,
-          role: 'Cliente',
-          active: true
-        });
-      } catch (sheetError) {
-        console.warn('[AuthContext] No se pudo sincronizar con Sheets, pero el login continuará:', sheetError.message);
-      }
+      console.log('[AuthContext] Login Google (Native) exitoso. UserContext sincronizará el perfil.');
 
       return userData;
     } catch (err) {
@@ -226,16 +205,7 @@ export const AuthProvider = ({ children }) => {
         emailVerified: result.user.emailVerified,
       };
 
-      // Guardar usuario en Google Sheets (por si es nuevo)
-      console.log('[AuthContext] Intentando guardar usuario de Google en Excel...');
-      await saveUser({
-        id: userData.uid,
-        username: userData.displayName,
-        email: userData.email,
-        role: 'Cliente',
-        active: true
-      });
-      console.log('[AuthContext] Proceso de guardado Google completado.');
+      console.log('[AuthContext] Login Google (Web) exitoso. UserContext sincronizará el perfil.');
 
 
 

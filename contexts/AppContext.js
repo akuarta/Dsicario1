@@ -4,8 +4,6 @@ import { Alert } from 'react-native';
 import NotificationService from '../utils/notificationService';
 import {
   notifyOrderReady,
-  setupKitchenChannel,
-  registerForPushNotifications,
 } from '../utils/notifications';
 import { 
   fetchProducts, 
@@ -51,33 +49,117 @@ export const ProductsProvider = ({ children }) => {
     }
   };
 
-  // Cargar caché inicial
+  // ─── FASE 1: Cargar caché de AsyncStorage INMEDIATAMENTE ───────────────────
+  // Siempre llama setIsLoading(false) al terminar, con o sin datos.
+  // Así la UI nunca queda bloqueada esperando la red.
   useEffect(() => {
     const loadCache = async () => {
+      let initialProducts = [];
+      let initialSuggested = [];
+      let hasCache = false;
       try {
-        const [cachedProducts, cachedEditorMode] = await Promise.all([
+        const [cachedProducts, cachedSuggested, cachedEditorMode] = await Promise.all([
           AsyncStorage.getItem('@dsicario_products_cache'),
+          AsyncStorage.getItem('@dsicario_suggested_cache'),
           AsyncStorage.getItem('@dsicario_editor_mode')
         ]);
-        
+
         if (cachedProducts) {
-          setProducts(JSON.parse(cachedProducts));
-          setIsLoading(false);
+          initialProducts = JSON.parse(cachedProducts);
+          setProducts(initialProducts);
+          hasCache = true;
         }
-        
+        if (cachedSuggested) {
+          initialSuggested = JSON.parse(cachedSuggested);
+          setSuggestedProducts(initialSuggested);
+        }
         if (cachedEditorMode) {
           setIsEditorModeState(JSON.parse(cachedEditorMode));
         }
       } catch (e) {
-        console.warn('Error loading cache:', e);
+        console.warn('⚠️ Error leyendo caché local:', e);
       } finally {
-        checkForUpdates();
+        console.log(`📦 Caché cargado: ${initialProducts.length} productos, ${initialSuggested.length} sugeridos`);
+        // Si hay caché, desbloqueamos la UI para mostrarlo rápido
+        if (hasCache && initialProducts.length > 0) {
+          console.log('🚀 Desbloqueando UI con datos de caché');
+          setIsLoading(false);
+          if (typeof window !== 'undefined' && window.__hideSplash) {
+            window.__hideSplash();
+          }
+        } else {
+          console.log('empty_cache', 'Caché vacío o inexistente, esperando a la red...');
+        }
+      }
+
+      // ─── FASE 2: Actualizar desde la red ─────────────────
+      // Si no hubo caché, descargamos de la red y esperamos a que termine
+      if (!hasCache || initialProducts.length === 0) {
+        await refreshFromNetwork(initialProducts, initialSuggested);
+      } else {
+        // Si hay caché, no bloqueamos la inicialización ni recargamos de nuevo.
+        // Opcionalmente se podría hacer en background, pero el usuario pidió no cargarlos de nuevo.
+        console.log('⏭️ Omitiendo recarga de red en el inicio porque ya hay caché.');
+      }
+      
+      // Aseguramos que isLoading sea false al final
+      setIsLoading(false);
+      if (typeof window !== 'undefined' && window.__hideSplash) {
+        window.__hideSplash();
       }
     };
     loadCache();
   }, []);
 
-  // Verificar actualizaciones
+
+  // Descarga silenciosa desde la API; no bloquea la UI ni pone loading=true.
+  const refreshFromNetwork = async (currentProducts = [], currentSuggested = []) => {
+    try {
+      const [newProducts, newSuggested] = await Promise.all([
+        fetchProducts(),
+        fetchSuggestedProducts()
+      ]);
+
+      // Guard: si la API devuelve vacío y ya tenemos datos, ignoramos
+      if ((!newProducts || newProducts.length === 0) && currentProducts.length > 0) {
+        console.log('📦 Red devolvió vacío, manteniendo caché local');
+        return;
+      }
+
+      const mappedSuggested = (newSuggested || []); // Ya vienen mapeados de api.js
+      const productsToSave = newProducts && newProducts.length > 0 ? newProducts : currentProducts;
+      const suggestedToSave = mappedSuggested.length > 0 ? mappedSuggested : currentSuggested;
+
+      // Comparamos con el caché actual para decidir si aplicar directo o notificar
+      const currentHash = JSON.stringify(currentProducts);
+      const newHash = JSON.stringify(productsToSave);
+
+      console.log(`📡 Red respondió: ${newProducts?.length} productos. Cambio detectado: ${currentHash !== newHash}`);
+
+      if (isEditorMode || currentHash === '[]' || currentHash === newHash || currentProducts.length === 0) {
+        // Primera carga real o sin cambios: aplicar directo y persistir
+        console.log('💾 Aplicando y persistiendo productos...');
+        setProducts(productsToSave);
+        setSuggestedProducts(suggestedToSave);
+        await Promise.all([
+          AsyncStorage.setItem('@dsicario_products_cache', JSON.stringify(productsToSave)),
+          AsyncStorage.setItem('@dsicario_suggested_cache', JSON.stringify(suggestedToSave))
+        ]).then(() => console.log('💾 ✅ Caché específico de AppContext guardado exitosamente.'));
+        setPendingData(null);
+        setHasUpdates(false);
+      } else {
+        // Hay cambios reales: notificar al usuario con el banner
+        console.log('✨ Detectadas actualizaciones en la nube (Pendiente de aplicar)');
+        setPendingData({ products: productsToSave, suggested: suggestedToSave });
+        setHasUpdates(true);
+      }
+    } catch (err) {
+      console.error('🔴 Error actualizando desde red:', err);
+      // No hacemos nada: el usuario ya tiene el caché local visible
+    }
+  };
+
+  // Función pública para forzar un refresco (ej. desde pull-to-refresh)
   const checkForUpdates = async (forceApply = false) => {
     try {
       const [newProducts, newSuggested] = await Promise.all([
@@ -85,22 +167,25 @@ export const ProductsProvider = ({ children }) => {
         fetchSuggestedProducts()
       ]);
 
-      if (!newProducts) return;
+      if (!newProducts || (newProducts.length === 0 && products.length > 0)) {
+        console.log('📦 Ignorando actualización vacía para proteger el cache');
+        return;
+      }
 
       const mappedSuggested = (newSuggested || []).map(mapSuggestedProductData);
       const currentHash = JSON.stringify(products);
       const newHash = JSON.stringify(newProducts);
 
-      // Si forceApply es true (ej. tras editar) o si estamos en modo editor, aplicamos directo
       if (forceApply || isEditorMode || currentHash === '[]' || currentHash === newHash) {
         setProducts(newProducts);
         setSuggestedProducts(mappedSuggested);
-        await AsyncStorage.setItem('@dsicario_products_cache', JSON.stringify(newProducts));
+        await Promise.all([
+          AsyncStorage.setItem('@dsicario_products_cache', JSON.stringify(newProducts)),
+          AsyncStorage.setItem('@dsicario_suggested_cache', JSON.stringify(mappedSuggested))
+        ]);
         setPendingData(null);
         setHasUpdates(false);
-        setIsLoading(false);
       } else {
-        // En modo cliente normal, avisamos que hay cambios para no romper la navegación
         console.log('✨ Detectadas actualizaciones en la nube');
         setPendingData({ products: newProducts, suggested: mappedSuggested });
         setHasUpdates(true);
@@ -111,12 +196,17 @@ export const ProductsProvider = ({ children }) => {
   };
 
   // Función para actualizar un producto individualmente en el estado local (MUCHO MÁS RÁPIDO)
-  const updateProductLocally = (updatedProduct) => {
-    setProducts(prev => prev.map(p => {
-      const pId = p.id || p.ID_Producto || p.id_producto;
-      const uId = updatedProduct.id || updatedProduct.ID_Producto || updatedProduct.id_producto;
-      return pId === uId ? { ...p, ...updatedProduct } : p;
-    }));
+  const updateProductLocally = async (updatedProduct) => {
+    setProducts(prev => {
+      const next = prev.map(p => {
+        const pId = p.id || p.ID_Producto || p.id_producto;
+        const uId = updatedProduct.id || updatedProduct.ID_Producto || updatedProduct.id_producto;
+        return pId === uId ? { ...p, ...updatedProduct } : p;
+      });
+      // Persistir el cambio local de forma inmediata
+      AsyncStorage.setItem('@dsicario_products_cache', JSON.stringify(next)).catch(console.error);
+      return next;
+    });
   };
 
   // Función para aplicar los cambios manualmente (desde el banner de UI)
@@ -124,7 +214,10 @@ export const ProductsProvider = ({ children }) => {
     if (pendingData) {
       setProducts(pendingData.products);
       setSuggestedProducts(pendingData.suggested);
-      await AsyncStorage.setItem('@dsicario_products_cache', JSON.stringify(pendingData.products));
+      await Promise.all([
+        AsyncStorage.setItem('@dsicario_products_cache', JSON.stringify(pendingData.products)),
+        AsyncStorage.setItem('@dsicario_suggested_cache', JSON.stringify(pendingData.suggested))
+      ]);
       setPendingData(null);
       setHasUpdates(false);
     }
@@ -300,9 +393,12 @@ export const DataSyncProvider = ({ children }) => {
   const [deliveries, setDeliveries] = useState([]);
   const [tables, setTables] = useState([]); // 👈 Agregado
   const [isSyncing, setIsSyncing] = useState(false);
+  // ✅ Ref-based guard: previene stale closure en setInterval
+  const isSyncingRef = useRef(false);
 
   const syncAllData = async () => {
-    if (isSyncing) return;
+    if (isSyncingRef.current) return; // ✅ Usa ref, no estado (evita stale closure)
+    isSyncingRef.current = true;
     setIsSyncing(true);
     try {
       // 👈 Sincronizar acciones offline previas
@@ -330,18 +426,51 @@ export const DataSyncProvider = ({ children }) => {
           }
 
           if (oldOrder) {
+            // ✅ FIX: api.js normaliza el email a minúscula en el campo 'email'
+            // Comparamos ambos campos por si alguna versión usa Email (capital)
+            const normalizedEmail = (email || '').toLowerCase().trim();
+            const orderEmail = (
+              newOrder.email ||
+              (newOrder.Email ? newOrder.Email.toLowerCase() : '') ||
+              ''
+            ).trim();
             const isMyOrder = (
-              (newOrder.Email && email && newOrder.Email.toLowerCase() === email.toLowerCase()) ||
-              (newOrder.userId && userId && newOrder.userId === userId)
+              (orderEmail && normalizedEmail && orderEmail === normalizedEmail) ||
+              (newOrder.userId && userId && String(newOrder.userId) === String(userId))
             );
 
             // 2. Notificación al cliente (Cambio de estado)
-            if (oldOrder.estado !== newOrder.estado && isMyOrder) {
-              NotificationService.notifyOrderStatus(
-                newOrder.ID_Pedido,
-                newOrder.estado,
-                null
-              );
+            if (oldOrder.estado !== newOrder.estado) {
+              if (isMyOrder) {
+                console.log('[🔔 Notify] Estado cambió:', oldOrder.estado, '->', newOrder.estado, '| Pedido:', newOrder.ID_Pedido);
+                NotificationService.notifyOrderStatus(
+                  newOrder.ID_Pedido,
+                  newOrder.estado,
+                  null
+                );
+              }
+
+              // 3. Notificación cocina→mesero cuando un pedido queda listo
+              const readyStates = ['ready', 'listo', '✅ listo', 'preparado'];
+              const isNowReady = readyStates.some(s => (newOrder.estado || '').toLowerCase().includes(s));
+              const wasReady   = readyStates.some(s => (oldOrder.estado  || '').toLowerCase().includes(s));
+              if (isNowReady && !wasReady) {
+                notifyOrderReady({
+                  id: newOrder.ID_Pedido,
+                  cliente: newOrder.cliente || newOrder.Nombre || '',
+                  mesa_nombre: newOrder.mesa_nombre || newOrder.Mesa || '',
+                });
+              }
+
+              // 4. Notificación al admin/staff cuando el cliente cancela
+              const isCancelled = newOrder.estado === 'cancelled' || newOrder.estado === 'cancelado_cliente';
+              const isStaff = role === 'admin' || role === 'Admin' || role === 'staff' || role === 'Staff' || role === 'mesero';
+              if (isCancelled && isStaff) {
+                NotificationService.sendLocalNotification(
+                  '❌ Pedido Cancelado',
+                  `El pedido #${newOrder.ID_Pedido} fue cancelado por el cliente.`
+                );
+              }
             }
 
             // 3. Notificación al cliente (Repartidor asignado)
@@ -363,6 +492,7 @@ export const DataSyncProvider = ({ children }) => {
     } catch (e) {
       console.error('Sync Error:', e);
     } finally { 
+      isSyncingRef.current = false; // ✅ Liberar el ref guard
       setIsSyncing(false); 
     }
   };

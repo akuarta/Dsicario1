@@ -4,7 +4,6 @@ import {
   Text, 
   TouchableOpacity, 
   StyleSheet, 
-  SafeAreaView,
   ScrollView,
   Alert,
   Modal,
@@ -17,6 +16,8 @@ import {
   Animated,
   Easing
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { showAlert } from '../utils/showAlert';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useCart, useDataSync } from '../contexts/AppContext';
 import { CustomHeader } from '../components/CustomHeader';
@@ -37,6 +38,8 @@ import {
   updateOrderFinalDetails 
 } from '../utils/api';
 import { notifyRider } from '../utils/notifications';
+import { NotificationService } from '../utils/notificationService';
+import { CommonActions } from '@react-navigation/native';
 import GlassPanel from '../components/GlassPanel';
 import LocationPickerModal from '../components/LocationPickerModal';
 import { CONFIG } from '../constants/Config';
@@ -86,6 +89,7 @@ const CheckoutScreen = ({ navigation, route }) => {
                              (paymentTypeProps || availablePaymentMethods[0] || 'Efectivo');
                              
   const [paymentReference, setPaymentReference] = useState('');
+  const [selectedBankIdx, setSelectedBankIdx] = useState(0);
   const [orderNote, setOrderNote] = useState(orderNoteProps);
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [isMapVisible, setIsMapVisible] = useState(false);
@@ -96,6 +100,13 @@ const CheckoutScreen = ({ navigation, route }) => {
   const [currency, setCurrency] = useState('DOP');
 
   const availableCurrencies = businessInfo?.currencies || ['DOP', 'USD', 'EUR', 'COP', 'MXN'];
+
+  // ── Cancel-by-text feature ──────────────────────────────────────────────
+  const [cancelInput, setCancelInput] = useState('');
+  const [isCancellingOrder, setIsCancellingOrder] = useState(false);
+  const [orderCancelledByClient, setOrderCancelledByClient] = useState(false);
+  const orderCreatedAtRef = useRef(null);
+  // ────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     setCostoEnvioBase((businessInfo?.deliveryBaseFee || 100).toString());
@@ -160,7 +171,7 @@ const CheckoutScreen = ({ navigation, route }) => {
         const maxRadius = businessInfo?.deliveryMaxRadius || 15;
         const distanceKm = route.distanceValue / 1000;
         if (distanceKm > maxRadius) {
-          Alert.alert(
+          showAlert(
             'Fuera de Rango 📍',
             `Lo sentimos, esta ubicación está a ${distanceKm.toFixed(1)} km, lo cual excede nuestro radio máximo de entrega (${maxRadius} km).`
           );
@@ -323,12 +334,12 @@ const CheckoutScreen = ({ navigation, route }) => {
         if (estado === 'accepted' || estado === 'ready' || estado === 'on_the_way') {
           stopWaiting();
           setRiderConfirmed(true);
-          Alert.alert('¡Rider aceptó! 🛵', `${selectedRiderRef.current?.nombre} está disponible. Ahora puedes confirmar tu pedido.`);
+          showAlert('¡Rider aceptó! 🛵', `${selectedRiderRef.current?.nombre} está disponible. Ahora puedes confirmar tu pedido.`); // encoding fix
         } else if (estado === 'rejected' || estado === 'rechazado') {
           stopWaiting();
           setSelectedRider(null);
           setRiderModalVisible(false);
-          Alert.alert('Rechazado ❌', 'El repartidor no puede tomar el pedido.');
+          showAlert('Rechazado ❌', 'El repartidor no puede tomar el pedido.');
         }
       } catch (e) { console.warn('[Poll]', e.message); }
     }, 2000);
@@ -339,7 +350,7 @@ const CheckoutScreen = ({ navigation, route }) => {
       stopWaiting();
       setSelectedRider(null);
       setRiderModalVisible(false);
-      Alert.alert('⏰ Sin respuesta', `${riderName} no respondió a tiempo.`);
+      showAlert('⏳ Sin respuesta', `${riderName} no respondió a tiempo.`);
       updateOrderStatus(oid, 'pending', { ID_Rider: '' }).catch(() => {});
     }, 25000);
   }, [stopWaiting]);
@@ -349,7 +360,7 @@ const CheckoutScreen = ({ navigation, route }) => {
       if (deliveryType === 'delivery' && (!deliveryAddress || !deliveryAddress.trim())) {
         setRiderModalVisible(false);
         setTimeout(() => {
-          Alert.alert('📍 Falta dirección', 'Para pedir un delivery, primero debes escribir la dirección de destino.');
+          showAlert('📍 Falta dirección', 'Para pedir un delivery, primero debes escribir la dirección de destino.');
         }, 300);
         return;
       }
@@ -357,14 +368,9 @@ const CheckoutScreen = ({ navigation, route }) => {
       const isBusinessClosed = businessInfo?.closed === true;
       const oid = `ORD-${Date.now().toString(36).toUpperCase()}`;
       
-      setCurrentOrderId(oid);
       setSelectedRider(rider);
 
-      if (rider && !isBusinessClosed) {
-        setRiderModalVisible(false);
-        startWaitingCycle(oid, rider);
-      }
-
+      // ✅ FIX: Guardar el pedido PRIMERO para obtener el ID real antes de iniciar el polling
       const orderData = {
         ID_Pedido: oid,
         userId: userId || '',
@@ -398,7 +404,10 @@ const CheckoutScreen = ({ navigation, route }) => {
       
       setCurrentOrderId(finalOrderId);
 
-      if (rider) {
+      if (rider && !isBusinessClosed) {
+        // ✅ FIX: Ahora iniciamos el ciclo con el ID real desde el principio
+        setRiderModalVisible(false);
+        startWaitingCycle(finalOrderId, rider);
         notifyRider(rider, { 
           orderId: finalOrderId, 
           cliente: username, 
@@ -413,34 +422,68 @@ const CheckoutScreen = ({ navigation, route }) => {
       }
     } catch (e) {
       console.error('[NEGOTIATION] Error en sendRiderProposal:', e);
-      Alert.alert('Error', 'No se pudo procesar la propuesta.');
+      showAlert('Error', 'No se pudo procesar la propuesta.');
       setIsWaitingRider(false);
     }
   }, [cart, email, username, finalTotal, costoEnvioCalculado, deliveryAddress, deliveryType, paymentType, startWaitingCycle, orderNote, voucherImage]);
 
   const executePayment = async () => {
+    // ✅ Web: pedir permiso ANTES de todo (gesto real del usuario → browser lo acepta)
+    // Hacemos await para que el permiso esté concedido cuando llegue handleFinalSuccess
+    await NotificationService.requestWebPermission().catch(() => {});
     try {
       setIsProcessing(true);
 
       if (riderConfirmed && currentOrderId) {
+        if (paymentType.toLowerCase().includes('transf')) {
+          if (!voucherImage && (!paymentReference || !paymentReference.trim())) {
+            showAlert('Comprobante Requerido', 'Para pagar con transferencia debes subir una foto del comprobante o escribir el número de referencia.');
+            setIsProcessing(false);
+            return;
+          }
+
+          let firebaseImageUrl = '';
+          if (voucherImage && voucherImage.base64) {
+            firebaseImageUrl = await uploadVoucherImage(voucherImage.base64, currentOrderId);
+          }
+
+          const selectedBank = businessInfo?.transferDetails?.[0] || {};
+          await saveTransferRecord({
+            orderId: currentOrderId,
+            banco: selectedBank.Banco || 'Varios',
+            cuenta: selectedBank.No_Cuenta || selectedBank.Cuenta || '',
+            titular: selectedBank.Titular || '',
+            total: finalTotal,
+            voucherImage: firebaseImageUrl || ''
+          });
+        }
+
         const isCash = paymentType.toLowerCase().includes('efectivo') || paymentType === 'cash';
         const finalPaymentData = {
           metodo: paymentType,
           Pagado: isCash ? numericAmountReceived : 0,
           Devuelta: isCash ? devuelta : 0,
-          Ref_Pago: paymentReference || '',
+          Ref_Pago: paymentReference || (voucherImage ? 'Voucher adjunto' : ''),
           Estado: 'pending'
         };
-        
+
         await updateOrderFinalDetails(currentOrderId, finalPaymentData);
-        handleFinalSuccess();
+        handleFinalSuccess(currentOrderId);
         return;
       }
 
       if (deliveryType === 'delivery' && !deliveryAddress.trim()) {
-        Alert.alert('Falta dirección', 'Por favor ingresa la dirección de entrega.');
+        showAlert('Falta dirección', 'Por favor ingresa la dirección de entrega.');
         setIsProcessing(false);
         return;
+      }
+
+      if (paymentType.toLowerCase().includes('transf')) {
+        if (!voucherImage && (!paymentReference || !paymentReference.trim())) {
+          showAlert('Comprobante Requerido', 'Para pagar con transferencia debes subir una foto del comprobante o escribir el número de referencia.');
+          setIsProcessing(false);
+          return;
+        }
       }
 
       const oid = `ORD-${Date.now().toString(36).toUpperCase()}`;
@@ -480,7 +523,7 @@ const CheckoutScreen = ({ navigation, route }) => {
             firebaseImageUrl = await uploadVoucherImage(voucherImage.base64, saveRes.internalId);
           }
 
-          const selectedBank = businessInfo?.transferDetails?.[0] || {};
+          const selectedBank = businessInfo?.transferDetails?.[selectedBankIdx] || businessInfo?.transferDetails?.[0] || {};
           await saveTransferRecord({
             orderId: saveRes.internalId,
             banco: selectedBank.Banco || 'Varios',
@@ -503,23 +546,61 @@ const CheckoutScreen = ({ navigation, route }) => {
           });
           startWaitingCycle(finalOrderId, selectedRider);
         } else {
+          const finalId = saveRes.internalId || oid;
           if (saveRes.internalId) setCurrentOrderId(saveRes.internalId);
-          handleFinalSuccess();
+          handleFinalSuccess(finalId);
         }
       }
     } catch (e) {
       console.error('Error executePayment:', e);
-      Alert.alert('Error', 'No se pudo procesar el pedido. Reintenta.');
+      showAlert('Error', 'No se pudo procesar el pedido. Reintenta.');
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleFinalSuccess = () => {
+  const handleFinalSuccess = (orderId) => {
+    const finalId = orderId || currentOrderId;
+    console.log('[CHECKOUT] Final Success para pedido:', finalId);
+    
     setOrderCompleted(true);
+    orderCreatedAtRef.current = Date.now();
     clearCart();
     syncAllData();
     setIsProcessing(false);
+    
+    // Si por alguna razón el ID no está en el estado, lo forzamos para la UI
+    if (orderId && orderId !== currentOrderId) {
+      setCurrentOrderId(orderId);
+    }
+
+    // 🔔 Bug #3 fix: notificar al cliente que su pedido fue recibido
+    NotificationService.sendLocalNotification(
+      '📋 ¡Pedido Recibido!',
+      `Tu pedido #${finalId} fue registrado correctamente. Te avisaremos cuando esté listo.`
+    ).catch(err => console.error('[Notif] Error al enviar local:', err));
+  };
+
+  const handleClientCancelOrder = async () => {
+    if (cancelInput.trim().toLowerCase() !== 'cancelar') return;
+    const CANCEL_WINDOW_MS = 5 * 60 * 1000; // 5 minutos
+    if (orderCreatedAtRef.current && Date.now() - orderCreatedAtRef.current > CANCEL_WINDOW_MS) {
+      showAlert('⏰ Tiempo agotado', 'Solo puedes cancelar tu pedido dentro de los primeros 5 minutos.');
+      return;
+    }
+    try {
+      setIsCancellingOrder(true);
+      await updateOrderStatus(currentOrderId, 'cancelled', {});
+      setOrderCancelledByClient(true);
+      NotificationService.sendLocalNotification(
+        '❌ Pedido Cancelado',
+        `Tu pedido #${currentOrderId} fue cancelado correctamente.`
+      ).catch(() => {});
+    } catch (e) {
+      showAlert('Error', 'No se pudo cancelar el pedido. Contáctanos directamente.');
+    } finally {
+      setIsCancellingOrder(false);
+    }
   };
 
   const handleGenerateInvoice = async (tipo) => {
@@ -527,7 +608,7 @@ const CheckoutScreen = ({ navigation, route }) => {
     try {
       const orderData = {
         tipo, idorden: currentOrderId, fecha: new Date().toLocaleDateString(), hora: new Date().toLocaleTimeString(),
-        NombreLocal: businessInfo?.name || 'D´Sicario', DireccionLocal: businessInfo?.address || 'República Dominicana',
+        NombreLocal: businessInfo?.name || 'D\'Sicario', DireccionLocal: businessInfo?.address || 'República Dominicana',
         EmailLocal: businessInfo?.email || 'hairoman28@gmail.com', TelefonoLocal: businessInfo?.phone || '809-000-0000',
         logo: businessInfo?.logo, Cliente: username || 'Invitado', EmailUser: email || 'n/a', metodo: paymentType,
         items: cart.map(item => ({ 'Detalle': item.nombre, 'Cant': item.quantity, 'Precio': item.precio, 'Total': (item.precio * item.quantity).toFixed(2) })),
@@ -538,7 +619,7 @@ const CheckoutScreen = ({ navigation, route }) => {
       if (tipo === 'ticket') await generatePDFBase64(orderData);
       else await generateInvoice(orderData, tipo);
     } catch (error) {
-      Alert.alert('Error', 'No se pudo generar el comprobante.');
+      showAlert('Error', 'No se pudo generar el comprobante.');
     } finally {
       setIsGeneratingPDF(false);
     }
@@ -556,10 +637,18 @@ const CheckoutScreen = ({ navigation, route }) => {
   if (orderCompleted) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.successContainer}>
+        <ScrollView
+          contentContainerStyle={[styles.successContainer, { justifyContent: 'flex-start', paddingTop: 48, paddingBottom: 40 }]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.successIcon}><FontAwesome5 name="check" size={40} color="#FFF" /></View>
           <Text style={styles.successTitle}>¡Pedido Exitoso!</Text>
-          <Text style={styles.successMessage}>ID: {currentOrderId}{'\n'}Total: {formatPrice(finalTotal)}</Text>
+          <View style={{ backgroundColor: colors.surface, padding: 15, borderRadius: 12, width: '100%', marginBottom: 20, alignItems: 'center', borderStyle: 'dashed', borderWidth: 1, borderColor: colors.primary }}>
+            <Text style={{ fontSize: 12, color: colors.text.secondary, textTransform: 'uppercase', letterSpacing: 1 }}>Código de Pedido</Text>
+            <Text style={{ fontSize: 24, fontWeight: 'bold', color: colors.primary, marginVertical: 5 }}>{currentOrderId}</Text>
+            <Text style={{ fontSize: 18, color: colors.text.primary, fontWeight: '600' }}>Total: {formatPrice(finalTotal)}</Text>
+          </View>
           <TouchableOpacity style={styles.backButton} onPress={() => handleGenerateInvoice('ticket')} disabled={isGeneratingPDF}>
             <FontAwesome5 name="receipt" size={18} color="#FFF" />
             <Text style={styles.backButtonText}>{isGeneratingPDF ? 'Generando...' : 'Descargar Ticket'}</Text>
@@ -582,16 +671,92 @@ const CheckoutScreen = ({ navigation, route }) => {
             <Text style={[styles.backButtonText, { marginLeft: 10 }]}>Recibir Pedido (Escanear)</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity 
+          <TouchableOpacity
             style={{ marginTop: 20 }}
-            onPress={() => navigation.navigate('InicioTab')}
+            onPress={async () => {
+              clearCart();
+              await syncAllData();
+              navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'InicioTab' }] }));
+            }}
           >
             <Text style={{ color: colors.text.secondary, fontWeight: 'bold' }}>Volver al Inicio</Text>
           </TouchableOpacity>
-        </View>
+
+          {/* ── Panel de Cancelación por texto ── */}
+          {!orderCancelledByClient ? (
+            <View style={{
+              marginTop: 28,
+              width: '100%',
+              backgroundColor: colors.error ? colors.error + '12' : '#FF000012',
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: colors.error ? colors.error + '40' : '#FF000040',
+              padding: 16,
+            }}>
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.error || '#D32F2F', marginBottom: 6 }}>
+                ❌ ¿Deseas cancelar tu pedido?
+              </Text>
+              <Text style={{ fontSize: 12, color: colors.text?.secondary || '#666', marginBottom: 12 }}>
+                {'Solo puedes cancelar dentro de los primeros 5 minutos. Escribe '}
+                <Text style={{ fontWeight: 'bold', color: colors.error || '#D32F2F' }}>cancelar</Text>
+                {' para confirmar.'}
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TextInput
+                  style={{
+                    flex: 1,
+                    borderWidth: 1,
+                    borderColor: colors.border || '#ccc',
+                    borderRadius: 10,
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    fontSize: 15,
+                    color: colors.text?.primary || '#000',
+                    backgroundColor: colors.background || '#fff',
+                  }}
+                  placeholder='Escribe "cancelar"'
+                  placeholderTextColor={colors.text?.tertiary || '#999'}
+                  value={cancelInput}
+                  onChangeText={setCancelInput}
+                  autoCapitalize='none'
+                  returnKeyType='done'
+                  onSubmitEditing={handleClientCancelOrder}
+                />
+                <TouchableOpacity
+                  onPress={handleClientCancelOrder}
+                  disabled={cancelInput.trim().toLowerCase() !== 'cancelar' || isCancellingOrder}
+                  style={[{
+                    backgroundColor: colors.error || '#D32F2F',
+                    paddingHorizontal: 18,
+                    paddingVertical: 10,
+                    borderRadius: 10,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }, (cancelInput.trim().toLowerCase() !== 'cancelar' || isCancellingOrder) && { opacity: 0.4 }]}
+                >
+                  {isCancellingOrder
+                    ? <ActivityIndicator size='small' color='#FFF' />
+                    : <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>Cancelar</Text>
+                  }
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View style={{ marginTop: 28, alignItems: 'center', padding: 16 }}>
+              <FontAwesome5 name='check-circle' size={30} color={colors.success || '#4CAF50'} />
+              <Text style={{ marginTop: 10, fontSize: 15, fontWeight: 'bold', color: colors.success || '#4CAF50' }}>
+                Pedido cancelado exitosamente
+              </Text>
+              <Text style={{ fontSize: 12, color: colors.text?.secondary || '#666', marginTop: 4, textAlign: 'center' }}>
+                Tu pedido #{currentOrderId} fue cancelado. No se realizará ningún cobro.
+              </Text>
+            </View>
+          )}
+        </ScrollView>
       </SafeAreaView>
     );
   }
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -727,7 +892,7 @@ const CheckoutScreen = ({ navigation, route }) => {
                   
                   console.log('[CHECKOUT] Botón presionado. riderModalVisible actual:', riderModalVisible);
                   if (riders.length === 0) {
-                    Alert.alert(
+                    showAlert(
                       'No hay repartidores 🛵',
                       'No hemos encontrado repartidores Online, Activos y Disponibles en este momento.\n\nRevisa que el repartidor haya iniciado sesión y marcado su estado como Online.'
                     );
@@ -794,50 +959,75 @@ const CheckoutScreen = ({ navigation, route }) => {
 
         <View style={[styles.section, riderConfirmed && { borderColor: colors.success, borderWidth: 2, padding: 15, borderRadius: 20 }]}>
           <Text style={styles.sectionTitle}>
-            {riderConfirmed ? '🏁 PASO FINAL: DETALLES DE PAGO' : 'Pago'}
+            {riderConfirmed ? '🌟 PASO FINAL: DETALLES DE PAGO' : 'Pago'}
           </Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 15 }}>
-            {(businessInfo?.paymentMethodsDetailed && businessInfo.paymentMethodsDetailed.length > 0
-              ? businessInfo.paymentMethodsDetailed.filter(m => {
-                  const methodType = (m['Tipo Entrega'] || '').toLowerCase();
-                  if (!methodType) return true; // Si no tiene tipo, disponible para todos
-                  if (deliveryType === 'delivery') return methodType.includes('delivery') || methodType.includes('domicilio');
-                  return methodType.includes('local') || methodType.includes('recogida');
-                }).map(m => m['Metodo Pago'])
-              : availablePaymentMethods
-            ).map((method, index) => {
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 20, paddingBottom: 15, marginBottom: 5 }}>
+            {(businessInfo?.paymentMethods || ['Efectivo', 'Tarjeta']).filter(method => {
+              if (businessInfo?.paymentMethodsDetailed && businessInfo.paymentMethodsDetailed.length > 0) {
+                  const detailed = businessInfo.paymentMethodsDetailed.find(m => {
+                      const mName = m['Metodo Pago'] || m['metodo pago'] || m['Metodo_Pago'] || m['Metodo_pago'] || '';
+                      return mName.toLowerCase() === method.toLowerCase();
+                  });
+                  if (detailed) {
+                      const methodType = (detailed['Tipo Entrega'] || '').toLowerCase();
+                      if (!methodType || methodType.includes('ambos')) return true;
+                      if (deliveryType === 'delivery') return methodType.includes('delivery') || methodType.includes('domicilio');
+                      return methodType.includes('local') || methodType.includes('recogida');
+                  }
+              }
+              return true;
+            }).map((method, index) => {
               const isActive = paymentType === method;
               return (
                 <TouchableOpacity 
                   key={index}
                   style={[
                     styles.paymentMethod, 
-                    { flex: 1, minWidth: '45%', marginVertical: 0 },
-                    isActive && { backgroundColor: colors.primary + '20', borderColor: colors.primary, borderWidth: 1 },
-                    riderConfirmed && isActive && { backgroundColor: colors.success + '20', borderColor: colors.success }
+                    { minWidth: 120, paddingHorizontal: 15, height: 55, marginVertical: 0 },
+                    isActive && { backgroundColor: colors.primary + '20', borderColor: colors.primary, borderWidth: 2 },
+                    riderConfirmed && isActive && { backgroundColor: colors.success + '20', borderColor: colors.success, borderWidth: 2 }
                   ]} 
                   onPress={() => setPaymentType(method)}
                 >
                   <FontAwesome5 name={getPaymentIcon(method)} size={20} color={isActive ? (riderConfirmed ? colors.success : colors.primary) : colors.text.secondary} />
-                  <Text style={[styles.paymentText, isActive && { color: riderConfirmed ? colors.success : colors.primary }]}>{method}</Text>
+                  <Text style={[styles.paymentText, isActive && { color: riderConfirmed ? colors.success : colors.primary, fontWeight: 'bold' }]}>{method}</Text>
                 </TouchableOpacity>
               );
             })}
-          </View>
+          </ScrollView>
 
           {/* Detalles de Transferencia si aplica */}
           {(paymentType.toLowerCase().includes('transf') && businessInfo?.transferDetails?.length > 0) && (
             <View style={{ backgroundColor: colors.surface, padding: 15, borderRadius: 12, marginBottom: 15, borderWidth: 1, borderColor: colors.border }}>
               <Text style={{ color: colors.text.primary, fontWeight: 'bold', marginBottom: 10 }}>
-                <FontAwesome5 name="university" color={colors.primary} /> Datos para Transferencia:
+                <FontAwesome5 name="university" color={colors.primary} /> Elige el Banco a Transferir:
               </Text>
-              {businessInfo.transferDetails.map((bank, idx) => (
-                <View key={idx} style={{ marginBottom: idx < businessInfo.transferDetails.length - 1 ? 12 : 0, paddingBottom: idx < businessInfo.transferDetails.length - 1 ? 12 : 0, borderBottomWidth: idx < businessInfo.transferDetails.length - 1 ? 1 : 0, borderBottomColor: colors.border }}>
-                  <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 14 }}>{bank.Banco}</Text>
-                  <Text style={{ color: colors.text.primary, fontSize: 13 }}>Cuenta: <Text style={{ fontWeight: 'bold' }}>{bank.No_Cuenta || bank.Cuenta}</Text></Text>
-                  <Text style={{ color: colors.text.secondary, fontSize: 12 }}>Titular: {bank.Titular}</Text>
+              
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingBottom: 5, marginBottom: 15 }}>
+                {businessInfo.transferDetails.map((bank, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    onPress={() => setSelectedBankIdx(idx)}
+                    style={{
+                      paddingHorizontal: 15, paddingVertical: 8, borderRadius: 8, borderWidth: 1,
+                      borderColor: selectedBankIdx === idx ? colors.primary : colors.border,
+                      backgroundColor: selectedBankIdx === idx ? colors.primary + '20' : colors.background
+                    }}
+                  >
+                    <Text style={{ color: selectedBankIdx === idx ? colors.primary : colors.text.secondary, fontWeight: 'bold' }}>
+                      {bank.Banco}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {businessInfo.transferDetails[selectedBankIdx] && (
+                <View style={{ backgroundColor: colors.background, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}>
+                  <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 14 }}>{businessInfo.transferDetails[selectedBankIdx].Banco}</Text>
+                  <Text style={{ color: colors.text.primary, fontSize: 13 }}>Cuenta: <Text style={{ fontWeight: 'bold' }}>{businessInfo.transferDetails[selectedBankIdx].No_Cuenta || businessInfo.transferDetails[selectedBankIdx].Cuenta}</Text></Text>
+                  <Text style={{ color: colors.text.secondary, fontSize: 12 }}>Titular: {businessInfo.transferDetails[selectedBankIdx].Titular}</Text>
                 </View>
-              ))}
+              )}
 
               <TouchableOpacity 
                 onPress={async () => {
@@ -900,7 +1090,7 @@ const CheckoutScreen = ({ navigation, route }) => {
             </View>
           ) : null}
           
-          {(paymentType.toLowerCase().includes('efectivo') || paymentType === 'cash') ? (
+          {(paymentType.toLowerCase().includes('efectivo') || paymentType.toLowerCase().includes('cash')) ? (
             <View style={styles.cashInputContainer}>
               <Text style={{ fontSize: 13, color: colors.text.secondary, marginBottom: 10, fontWeight: 'bold' }}>
                 {deliveryType === 'delivery' ? '¿Con cuánto dinero en efectivo enviará el pago al repartidor?' : '¿Con cuánto dinero en efectivo vas a pagar?'}
@@ -939,7 +1129,7 @@ const CheckoutScreen = ({ navigation, route }) => {
                 </View>
               )}
             </View>
-          ) : paymentType.toLowerCase().includes('tarjeta') || paymentType.toLowerCase().includes('card') ? (
+          ) : (paymentType.toLowerCase().includes('tarjeta') || paymentType.toLowerCase().includes('card')) ? (
             <View style={styles.cashInputContainer}>
               <Text style={{ fontSize: 14, color: colors.text.secondary, marginBottom: 10, textAlign: 'center', fontStyle: 'italic', paddingHorizontal: 10 }}>
                 {deliveryType === 'delivery' 
@@ -947,7 +1137,7 @@ const CheckoutScreen = ({ navigation, route }) => {
                   : 'Podrás pagar con tu tarjeta en el mostrador del local.'}
               </Text>
             </View>
-          ) : (
+          ) : (paymentType.toLowerCase().includes('transf') || paymentType.toLowerCase().includes('zelle') || paymentType.toLowerCase().includes('paypal') || paymentType.toLowerCase().includes('binance') || paymentType.toLowerCase().includes('depósito')) ? (
             <View style={styles.cashInputContainer}>
               <Text style={{ fontSize: 13, color: colors.text.secondary, marginBottom: 10, fontWeight: 'bold' }}>
                 Número de Referencia / Confirmación (Opcional)
@@ -962,7 +1152,7 @@ const CheckoutScreen = ({ navigation, route }) => {
                 onSubmitEditing={executePayment}
               />
             </View>
-          )}
+          ) : null}
         </View>
       </ScrollView>
 

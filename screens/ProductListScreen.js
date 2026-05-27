@@ -7,7 +7,6 @@ import {
   TouchableOpacity, 
   Image, 
   ScrollView, 
-  SafeAreaView,
   RefreshControl,
   Dimensions,
   Platform,
@@ -18,6 +17,8 @@ import {
   TextInput,
   ActivityIndicator
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import { FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useProducts, useCart } from '../contexts/AppContext';
@@ -41,22 +42,22 @@ import {
   deleteOrder, 
   generateOrderId, 
   updateOrderStatus,
-  fetchAlmacen,
-  fetchRecetas,
-  saveRecipeIngredient,
-  deleteRecipeIngredient
+  fetchAlmacen
 } from '../utils/api';
 
 const { width } = Dimensions.get('window');
 
 const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
+  // 1. Context Hooks
   const { darkMode } = useThemeMode();
-  const colors = getThemeColors(darkMode);
+  const insets = useSafeAreaInsets();
+  const { role, isClientMode } = useUser();
+  const { syncAllData } = useDataSync();
   const globalStyles = useGlobalStyles();
   
   const { 
-    products, 
-    suggestedProducts, 
+    products = [], 
+    suggestedProducts = [], 
     isLoading, 
     error, 
     refetchProducts, 
@@ -65,22 +66,45 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
     hasUpdates,
     applyUpdates
   } = useProducts();
-  const { role, isClientMode } = useUser();
+
   const { 
     waiterActiveSession, 
     setWaiterActiveSession, 
     businessInfo, 
-    cart, 
+    cart = [], 
     getTotalCost, 
     clearCart, 
     removeFromCart, 
     updateCartItemQuantity,
     isWaiterMode, 
-    activeStaffMode 
+    activeStaffMode,
+    setActiveStaffMode
   } = useCart();
-  const { syncAllData } = useDataSync();
 
-  const getStaffModeDetails = useCallback(() => {
+  // 2. Local State Hooks (Hoisted to top to avoid ReferenceErrors)
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedFilter, setSelectedFilter] = useState('all');
+  const [showFilters, setShowFilters] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showMesaModal, setShowMesaModal] = useState(false);
+  const [isOpeningMesa, setIsOpeningMesa] = useState(false);
+  const [isClosingMesa, setIsClosingMesa] = useState(false);
+  const [mesaClienteNombre, setMesaClienteNombre] = useState('');
+  const [isSendingToKitchen, setIsSendingToKitchen] = useState(false);
+
+  // 3. Derived Constants & Helpers
+  const colors = getThemeColors(darkMode);
+  const activeWaiterSession = waiterActiveSession;
+  const isAdmin = role?.toLowerCase().includes('admin') || role?.toLowerCase().includes('owner');
+  const isPreOrderMode = !!businessInfo?.closed;
+  const isInicio = mode === 'inicio' || route.params?.mode === 'inicio';
+  const isExplorar = mode === 'explorar' || route.params?.mode === 'explorar';
+  const isWaiterWorkFlow = isWaiterMode && !!activeWaiterSession?.cliente;
+  const hasActiveSearch = searchTerm.length > 0;
+
+  // 4. Memoized Helpers
+  const staffModeDetails = useMemo(() => {
+    if (!activeStaffMode) return null;
     switch (activeStaffMode) {
       case 'cocina': return { label: 'MODO COCINA', color: '#E67E22', icon: 'utensils' };
       case 'mesero': return { label: 'MODO MESERO', color: '#FF8C00', icon: 'concierge-bell' };
@@ -90,174 +114,40 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       default: return null;
     }
   }, [activeStaffMode]);
-  
-  const staffModeDetails = getStaffModeDetails();
 
-  // 🤵 Sincronizar Sesión de Mesero al entrar
-  useEffect(() => {
-    if (route.params?.cliente) {
-      console.log('📥 PARAMS RECIBIDOS EN ProductList:', JSON.stringify(route.params));
-      setWaiterActiveSession({
-        id_carrito: route.params.orderId || route.params.mesaId || `POS-${Date.now()}`,
-        cliente: route.params.cliente,
-        mesa_id: route.params.mesaId,
-        mesa_nombre: route.params.mesaNombre,
-        orderId: route.params.orderId
-      });
-      console.log('🪑 Sesión mesero guardada con mesa_id:', route.params.mesaId);
+  const filterOptions = useMemo(() => {
+    if (isPreOrderMode) {
+      return [
+        { key: 'all', label: 'Todos', icon: 'list' },
+        { key: 'preorder_only', label: 'Pre orden', icon: 'clock' },
+        { key: 'suggestions', label: 'Sugerencia', icon: 'thumbs-up' },
+      ];
     }
-  }, [route.params]);
+    return [
+      { key: 'all', label: 'Todos', icon: 'th-large' },
+      { key: 'available', label: 'Disponibles', icon: 'check-circle' },
+      { key: 'offers', label: 'Ofertas', icon: 'tag' },
+      { key: 'bestsellers', label: 'Más Vendidos', icon: 'fire' },
+      { key: 'recommended', label: 'Recomendados', icon: 'thumbs-up' },
+      { key: 'house-specials', label: 'De la Casa', icon: 'home' },
+      { key: 'high-rated', label: 'Mejor Valorados', icon: 'star' },
+    ];
+  }, [isPreOrderMode]);
 
-  const isInicio = mode === 'inicio' || route.params?.mode === 'inicio';
-  // 🤵 Detectar si estamos en flujo operativo de Camarero (vía Rol Global + Sesión si es Admin)
-  const normalizedRole = role?.toLowerCase() || '';
-  // Panel de mesero visible cuando el modo está activo (switch global)
-  const isWaiterWorkFlow = isWaiterMode;
-  const activeWaiterSession = waiterActiveSession;
-
-  const [searchTerm, setSearchTerm] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
-  const isPreOrderMode = mode === 'preorder' || route.params?.mode === 'preorder';
-  const [selectedFilter, setSelectedFilter] = useState(isPreOrderMode ? 'preorder_only' : 'all');
-
-  // --- RECIPE EDITOR STATE ---
-  const [isRecipeModalVisible, setIsRecipeModalVisible] = useState(false);
-  const [recipeProduct, setRecipeProduct] = useState(null);
-  const [recipeIngredients, setRecipeIngredients] = useState([]);
-  const [almacenItems, setAlmacenItems] = useState([]);
-  const [isSavingRecipe, setIsSavingRecipe] = useState(false);
-  const [searchAlmacen, setSearchAlmacen] = useState('');
-  const [hasUnsavedRecipeChanges, setHasUnsavedRecipeChanges] = useState(false);
-
-  // --- RECIPE EDITOR FUNCTIONS ---
-  const handleCloseRecipeModal = () => {
-    if (hasUnsavedRecipeChanges) {
-      Alert.alert(
-        'Cambios sin guardar',
-        '¿Deseas descartar los cambios realizados en la receta?',
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          { text: 'Descartar', style: 'destructive', onPress: () => {
-              setIsRecipeModalVisible(false);
-              setHasUnsavedRecipeChanges(false);
-          }}
-        ]
-      );
-    } else {
-      setIsRecipeModalVisible(false);
-    }
-  };
-
-  const [isLoadingRecipe, setIsLoadingRecipe] = useState(false);
-
-  const handleOpenRecipeEditor = async (product) => {
-    try {
-      setRecipeProduct(product);
-      setRecipeIngredients([]); // Limpiar receta anterior inmediatamente
-      setIsLoadingRecipe(true);
-      setIsRecipeModalVisible(true);
-      setHasUnsavedRecipeChanges(false);
-      
-      // Cargar ingredientes actuales de este producto
-      const [allRecipes, allAlmacen] = await Promise.all([
-        fetchRecetas(),
-        fetchAlmacen()
-      ]);
-      
-      setAlmacenItems(allAlmacen);
-      
-      // Filtrar recetas por el nombre del producto
-      const currentIngredients = allRecipes.filter(r => 
-        (r['productos terminados'] || r['Producto']) === product.nombre
-      ).map(r => ({
-        IDrecetas: r.IDrecetas,
-        ingredientName: r.ingrediente || r['Ingrediente'],
-        quantity: r['cant. pocion'] || r['Cantidad'] || '0',
-        unit: r['tipo de porcion'] || r['Unidad'] || 'und'
-      }));
-      
-      setRecipeIngredients(currentIngredients);
-    } catch (err) {
-      console.error('Error al abrir receta:', err);
-      showAlert('Error', 'No se pudieron cargar los datos de la receta');
-    } finally {
-      setIsLoadingRecipe(false);
-    }
-  };
-
-  const handleAddIngredientToRecipe = (item) => {
-    // Evitar duplicados
-    if (recipeIngredients.find(i => i.ingredientName === item.nombre)) {
-      showAlert('Aviso', 'Este ingrediente ya está en la receta');
-      return;
-    }
-    
-    const newIng = {
-      IDrecetas: `REC-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      ingredientName: item.nombre,
-      quantity: '1',
-      unit: item.tipoPorcion || item.tipoMedida || 'und'
-    };
-    
-    setRecipeIngredients([...recipeIngredients, newIng]);
-    setHasUnsavedRecipeChanges(true);
-  };
-
-  const handleRemoveIngredientFromRecipe = async (index) => {
-    const ing = recipeIngredients[index];
-    // Si tiene un ID real (no temporal), podríamos borrarlo de la base de datos
-    // Pero por simplicidad, lo quitamos de la lista local y se limpia al guardar
-    const newList = [...recipeIngredients];
-    newList.splice(index, 1);
-    setRecipeIngredients(newList);
-    setHasUnsavedRecipeChanges(true);
-  };
-
-  const handleSaveRecipe = async () => {
-    if (!recipeProduct) return;
-    setIsSavingRecipe(true);
-    
-    try {
-      // 1. Borrar ingredientes viejos no es trivial con esta API sin un "Delete All for Product"
-      // Así que simplemente guardamos/actualizamos los actuales.
-      // NOTA: Para un sistema completo, deberíamos marcar los borrados para eliminarlos en la BD.
-      
-      for (const ing of recipeIngredients) {
-        await saveRecipeIngredient({
-          IDrecetas: ing.IDrecetas,
-          productName: recipeProduct.nombre,
-          ingredientName: ing.ingredientName,
-          quantity: ing.quantity,
-          unit: ing.unit
-        });
-      }
-      
-      showAlert('Éxito', 'Receta guardada correctamente');
-      setHasUnsavedRecipeChanges(false);
-      setIsRecipeModalVisible(false);
-    } catch (err) {
-      console.error('Error saving recipe:', err);
-      showAlert('Error', 'Hubo un problema al guardar la receta');
-    } finally {
-      setIsSavingRecipe(false);
-    }
-  };
-  
-  const isExplorar = mode === 'explorar' || route.params?.mode === 'explorar';
-  
-  const isAdmin = role?.toLowerCase().includes('admin') || role?.toLowerCase().includes('owner');
-
-  // Recuperar parámetros de filtrado si vienen de la navegación
-  useEffect(() => {
-    if (route.params?.filter) {
-      setSelectedFilter(route.params.filter);
-    }
-  }, [route.params?.filter]);
+  // 5. Callbacks
+  const clearSearch = useCallback(() => {
+    setSearchTerm('');
+  }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refetchProducts();
-    setRefreshing(false);
+    try {
+      await refetchProducts();
+    } catch (err) {
+      console.error('Refresh error:', err);
+    } finally {
+      setRefreshing(false);
+    }
   }, [refetchProducts]);
 
   const handleProductPress = useCallback((product) => {
@@ -273,12 +163,26 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
     }
   }, [navigation, activeWaiterSession, isEditorMode, isPreOrderMode]);
 
-  // 🤵 Modal para que Owner/Admin arranquen una orden directamente
-  const [showMesaModal, setShowMesaModal] = useState(false);
-  const [isOpeningMesa, setIsOpeningMesa] = useState(false);
-  const [isClosingMesa, setIsClosingMesa] = useState(false);
-  const [mesaClienteNombre, setMesaClienteNombre] = useState('');
+  // 6. Effects
+  useEffect(() => {
+    if (route.params?.cliente) {
+      setWaiterActiveSession({
+        id_carrito: route.params.orderId || route.params.mesaId || `POS-${Date.now()}`,
+        cliente: route.params.cliente,
+        mesa_id: route.params.mesaId,
+        mesa_nombre: route.params.mesaNombre,
+        orderId: route.params.orderId
+      });
+    }
+  }, [route.params, setWaiterActiveSession]);
 
+  useEffect(() => {
+    if (route.params?.filter) {
+      setSelectedFilter(route.params.filter);
+    }
+  }, [route.params?.filter]);
+
+  // 7. Action Handlers
   const handleIniciarMesa = async () => {
     if (!mesaClienteNombre.trim()) {
       showAlert('Error', 'Ingresa el nombre del cliente.');
@@ -306,59 +210,31 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
   };
 
   const handleCerrarMesaBanner = () => {
-    const isDraft = !!activeWaiterSession?.isDraft;
     const orderId = activeWaiterSession?.orderId;
     const mesaId = activeWaiterSession?.mesa_id;
-
-    // Determinar acción según estado (simplificado para la carta)
-    // En la carta solemos estar en 'draft' o 'pending/preparing'
+    const isDraft = !!activeWaiterSession?.isDraft;
     
     const processLiberacion = async (finalStatus = null, shouldDelete = false) => {
-      console.log('🚀 [CIERRE] INICIANDO PROCESO DE LIBERACIÓN');
       setIsClosingMesa(true);
       try {
-        const currentOrderId = orderId;
-        const currentMesaId = mesaId;
-
-        console.log('📍 [CIERRE] Info:', { currentOrderId, currentMesaId, finalStatus, shouldDelete });
-
-        // 1. Pedido
-        if (shouldDelete && currentOrderId) {
-          console.log('Step 1/4: 🗑️ Eliminando pedido en servidor...');
-          const delRes = await deleteOrder(currentOrderId);
-          console.log('Step 1/4: ✅ Resultado borrado:', delRes);
-        } else if (finalStatus && currentOrderId) {
-          console.log(`Step 1/4: 📦 Actualizando pedido a ${finalStatus}...`);
-          const upRes = await updateOrderStatus(currentOrderId, finalStatus);
-          console.log('Step 1/4: ✅ Resultado actualización:', upRes);
-        } else {
-          console.log('Step 1/4: ⏩ Saltando gestión de pedido (no hay ID o no aplica)');
+        if (shouldDelete && orderId) {
+          await deleteOrder(orderId);
+        } else if (finalStatus && orderId) {
+          await updateOrderStatus(orderId, finalStatus);
         }
 
-        // 2. Mesa
-        if (currentMesaId != null && currentMesaId !== '' && !['1','2','3','4'].includes(String(currentMesaId))) {
-          const currentMesaNombre = activeWaiterSession?.mesa_nombre || currentMesaId;
-          console.log(`Step 2/4: 🧹 Limpiando mesa ${currentMesaId} (${currentMesaNombre}) en Google Sheets...`);
-          const resetRes = await hardResetTable(currentMesaId, currentMesaNombre);
-          console.log('Step 2/4: ✅ Resultado limpieza mesa:', resetRes);
-        } else {
-          console.log('Step 2/4: ⏩ Saltando limpieza de mesa (Virtual o Vacía)');
+        if (mesaId != null && mesaId !== '' && !['1','2','3','4'].includes(String(mesaId))) {
+          const currentMesaNombre = activeWaiterSession?.mesa_nombre || mesaId;
+          await hardResetTable(mesaId, currentMesaNombre);
         }
         
-        // 3. Limpieza local
-        console.log('Step 3/4: 🧼 Limpiando carrito y sesión local...');
         clearCart();
         setWaiterActiveSession(null);
-        
-        // 4. Sincronización
-        console.log('Step 4/4: 🔄 Sincronizando datos globales para actualizar mapa...');
         await syncAllData();
-        
-        console.log('🏁 [CIERRE] PROCESO FINALIZADO CON ÉXITO. Navegando...');
         navigation.navigate('WaiterHome');
       } catch (error) {
-        console.error('❌ [CIERRE] ERROR CRÍTICO:', error);
-        showAlert('Error', 'No se pudo completar el cierre. Revisa tu conexión.');
+        console.error('❌ [CIERRE] ERROR:', error);
+        showAlert('Error', 'No se pudo completar el cierre.');
         navigation.navigate('WaiterHome');
       } finally {
         setIsClosingMesa(false);
@@ -371,7 +247,6 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
         { text: 'Borrar', onPress: () => processLiberacion(null, true), style: 'destructive' }
       ]);
     } else {
-      // Si no es draft, es que ya se envió algo
       showAlert('Finalizar Mesa', '¿Qué deseas hacer con este pedido?', [
         { text: 'Solo Liberar', onPress: () => processLiberacion() },
         { text: 'CANCELAR ❌', onPress: () => processLiberacion('cancelled'), style: 'destructive' },
@@ -380,7 +255,6 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
     }
   };
 
-  const [isSendingToKitchen, setIsSendingToKitchen] = useState(false);
   const handleSendToKitchen = async () => {
     if (cart.length === 0) {
       showAlert('Vacío', 'Agrega productos antes de enviar a cocina.');
@@ -404,10 +278,8 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       
       if (success) {
         clearCart();
-        navigation.navigate('InicioTab'); // Vuelve al panel del mesero (WaiterScreen)
+        navigation.navigate('InicioTab');
         showAlert('¡Enviado!', 'La orden ha sido enviada a cocina.');
-      } else {
-        throw new Error("No update");
       }
     } catch (e) {
       showAlert('Error', 'No se pudo enviar la orden a cocina.');
@@ -415,12 +287,6 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       setIsSendingToKitchen(false);
     }
   };
-
-  const clearSearch = useCallback(() => {
-    setSearchTerm('');
-  }, []);
-
-  const hasActiveSearch = searchTerm.length > 0;
 
   // Filtrado y búsqueda
   const processedProducts = useMemo(() => {
@@ -468,7 +334,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
 
   const styles = useMemo(() => StyleSheet.create({
     headerContainer: {
-      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0,
+      paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 10),
       paddingBottom: spacing.sm,
       backgroundColor: colors.primary,
       ...shadows.medium,
@@ -496,12 +362,12 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
     homeLogoSection: {
       backgroundColor: colors.primary,
       alignItems: 'center',
-      paddingVertical: spacing.md,
+      paddingVertical: spacing.xs,
     },
     homeLogoBadge: {
-      width: 90,
-      height: 90,
-      borderRadius: 45,
+      width: 60,
+      height: 60,
+      borderRadius: 30,
       backgroundColor: '#FFFFFF',
       justifyContent: 'center',
       alignItems: 'center',
@@ -510,8 +376,8 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       ...shadows.small,
     },
     homeLogo: {
-      width: 65,
-      height: 65,
+      width: 45,
+      height: 45,
     },
     chipsWrapper: {
       backgroundColor: colors.surface,
@@ -636,7 +502,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       shadowRadius: 5,
       zIndex: 100,
     }
-  }), [colors, darkMode]);
+  }), [colors, darkMode, insets]);
 
   const renderFilterChip = useCallback((filter) => (
     <TouchableOpacity
@@ -663,19 +529,86 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
     </TouchableOpacity>
   ), [selectedFilter, colors, styles]);
 
-  const filterOptions = isPreOrderMode ? [
-    { key: 'all', label: 'Todos', icon: 'list' },
-    { key: 'preorder_only', label: 'Pre orden', icon: 'clock' },
-    { key: 'suggestions', label: 'Sugerencia', icon: 'thumbs-up' },
-  ] : [
-    { key: 'all', label: 'Todos', icon: 'th-large' },
-    { key: 'available', label: 'Disponibles', icon: 'check-circle' },
-    { key: 'offers', label: 'Ofertas', icon: 'tag' },
-    { key: 'bestsellers', label: 'Más Vendidos', icon: 'fire' },
-    { key: 'recommended', label: 'Recomendados', icon: 'thumbs-up' },
-    { key: 'house-specials', label: 'De la Casa', icon: 'home' },
-    { key: 'high-rated', label: 'Mejor Valorados', icon: 'star' },
-  ];
+  // filterOptions moved to Memo section
+
+  // 🔄 1. Manejo de Estado de Carga Inicial
+  if (isLoading && products.length === 0) {
+    return (
+      <View style={[globalStyles.container, { 
+        backgroundColor: colors.background, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        padding: 40
+      }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={{ 
+          marginTop: 20, 
+          color: colors.text.primary, 
+          fontSize: 18, 
+          fontWeight: 'bold',
+          textAlign: 'center'
+        }}>
+          Cargando catálogo...
+        </Text>
+        <Text style={{ 
+          marginTop: 10, 
+          color: colors.text.secondary, 
+          fontSize: 14,
+          textAlign: 'center',
+          opacity: 0.8
+        }}>
+          Estamos preparando el menú más fresco para ti.
+        </Text>
+      </View>
+    );
+  }
+
+  // ❌ 2. Manejo de Errores Críticos
+  if (error && products.length === 0) {
+    return (
+      <View style={[globalStyles.container, { 
+        backgroundColor: colors.background, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        padding: 40
+      }]}>
+        <View style={{ backgroundColor: colors.error + '15', padding: 25, borderRadius: 100, marginBottom: 20 }}>
+          <FontAwesome5 name="exclamation-triangle" size={40} color={colors.error} />
+        </View>
+        <Text style={{ 
+          color: colors.text.primary, 
+          fontSize: 20, 
+          fontWeight: 'bold',
+          textAlign: 'center'
+        }}>
+          ¡Vaya! Algo salió mal
+        </Text>
+        <Text style={{ 
+          marginTop: 12, 
+          color: colors.text.secondary, 
+          fontSize: 15,
+          textAlign: 'center',
+          marginBottom: 30,
+          lineHeight: 22
+        }}>
+          No pudimos conectar con el servidor para obtener los productos.
+        </Text>
+        <TouchableOpacity 
+          activeOpacity={0.8}
+          onPress={() => refetchProducts(true)}
+          style={{ 
+            backgroundColor: colors.primary, 
+            paddingVertical: 16, 
+            paddingHorizontal: 32, 
+            borderRadius: 15,
+            ...shadows.medium
+          }}
+        >
+          <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 16 }}>REINTENTAR AHORA</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   if (isInicio && !hasActiveSearch) {
     const sectionRules = [
@@ -711,15 +644,28 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
                 />
              </View>
           </View>
-          <SearchBar
-            value={searchTerm}
-            onChangeText={setSearchTerm}
-            onClear={clearSearch}
-            showFilterButton={false}
-            onMenuPress={() => navigation.openDrawer()}
-            placeholder="Buscar productos..."
-            style={{ backgroundColor: 'rgba(255,255,255,0.95)' }}
-          />
+          <View style={{ marginTop: 5 }}>
+            <SearchBar
+              value={searchTerm}
+              onChangeText={setSearchTerm}
+              onClear={clearSearch}
+              showFilterButton={true}
+              onFilterPress={() => setShowFilters(prev => !prev)}
+              filterActive={showFilters}
+              onMenuPress={() => navigation.openDrawer()}
+              placeholder="Buscar productos..."
+              style={{ backgroundColor: 'rgba(255,255,255,0.95)' }}
+            />
+            {showFilters && (
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipsScrollContainer}
+              >
+                {filterOptions.map(renderFilterChip)}
+              </ScrollView>
+            )}
+          </View>
         </View>
         
         {/* 🔘 Botón de Actualización Sutil */}
@@ -857,7 +803,6 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
                   <ProductItem
                     product={item}
                     onPress={handleProductPress}
-                    onRecipePress={handleOpenRecipeEditor}
                     compact
                     style={styles.horizontalProductItem}
                   />
@@ -886,9 +831,10 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
           value={searchTerm}
           onChangeText={setSearchTerm}
           onClear={clearSearch}
-          onFilterPress={() => {}}
+          onFilterPress={() => setShowFilters(prev => !prev)}
           onMenuPress={() => navigation.openDrawer()}
           placeholder="Buscar en DSicario..."
+          filterActive={showFilters}
         />
         {businessInfo?.closed && (
           <View style={{ backgroundColor: '#2D0050', paddingVertical: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
@@ -896,16 +842,16 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
             <Text style={{ color: '#E6E6FA', fontWeight: 'bold', fontSize: 12 }}>MODO PRE-ORDEN 🌙</Text>
           </View>
         )}
-        
 
-
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipsScrollContainer}
-        >
-          {filterOptions.map(renderFilterChip)}
-        </ScrollView>
+        {showFilters && (
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.chipsScrollContainer}
+          >
+            {filterOptions.map(renderFilterChip)}
+          </ScrollView>
+        )}
       </View>
 
       {/* 🛠️ Banner de Modo Editor para Administradores */}
@@ -1093,7 +1039,6 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
               <ProductItem 
                 product={item} 
                 onPress={handleProductPress}
-                onRecipePress={handleOpenRecipeEditor}
                 style={{ flex: 1, margin: 4 }}
               />
             )}
@@ -1220,160 +1165,6 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
           }}>
             <ActivityIndicator size="large" color={colors.primary} />
             <Text style={{ marginTop: 15, color: darkMode ? '#fff' : '#333', fontWeight: 'bold' }}>Cerrando mesa...</Text>
-          </View>
-        </View>
-      </Modal>
-
-      {/* 📖 MODAL: EDITOR DE RECETAS */}
-      <Modal
-        visible={isRecipeModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={handleCloseRecipeModal}
-      >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: 20 }}>
-          <View style={{ backgroundColor: colors.surface, borderRadius: 15, maxHeight: '90%', overflow: 'hidden' }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingBottom: 15 }}>
-              <View>
-                <Text style={{ ...typography.h3, color: colors.text }}>Receta: {recipeProduct?.nombre}</Text>
-                <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Define los ingredientes de este producto</Text>
-              </View>
-              <TouchableOpacity onPress={handleCloseRecipeModal}>
-                <FontAwesome5 name="times" size={24} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20 }}>
-              {/* Ingredientes Actuales */}
-              <Text style={{ fontWeight: 'bold', color: colors.primary, marginBottom: 10 }}>Ingredientes en Receta</Text>
-              
-              {isLoadingRecipe ? (
-                <View style={{ padding: 20, alignItems: 'center' }}>
-                  <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={{ color: colors.textSecondary, marginTop: 10 }}>Cargando receta...</Text>
-                </View>
-              ) : recipeIngredients.length === 0 ? (
-                <Text style={{ color: colors.textSecondary, textAlign: 'center', marginVertical: 10 }}>No hay ingredientes definidos</Text>
-              ) : (
-                recipeIngredients.map((ing, idx) => (
-                  <View key={idx} style={{ flexDirection: 'column', backgroundColor: colors.background, padding: 12, borderRadius: 10, marginBottom: 10, borderWidth: 1, borderColor: colors.border }}>
-                    {/* Fila 1: Nombre y Basurero */}
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                      <Text style={{ flex: 1, color: colors.text, fontWeight: 'bold', fontSize: 16 }}>{ing.ingredientName}</Text>
-                      <TouchableOpacity onPress={() => handleRemoveIngredientFromRecipe(idx)} style={{ padding: 5, backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 5 }}>
-                        <FontAwesome5 name="trash-alt" size={14} color="#ef4444" />
-                      </TouchableOpacity>
-                    </View>
-                    
-                    {/* Fila 2: Stepper de Cantidad y Ciclo de Unidad */}
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                      
-                      {/* Stepper (- input +) */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}>
-                        <TouchableOpacity 
-                          style={{ padding: 12, borderRightWidth: 1, borderRightColor: colors.border }}
-                          onPress={() => {
-                            const newList = [...recipeIngredients];
-                            const val = parseFloat(newList[idx].quantity) || 0;
-                            // Prevenir bajar de 0
-                            newList[idx].quantity = String(Math.max(0, val - 0.5));
-                            setRecipeIngredients(newList);
-                            setHasUnsavedRecipeChanges(true);
-                          }}
-                        >
-                          <FontAwesome5 name="minus" size={12} color={colors.textSecondary} />
-                        </TouchableOpacity>
-                        
-                        <TextInput
-                          style={{ color: colors.text, padding: 8, width: 55, textAlign: 'center', fontWeight: 'bold', fontSize: 16 }}
-                          value={String(ing.quantity)}
-                          keyboardType="numeric"
-                          onChangeText={(text) => {
-                            const newList = [...recipeIngredients];
-                            // Solo permitir números y punto decimal
-                            newList[idx].quantity = text.replace(/[^0-9.]/g, '');
-                            setRecipeIngredients(newList);
-                            setHasUnsavedRecipeChanges(true);
-                          }}
-                        />
-                        
-                        <TouchableOpacity 
-                          style={{ padding: 12, borderLeftWidth: 1, borderLeftColor: colors.border }}
-                          onPress={() => {
-                            const newList = [...recipeIngredients];
-                            const val = parseFloat(newList[idx].quantity) || 0;
-                            newList[idx].quantity = String(val + 0.5);
-                            setRecipeIngredients(newList);
-                            setHasUnsavedRecipeChanges(true);
-                          }}
-                        >
-                          <FontAwesome5 name="plus" size={12} color={colors.textSecondary} />
-                        </TouchableOpacity>
-                      </View>
-
-                      {/* Unidad Fija del Almacén */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.primary + '20', paddingVertical: 10, paddingHorizontal: 15, borderRadius: 8, minWidth: 70, justifyContent: 'center' }}>
-                        <Text style={{ color: colors.primary, fontWeight: 'bold' }}>
-                          {ing.unit}
-                        </Text>
-                      </View>
-                      
-                    </View>
-                  </View>
-                ))
-              )}
-
-              <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 20 }} />
-
-              {/* Buscador de Almacén */}
-              <Text style={{ fontWeight: 'bold', color: colors.primary, marginBottom: 10 }}>Añadir del Almacén</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, padding: 10, borderRadius: 8, marginBottom: 10 }}>
-                <FontAwesome5 name="search" size={14} color={colors.textSecondary} style={{ marginRight: 10 }} />
-                <TextInput
-                  placeholder="Buscar insumo..."
-                  placeholderTextColor={colors.textSecondary}
-                  style={{ color: colors.text, flex: 1 }}
-                  value={searchAlmacen}
-                  onChangeText={setSearchAlmacen}
-                />
-              </View>
-
-              <View>
-                {almacenItems
-                  .filter(item => item.nombre && item.nombre.toLowerCase().includes(searchAlmacen.toLowerCase()))
-                  .map((item, idx) => (
-                    <TouchableOpacity 
-                      key={idx} 
-                      style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}
-                      onPress={() => handleAddIngredientToRecipe(item)}
-                    >
-                      <Text style={{ color: colors.text }}>{item.nombre} ({item.tipoPorcion || item.tipoMedida || 'und'})</Text>
-                      <FontAwesome5 name="plus-circle" size={20} color={colors.primary} />
-                    </TouchableOpacity>
-                  ))}
-              </View>
-            </ScrollView>
-
-            <View style={{ padding: 20, paddingTop: 10 }}>
-              <TouchableOpacity 
-                style={{ backgroundColor: colors.primary, padding: 15, borderRadius: 10, alignItems: 'center' }}
-                onPress={handleSaveRecipe}
-                disabled={isSavingRecipe}
-              >
-                <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 16 }}>Guardar Receta Completa</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Overlay de Carga Guardando Receta */}
-            {isSavingRecipe && (
-              <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', zIndex: 100 }}>
-                <View style={{ backgroundColor: colors.surface, padding: 30, borderRadius: 15, alignItems: 'center', elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84 }}>
-                  <ActivityIndicator size="large" color={colors.primary} />
-                  <Text style={{ color: colors.text, marginTop: 15, fontWeight: 'bold', fontSize: 16 }}>Guardando receta...</Text>
-                  <Text style={{ color: colors.textSecondary, fontSize: 13, marginTop: 5 }}>Sincronizando con Sheets</Text>
-                </View>
-              </View>
-            )}
           </View>
         </View>
       </Modal>

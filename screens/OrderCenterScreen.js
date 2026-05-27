@@ -1,9 +1,9 @@
+import { showAlert } from '../utils/showAlert';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   FlatList,
   TouchableOpacity,
   TextInput,
@@ -15,6 +15,7 @@ import {
   Platform,
   StatusBar
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
@@ -69,7 +70,7 @@ const OrderCenterScreen = ({ navigation }) => {
       };
       await generatePDFBase64(orderData);
     } catch (e) {
-      Alert.alert('Error', 'No se pudo generar el recibo. Inténtalo de nuevo.');
+      showAlert('Error', 'No se pudo generar el recibo. Inténtalo de nuevo.');
     } finally {
       setLoadingReceiptId(null);
     }
@@ -144,7 +145,7 @@ const OrderCenterScreen = ({ navigation }) => {
         onConfirm();
       }
     } else {
-      Alert.alert('Confirmar', msg, [
+      showAlert('Confirmar', msg, [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Aceptar', onPress: onConfirm }
       ]);
@@ -159,14 +160,14 @@ const OrderCenterScreen = ({ navigation }) => {
       setOrders(prev => prev.map(o => (o.id || o.ID_Orden) === orderId ? { ...o, Estado: newStatus } : o));
       // No alert if it was fast, just move it
     } catch (err) {
-      Alert.alert('Error', 'No se pudo actualizar el estado');
+      showAlert('Error', 'No se pudo actualizar el estado');
     } finally {
       setUpdatingOrderId(null);
     }
   };
 
   const handleDeleteOrder = (orderId) => {
-    Alert.alert(
+    showAlert(
       '⚠️ Eliminar Pedido',
       `¿Estás seguro de que deseas eliminar permanentemente el pedido #${orderId?.slice(-6)?.toUpperCase()}? Esto no se puede deshacer.`,
       [
@@ -178,9 +179,9 @@ const OrderCenterScreen = ({ navigation }) => {
             try {
               await deleteOrder(orderId);
               setOrders(prev => prev.filter(o => (o.id || o.ID_Orden) !== orderId));
-              Alert.alert('Éxito', 'Pedido eliminado correctamente.');
+              showAlert('Éxito', 'Pedido eliminado correctamente.');
             } catch (err) {
-              Alert.alert('Error', 'No se pudo eliminar el pedido. Verifica tu conexión.');
+              showAlert('Error', 'No se pudo eliminar el pedido. Verifica tu conexión.');
             }
           }
         }
@@ -383,7 +384,7 @@ const OrderCenterScreen = ({ navigation }) => {
             <TouchableOpacity 
               style={[styles.actionBtn, { backgroundColor: colors.error + '15' }]}
               onPress={() => {
-                Alert.alert(
+                showAlert(
                   "Cancelar Pedido",
                   "¿Quién cancela el pedido?",
                   [

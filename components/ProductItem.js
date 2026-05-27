@@ -1,5 +1,5 @@
 // Product Item Component - DSicario Branding
-import React, { memo, useMemo } from 'react';
+import React, { memo, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -12,8 +12,9 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useProducts, useCart } from '../contexts/AppContext';
 import { useUser } from '../contexts/UserContext';
-import { formatPrice, calculateDiscountedPrice, voteSuggestion } from '../utils/api';
+import { formatPrice, calculateDiscountedPrice, voteSuggestion, updateProduct } from '../utils/api';
 import { useThemeMode } from '../contexts/ThemeContext';
+import { useFavorites } from '../contexts/FavoritesContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 
 /**
@@ -22,7 +23,6 @@ import { getThemeColors, spacing, typography, borders, shadows } from '../theme/
 const ProductItem = memo(({
   product,
   onPress,
-  onRecipePress,
   style,
   showCategory = true,
   showBadges = true,
@@ -35,6 +35,7 @@ const ProductItem = memo(({
   const colors = getThemeColors(darkMode);
   const { products, isEditorMode, refetchProducts } = useProducts();
   const { cart, addToCart, updateCartItemQuantity, businessInfo, isWaiterMode, waiterActiveSession } = useCart();
+  const { toggleFavorite, isFavorite } = useFavorites();
   const { role, isClientMode } = useUser(); // 🛡️ Seguridad
 
   const isClosed = businessInfo?.closed === true;
@@ -50,6 +51,28 @@ const ProductItem = memo(({
       }
     } catch (error) {
       console.error('Error in handleVote:', error);
+    }
+  };
+
+  const [togglingStock, setTogglingStock] = useState(false);
+
+  const handleToggleStock = async (e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (togglingStock) return;
+    setTogglingStock(true);
+    try {
+      const updatedProduct = {
+        ...product,
+        agotado: !product.agotado
+      };
+      console.log('🔄 Cambiando disponibilidad del producto:', updatedProduct);
+      await updateProduct(updatedProduct);
+      console.log('✅ Disponibilidad actualizada en la base de datos.');
+      refetchProducts();
+    } catch (err) {
+      console.error('❌ Error toggling stock:', err);
+    } finally {
+      setTogglingStock(false);
     }
   };
   
@@ -129,6 +152,23 @@ const ProductItem = memo(({
       color: '#FFFFFF',
       marginLeft: 4,
     },
+    favoriteItemBtn: {
+      position: 'absolute',
+      top: 6,
+      left: 6,
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: 'rgba(255,255,255,0.85)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 25,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.2,
+      shadowRadius: 2,
+      elevation: 3,
+    },
     outOfStockContainer: { opacity: 0.8 },
     outOfStockImage: { opacity: 0.5 },
     outOfStockOverlay: {
@@ -201,11 +241,10 @@ const ProductItem = memo(({
       borderWidth: 1.5,
       borderColor: 'rgba(255,255,255,0.3)',
     },
-    recipeBtn: {
+    stockToggleBtn: {
       position: 'absolute',
       bottom: 12,
-      right: 55, // Espacio para el botón de editar
-      backgroundColor: '#27ae60', // Verde para recetas
+      right: 98,
       width: 36,
       height: 36,
       borderRadius: 18,
@@ -292,6 +331,24 @@ const ProductItem = memo(({
         transition={300}
         cachePolicy="memory-disk"
       />
+      
+      {/* ❤️ Favorito en Lista */}
+      <TouchableOpacity 
+        style={styles.favoriteItemBtn}
+        onPress={(e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
+          toggleFavorite(product);
+        }}
+        activeOpacity={0.7}
+      >
+        <FontAwesome5 
+          name="heart" 
+          solid={isFavorite(product.id || product.ID_Producto || product.id_producto)} 
+          size={12} 
+          color={isFavorite(product.id || product.ID_Producto || product.id_producto) ? '#E74C3C' : '#95A5A6'} 
+        />
+      </TouchableOpacity>
+
       {showRating && product.rating > 0 && (
         <View style={styles.topRightBadge}>
           <FontAwesome5 name="star" size={8} color={colors.accent} solid />
@@ -311,6 +368,24 @@ const ProductItem = memo(({
       {!isSuggestion && (
         isEditorMode ? (
           <>
+            {/* 🚫 Botón Agotado/Disponible */}
+            <TouchableOpacity 
+              style={[
+                styles.stockToggleBtn, 
+                { backgroundColor: product.agotado ? '#27ae60' : '#e74c3c' },
+                togglingStock && { opacity: 0.5 }
+              ]}
+              onPress={handleToggleStock}
+              activeOpacity={0.7}
+              disabled={togglingStock}
+            >
+              <FontAwesome5 
+                name={product.agotado ? 'check-circle' : 'ban'} 
+                size={14} 
+                color="#FFF" 
+              />
+            </TouchableOpacity>
+
             <TouchableOpacity 
               style={[styles.quickAddBtn, { backgroundColor: colors.info }]}
               onPress={(e) => {
@@ -322,16 +397,6 @@ const ProductItem = memo(({
               <FontAwesome5 name="edit" size={14} color="#FFF" />
             </TouchableOpacity>
             
-            <TouchableOpacity 
-              style={styles.recipeBtn}
-              onPress={(e) => {
-                if (e && e.stopPropagation) e.stopPropagation();
-                onRecipePress?.(product);
-              }}
-              activeOpacity={0.7}
-            >
-              <FontAwesome5 name="book" size={14} color="#FFF" />
-            </TouchableOpacity>
           </>
         ) : (
           !product.agotado && canPurchase && (

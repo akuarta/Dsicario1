@@ -4,12 +4,12 @@ import {
   Text, 
   TouchableOpacity, 
   StyleSheet, 
-  SafeAreaView,
   ScrollView,
   Alert,
   Switch,
   Image
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useUser } from '../contexts/UserContext';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useCart } from '../contexts/AppContext';

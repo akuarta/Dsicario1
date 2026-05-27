@@ -1,6 +1,9 @@
 import React from 'react';
 import { Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+// ✅ Importar notificaciones al inicio para registrar setNotificationHandler
+// antes de que cualquier pantalla o contexto monte.
+import './utils/notifications';
 import { ProductsProvider, CartProvider, DataSyncProvider } from './contexts/AppContext';
 import { OrderProvider } from './contexts/OrderContext';
 import AppNavigator from './navigation/AppNavigator';
@@ -11,6 +14,7 @@ import { FavoritesProvider } from './contexts/FavoritesContext';
 import { getThemeColors } from './theme/theme';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import RiderProposalOverlay from './components/RiderProposalOverlay';
+import BrowserNotificationBanner from './components/BrowserNotificationBanner';
 
 // Reanimated 3 Web fix
 if (Platform.OS === 'web') {
@@ -33,6 +37,7 @@ const AppContent = () => {
                     <StatusBar style={darkMode ? "light" : "dark"} backgroundColor={colors.primary} />
                     <AppNavigator />
                     <RiderProposalOverlay />
+                    <BrowserNotificationBanner />
                   </OrderProvider>
                 </CartProvider>
               </ProductsProvider>

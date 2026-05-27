@@ -1,9 +1,9 @@
+import { showAlert } from '../utils/showAlert';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   FlatList,
   TouchableOpacity,
@@ -14,6 +14,7 @@ import {
   StatusBar,
   Animated
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
@@ -271,7 +272,7 @@ const KitchenScreen = ({ navigation }) => {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>🍳 Monitor de Cocina</Text>
         <TouchableOpacity onPress={() => {
-            Alert.alert('Cerrar Sesión', '¿Estás seguro de que quieres salir?', [
+            showAlert('Cerrar Sesión', '¿Estás seguro de que quieres salir?', [
               { text: 'Cancelar', style: 'cancel' },
               { text: 'Salir', onPress: () => logout(), style: 'destructive' }
             ]);

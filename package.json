@@ -70,7 +70,7 @@
   },
   "private": true,
   "name": "dsicario-app",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "expo": {
     "install": {
       "exclude": [

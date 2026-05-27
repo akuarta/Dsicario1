@@ -6,10 +6,10 @@ import {
   Image, 
   StyleSheet, 
   FlatList,
-  SafeAreaView,
   Alert,
   TextInput
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useCart } from '../contexts/AppContext';
 import { formatPrice } from '../utils/api';

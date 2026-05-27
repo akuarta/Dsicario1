@@ -1,10 +1,10 @@
+import { showAlert } from '../utils/showAlert';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import QRCode from 'react-native-qrcode-svg';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   FlatList,
   TouchableOpacity,
   RefreshControl,
@@ -16,10 +16,11 @@ import {
   Switch,
   Platform
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
-import { fetchRiderOrders, fetchRiderStats, updateOrderStatus, pickupOrder, formatPrice, respondToOffer, updateDelivery } from '../utils/api';
+import { fetchRiderOrders, fetchRiderStats, updateOrderStatus, pickupOrder, formatPrice, respondToOffer, updateDelivery, pingRider } from '../utils/api';
 import { registerForPushNotifications, saveRiderPushToken, setupNotificationResponseListener } from '../utils/notifications';
 import { useDataSync } from '../contexts/AppContext';
 import GlassPanel from '../components/GlassPanel';
@@ -53,6 +54,7 @@ const RiderScreen = ({ navigation, route }) => {
   const [activeQRData, setActiveQRData] = useState(null);
   const [selectedOrders, setSelectedOrders] = useState([]); // ✅ Estado para selección múltiple
   const timerRef = useRef(null);
+  const isFetchingRef = useRef(false); // ✅ Previene llamadas concurrentes que causan stack overflow
 
   // Sincronización de propuesta y contador
   useEffect(() => {
@@ -95,20 +97,20 @@ const RiderScreen = ({ navigation, route }) => {
   const [lastAssignedCount, setLastAssignedCount] = useState(0);
 
   const loadData = async (silent = false) => {
+    // ✅ Guard: si ya hay un fetch en curso, no lanzar otro (previene stack overflow)
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     if (!silent) setIsLoading(true);
     try {
-      console.log(`[RiderDebug] Buscando pedidos para ID: "${riderId}"`);
       const [orderData, statData] = await Promise.all([
         fetchRiderOrders(riderId),
         fetchRiderStats(riderId, user?.email)
       ]);
-      console.log(`[RiderDebug] Pedidos encontrados: ${orderData.length}`, orderData.map(o => ({ id: o.id, estado: o.estado })));
       
       const currentProposal = orderData.find(o => String(o.estado).toLowerCase().trim() === 'propuesta');
       if (currentProposal && (!proposal || proposal.id !== currentProposal.id)) {
           console.log('[RiderDebug] 📢 ¡Propuesta detectada!', currentProposal.id);
           setProposal(currentProposal);
-          // 🔔 Notificar al repartidor en su propio navegador
           if (Platform.OS === 'web') {
             import('../utils/notifications').then(m => {
               m.sendWebBrowserNotification({
@@ -128,11 +130,10 @@ const RiderScreen = ({ navigation, route }) => {
 
       if (currentAssigned > lastAssignedCount) {
           console.log('[RiderDebug] 🚚 ¡Nuevo pedido asignado detectado!');
-          const msg = "Un administrador te ha asignado un pedido.";
           if (Platform.OS === 'web') {
             import('../utils/notifications').then(m => m.sendWebBrowserNotification({ cliente: 'Admin', total: 'Asignado', orderId: 'NEW' }));
           }
-          Alert.alert("🚀 ¡NUEVO PEDIDO!", msg);
+          showAlert("🚀 ¡NUEVO PEDIDO!", "Un administrador te ha asignado un pedido.");
       }
       setLastAssignedCount(currentAssigned);
       setOrders(orderData);
@@ -140,6 +141,7 @@ const RiderScreen = ({ navigation, route }) => {
     } catch (error) {
       console.error('Error loading rider data:', error);
     } finally {
+      isFetchingRef.current = false;
       setIsLoading(false);
     }
   };
@@ -153,7 +155,7 @@ const RiderScreen = ({ navigation, route }) => {
         await loadData(true);
         if (accept) setActiveTab('ready');
     } catch (e) {
-        Alert.alert('Error', 'No se pudo enviar la respuesta.');
+        showAlert('Error', 'No se pudo enviar la respuesta.');
     } finally {
         setIsLoading(false);
     }
@@ -163,7 +165,8 @@ const RiderScreen = ({ navigation, route }) => {
     loadData();
     let interval = null;
     if (isAutoSyncEnabled) {
-      interval = setInterval(() => loadData(true), 1000);
+      // ✅ 5 segundos — suficiente para detectar cambios sin saturar la API
+      interval = setInterval(() => loadData(true), 5000);
     }
     const setupPushNotifications = async () => {
       const token = await registerForPushNotifications();
@@ -176,6 +179,36 @@ const RiderScreen = ({ navigation, route }) => {
       unsubscribeNotif();
     };
   }, [isAutoSyncEnabled, riderId]);
+  
+  // 💓 Heartbeat / Ping: Mantener al rider online en las hojas de Excel
+  useEffect(() => {
+    // 🛡️ IMPORTANTE: No hacer ping si el ID es el valor por defecto o no es válido
+    // Esto evita marcar como online a 'DLV01' si el contexto aún está sincronizando
+    if (!riderId || riderId === 'N/A' || (riderId === 'DLV01' && !route.params?.riderId && contextUserId !== 'DLV01')) {
+      console.log(`[RiderHeartbeat] ⏳ Esperando ID válido para iniciar ping... (Actual: ${riderId})`);
+      return;
+    }
+
+    const performPing = async () => {
+      console.log(`[RiderHeartbeat] 💓 Ping Activo para: ${riderId} (Context ID: ${contextUserId})`);
+      try {
+        await pingRider(riderId, user?.uid, username);
+      } catch (e) {
+        console.warn('[RiderHeartbeat] Error en ping:', e);
+      }
+    };
+
+    // Ping inmediato al detectar ID válido
+    performPing();
+
+    // Ping cada 45 segundos (un poco más frecuente para mayor fiabilidad)
+    const interval = setInterval(performPing, 45000);
+    
+    return () => {
+      console.log(`[RiderHeartbeat] 🛑 Deteniendo ping para: ${riderId}`);
+      clearInterval(interval);
+    };
+  }, [riderId, contextUserId, user?.uid, username]);
 
   // Cerrar Modal QR si el pedido se confirma (desde el lado del cliente)
   useEffect(() => {
@@ -187,7 +220,7 @@ const RiderScreen = ({ navigation, route }) => {
           setShowQR(false);
           setActiveQRData(null);
           if (Platform.OS !== 'web') {
-             Alert.alert('✅ ¡Entregado!', 'El cliente ha confirmado la recepción del pedido.');
+             showAlert('✅ ¡Entregado!', 'El cliente ha confirmado la recepción del pedido.');
           }
         }
       } catch (e) {
@@ -216,11 +249,11 @@ const RiderScreen = ({ navigation, route }) => {
       const res = await updateDelivery(updatedRider);
       if (!res || !(res.success || res.status === 'success')) {
         setStats(prev => ({ ...prev, activo: !value }));
-        Alert.alert('Error', 'El servidor no pudo guardar el cambio.');
+        showAlert('Error', 'El servidor no pudo guardar el cambio.');
       }
     } catch (e) {
       setStats(prev => ({ ...prev, activo: !value }));
-      Alert.alert('Error', 'No se pudo actualizar tu disponibilidad.');
+      showAlert('Error', 'No se pudo actualizar tu disponibilidad.');
     }
   };
 
@@ -242,11 +275,11 @@ const RiderScreen = ({ navigation, route }) => {
 
   const handleAction = (type, val) => {
     if (type === 'whatsapp') {
-      Linking.openURL(`whatsapp://send?phone=${val}&text=Hola, soy tu repartidor de DSicario.`).catch(() => Alert.alert('Error', 'WhatsApp no instalado'));
+      Linking.openURL(`whatsapp://send?phone=${val}&text=Hola, soy tu repartidor de DSicario.`).catch(() => showAlert('Error', 'WhatsApp no instalado'));
     } else if (type === 'gps') {
-      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(val)}`).catch(() => Alert.alert('Error', 'No se pudo abrir el mapa'));
+      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(val)}`).catch(() => showAlert('Error', 'No se pudo abrir el mapa'));
     } else if (type === 'call') {
-      Linking.openURL(`tel:${val}`).catch(() => Alert.alert('Error', 'No se pudo llamar'));
+      Linking.openURL(`tel:${val}`).catch(() => showAlert('Error', 'No se pudo llamar'));
     }
   };
 
@@ -256,7 +289,7 @@ const RiderScreen = ({ navigation, route }) => {
     const availableFunds = (parseFloat(stats.cartera) || 0) + (parseFloat(stats.cupo) || 0);
 
     if (orderTotal > availableFunds) {
-      Alert.alert(
+      showAlert(
         'Saldo Insuficiente', 
         `Tu saldo (RD$ ${availableFunds}) no alcanza para este pedido (RD$ ${orderTotal}).\n\nPor favor, recarga tu Cartera.`
       );
@@ -270,7 +303,7 @@ const RiderScreen = ({ navigation, route }) => {
         await loadData(true);
         setActiveTab('on_the_way');
       } catch (error) {
-        Alert.alert('Error', 'Error al actualizar.');
+        showAlert('Error', 'Error al actualizar.');
       } finally {
         setIsLoading(false);
       }
@@ -281,7 +314,7 @@ const RiderScreen = ({ navigation, route }) => {
         executePickup();
       }
     } else {
-      Alert.alert('Recoger Pedido', '¿Confirmas que ya tienes el pedido?', [
+      showAlert('Recoger Pedido', '¿Confirmas que ya tienes el pedido?', [
         { text: 'No', style: 'cancel' },
         { text: 'Sí', onPress: executePickup }
       ]);
@@ -298,7 +331,7 @@ const RiderScreen = ({ navigation, route }) => {
     const availableFunds = (parseFloat(stats.cartera) || 0) + (parseFloat(stats.cupo) || 0);
 
     if (totalBulk > availableFunds) {
-      Alert.alert(
+      showAlert(
         'Saldo Insuficiente', 
         `El total (RD$ ${totalBulk}) supera tu saldo disponible (RD$ ${availableFunds}).`
       );
@@ -313,9 +346,9 @@ const RiderScreen = ({ navigation, route }) => {
         setSelectedOrders([]); // Limpiar selección
         await loadData(true);
         setActiveTab('on_the_way');
-        Alert.alert('✅ Éxito', `${selectedOrders.length} pedidos recogidos correctamente.`);
+        showAlert('✅ Éxito', `${selectedOrders.length} pedidos recogidos correctamente.`);
       } catch (error) {
-        Alert.alert('Error', 'No se pudieron recoger algunos pedidos.');
+        showAlert('Error', 'No se pudieron recoger algunos pedidos.');
       } finally {
         setIsLoading(false);
       }
@@ -326,7 +359,7 @@ const RiderScreen = ({ navigation, route }) => {
         executeBulk();
       }
     } else {
-      Alert.alert(
+      showAlert(
         'Recoger Múltiples', 
         `¿Confirmas que ya tienes los ${selectedOrders.length} pedidos seleccionados?`, 
         [
@@ -661,7 +694,7 @@ const RiderScreen = ({ navigation, route }) => {
             <Ionicons name="chatbubble-ellipses-outline" size={24} color="#FFF" />
           </TouchableOpacity>
           <TouchableOpacity onPress={() => {
-            Alert.alert('Cerrar Sesión', '¿Estás seguro de que quieres salir?', [
+            showAlert('Cerrar Sesión', '¿Estás seguro de que quieres salir?', [
               { text: 'Cancelar', style: 'cancel' },
               { text: 'Salir', onPress: () => logout(), style: 'destructive' }
             ]);

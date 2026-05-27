@@ -1,3 +1,4 @@
+import { showAlert } from '../utils/showAlert';
 import React, { useState, useMemo } from 'react';
 import { 
   View, 
@@ -10,9 +11,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
-  SafeAreaView
+  Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
@@ -72,10 +73,10 @@ const RegisterScreen = () => {
     if (!validateForm()) return;
     try {
       await signUp(email, password, displayName.trim());
-      Alert.alert('¡Bienvenido! 🎉', `Gracias por registrarte, ${displayName}!`);
+      showAlert('¡Bienvenido! 🎉', `Gracias por registrarte, ${displayName}!`);
     } catch (err) {
       console.log('Error en registro:', err.message);
-      Alert.alert('Error de registro', err.message || 'No se pudo completar el registro. Verifica tu conexión.');
+      showAlert('Error de registro', err.message || 'No se pudo completar el registro. Verifica tu conexión.');
     }
   };
 

@@ -3,11 +3,11 @@ import {
   View, 
   Text, 
   StyleSheet, 
-  SafeAreaView, 
   FlatList,
   TouchableOpacity,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import ProductItem from '../components/ProductItem';
 import { useFavorites } from '../contexts/FavoritesContext';

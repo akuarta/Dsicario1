@@ -1,14 +1,16 @@
+import { showAlert } from '../utils/showAlert';
 import React, { useState, useMemo } from 'react';
 import { 
   View, 
   Text, 
   StyleSheet, 
-  SafeAreaView, 
   ScrollView, 
   TouchableOpacity, 
   Switch, 
-  Alert 
+  Alert,
+  Platform
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
@@ -17,7 +19,10 @@ import { useThemeMode } from '../contexts/ThemeContext';
 import { useCart } from '../contexts/AppContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import { TextInput, Modal, ActivityIndicator } from 'react-native';
-import { saveUser, saveBusinessInfo, savePaymentMethod, saveTransferDetail } from '../utils/api';
+import { saveUser, saveBusinessInfo, savePaymentMethod, saveTransferDetail, deleteTransferDetail } from '../utils/api';
+import Constants from 'expo-constants';
+import UpdateService from '../utils/UpdateService';
+import NotificationService from '../utils/notificationService';
 
 const ConfigScreen = () => {
   const { darkMode, setThemeMode, themeMode } = useThemeMode();
@@ -32,7 +37,14 @@ const ConfigScreen = () => {
     isSyncing: isUserSyncing
   } = useUser();
   const isAdmin = !!(role && (role.toLowerCase() === 'admin' || role.toLowerCase() === 'owner'));
-  const [notifications, setNotifications] = useState(true);
+  // Inicializar estado de notificaciones según el permiso actual del browser
+  const getInitialNotifState = () => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && 'Notification' in window) {
+      return window.Notification.permission === 'granted';
+    }
+    return true;
+  };
+  const [notifications, setNotifications] = useState(getInitialNotifState);
   const { exchangeRates, updateExchangeRates, businessInfo, updateBusinessInfo } = useCart();
   const [ratesModalVisible, setRatesModalVisible] = useState(false);
   const [deliveryModalVisible, setDeliveryModalVisible] = useState(false);
@@ -43,10 +55,11 @@ const ConfigScreen = () => {
     baseFee: '100',
     expressFee: '50'
   });
-  const PREDEFINED_METHODS = ['Efectivo', 'Tarjeta', 'Transferencia BHD', 'Transferencia Popular', 'Transferencia Banreservas', 'Binance', 'PayPal', 'Zelle'];
+  const PREDEFINED_METHODS = ['Efectivo', 'Tarjeta', 'Transferencia', 'Binance', 'PayPal', 'Zelle'];
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [transferModalVisible, setTransferModalVisible] = useState(false);
   const [tempTransfer, setTempTransfer] = useState({ Banco: '', No_Cuenta: '', Titular: '' });
+  const [isEditingBank, setIsEditingBank] = useState(false);
   const [tempPaymentMethods, setTempPaymentMethods] = useState([]);
   const [tempPaymentNotes, setTempPaymentNotes] = useState({});
   const [tempPaymentNote, setTempPaymentNote] = useState('');
@@ -56,6 +69,7 @@ const ConfigScreen = () => {
     direccion: address,
     telefono: phone
   });
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
 
   const openDeliveryModal = () => {
     setTempDelivery({
@@ -77,13 +91,13 @@ const ConfigScreen = () => {
       const result = await saveBusinessInfo(payload);
       if (result && result.success) {
         updateBusinessInfo(payload); // Actualizar globalmente
-        Alert.alert('Éxito', 'Configuración de envíos actualizada.');
+        showAlert('Éxito', 'Configuración de envíos actualizada.');
         setDeliveryModalVisible(false);
       } else {
         throw new Error(result.error || 'Error al guardar');
       }
     } catch (error) {
-      Alert.alert('Error', 'No se pudo guardar la configuración.');
+      showAlert('Error', 'No se pudo guardar la configuración.');
     } finally {
       setIsSaving(false);
     }
@@ -97,7 +111,7 @@ const ConfigScreen = () => {
   const saveRates = () => {
     updateExchangeRates(tempRates);
     setRatesModalVisible(false);
-    Alert.alert('Éxito', 'Tasas de cambio actualizadas correctamente.');
+    showAlert('Éxito', 'Tasas de cambio actualizadas correctamente.');
   };
 
   const openPaymentModal = () => {
@@ -128,7 +142,7 @@ const ConfigScreen = () => {
     setIsSaving(true);
     try {
       if (tempPaymentMethods.length === 0) {
-        Alert.alert('Error', 'Debes incluir al menos un método de pago (ej. Efectivo)');
+        showAlert('Error', 'Debes incluir al menos un método de pago (ej. Efectivo)');
         setIsSaving(false);
         return;
       }
@@ -152,13 +166,13 @@ const ConfigScreen = () => {
         }
         
         updateBusinessInfo(payload);
-        Alert.alert('Éxito', 'Métodos de pago actualizados.');
+        showAlert('Éxito', 'Métodos de pago actualizados.');
         setPaymentModalVisible(false);
       } else {
         throw new Error(result.error || 'Error al guardar');
       }
     } catch (error) {
-      Alert.alert('Error', 'No se pudieron guardar los métodos de pago.');
+      showAlert('Error', 'No se pudieron guardar los métodos de pago.');
     } finally {
       setIsSaving(false);
     }
@@ -183,7 +197,7 @@ const ConfigScreen = () => {
 
   const savePersonalData = async () => {
     if (!tempUser.nombre.trim()) {
-      Alert.alert('Error', isAdmin ? 'El nombre del local es obligatorio' : 'El nombre es obligatorio');
+      showAlert('Error', isAdmin ? 'El nombre del local es obligatorio' : 'El nombre es obligatorio');
       return;
     }
 
@@ -201,7 +215,7 @@ const ConfigScreen = () => {
         if (result && result.success) {
           updateBusinessInfo(payload);
           setPersonalDataModalVisible(false);
-          Alert.alert('Éxito', 'Información del local actualizada correctamente.');
+          showAlert('Éxito', 'Información del local actualizada correctamente.');
         } else {
           throw new Error('Error al guardar en el servidor');
         }
@@ -222,14 +236,14 @@ const ConfigScreen = () => {
           setAddress(tempUser.direccion);
           setPhone(tempUser.telefono);
           setPersonalDataModalVisible(false);
-          Alert.alert('Éxito', 'Datos actualizados correctamente.');
+          showAlert('Éxito', 'Datos actualizados correctamente.');
         } else {
           throw new Error('No se pudo guardar en el servidor');
         }
       }
     } catch (error) {
       console.error('Error saving data:', error);
-      Alert.alert('Error', 'Hubo un problema al guardar los datos. Intente de nuevo.');
+      showAlert('Error', 'Hubo un problema al guardar los datos. Intente de nuevo.');
     } finally {
       setIsSaving(false);
     }
@@ -239,9 +253,21 @@ const ConfigScreen = () => {
     if (!user?.email) return;
     try {
       await syncUserRole(user.email);
-      Alert.alert('Sincronización', 'Tus datos han sido actualizados desde el servidor.');
+      showAlert('Sincronización', 'Tus datos han sido actualizados desde el servidor.');
     } catch (error) {
-      Alert.alert('Error', 'No se pudieron sincronizar los datos.');
+      showAlert('Error', 'No se pudieron sincronizar los datos.');
+    }
+  };
+
+  const handleCheckUpdates = async () => {
+    setIsCheckingUpdates(true);
+    try {
+      await UpdateService.checkUpdate(true);
+    } catch (error) {
+      console.error('Error checking updates:', error);
+      showAlert('Error', 'No se pudo verificar la actualización.');
+    } finally {
+      setIsCheckingUpdates(false);
     }
   };
 
@@ -256,7 +282,7 @@ const ConfigScreen = () => {
       const result = await saveBusinessInfo(payload);
       if (result && result.success) {
         updateBusinessInfo(payload);
-        Alert.alert(
+        showAlert(
           newStatus ? '🌙 Modo Pre-orden' : '☀️ Negocio Abierto',
           newStatus 
             ? 'El local ahora está cerrado. Los clientes solo pueden realizar pre-órdenes.' 
@@ -266,7 +292,7 @@ const ConfigScreen = () => {
         throw new Error('Error al actualizar');
       }
     } catch (error) {
-      Alert.alert('Error', 'No se pudo cambiar el estado del negocio.');
+      showAlert('Error', 'No se pudo cambiar el estado del negocio.');
     } finally {
       setIsSaving(false);
     }
@@ -326,10 +352,10 @@ const ConfigScreen = () => {
   }), [colors, darkMode]);
 
   const handleLogout = () => {
-    Alert.alert('Cerrar Sesión', '¿Estás seguro de que deseas salir?', [
+    showAlert('Cerrar Sesión', '¿Estás seguro de que deseas salir?', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Salir', style: 'destructive', onPress: async () => {
-        try { await signOut(); } catch (error) { Alert.alert('Error', 'No se pudo cerrar la sesión'); }
+        try { await signOut(); } catch (error) { showAlert('Error', 'No se pudo cerrar la sesión'); }
       }}
     ]);
   };
@@ -386,6 +412,7 @@ const ConfigScreen = () => {
         {isAdmin && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>⚙️ ADMINISTRACIÓN</Text>
+            <SettingItem icon="users-cog" title="Gestión de Personal" onPress={() => navigation.navigate('AdminStaff')} />
             <SettingItem icon="motorcycle" title="Administrar Repartidores" onPress={() => navigation.navigate('AdminDeliveryScreen')} />
             <SettingItem icon="shipping-fast" title="Costos de Envío" onPress={openDeliveryModal} />
             <SettingItem icon="money-bill-wave" title="Tasas de Cambio" onPress={openRatesModal} />
@@ -397,6 +424,11 @@ const ConfigScreen = () => {
         {role && role.toLowerCase() !== 'cliente' && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>🏬 GESTIÓN DE NEGOCIO</Text>
+            <SettingItem 
+              icon="user-shield" 
+              title="Modo Gestión Empleado" 
+              onPress={() => navigation.navigate('StaffModeSettings')} 
+            />
             <SettingItem 
               icon="store" 
               title={businessInfo?.closed ? "Estado: CERRADO" : "Estado: ABIERTO"} 
@@ -414,7 +446,7 @@ const ConfigScreen = () => {
                   const res = await saveBusinessInfo(updatedInfo);
                   if (res && res.success) {
                     updateBusinessInfo(updatedInfo);
-                    Alert.alert(
+                    showAlert(
                       !updatedInfo.closed ? '☀️ Negocio Abierto' : '🌙 Modo Pre-orden',
                       !updatedInfo.closed 
                         ? 'El local está abierto y operando normalmente.' 
@@ -425,7 +457,7 @@ const ConfigScreen = () => {
                   }
                 } catch (e) {
                   console.error('Error toggling status:', e);
-                  Alert.alert('Error', 'No se pudo actualizar el estado en la nube.');
+                  showAlert('Error', 'No se pudo actualizar el estado en la nube.');
                 } finally {
                   setIsSaving(false);
                 }
@@ -450,13 +482,73 @@ const ConfigScreen = () => {
               </TouchableOpacity>
             </View>
           </View>
-          <SettingItem icon="bell" title="Notificaciones" isSwitch value={notifications} onPress={() => setNotifications(!notifications)} />
+          <SettingItem 
+            icon="bell" 
+            title="Notificaciones" 
+            isSwitch 
+            value={notifications} 
+            onPress={async () => {
+              if (Platform.OS === 'web') {
+                if (!notifications) {
+                  // El usuario quiere ACTIVAR: solicitar permiso bajo un gesto real de usuario
+                  const granted = await NotificationService.requestWebPermission();
+                  if (granted) {
+                    setNotifications(true);
+                    await NotificationService.sendLocalNotification(
+                      '🔔 ¡Alertas Activadas!',
+                      'Ahora recibirás notificaciones de tus pedidos en este navegador.'
+                    );
+                    showAlert('Éxito', '¡Notificaciones del navegador habilitadas! Recibirás alertas en tiempo real.');
+                  } else {
+                    showAlert(
+                      'Aviso',
+                      'No se pudieron habilitar las notificaciones. Para activarlas manualmente, haz clic en el candado de la barra de direcciones del navegador y cambia el permiso de notificaciones.'
+                    );
+                  }
+                } else {
+                  // El usuario quiere DESACTIVAR: informar que debe hacerlo manualmente
+                  setNotifications(false);
+                  showAlert(
+                    'Notificaciones Desactivadas',
+                    'Las alertas locales han sido silenciadas en esta sesión. Para revocar el permiso permanentemente, ve a la configuración de tu navegador.'
+                  );
+                }
+              } else {
+                // Nativo: toggle simple
+                setNotifications(!notifications);
+              }
+            }} 
+          />
+          {/* Botón de prueba de notificación */}
+          <TouchableOpacity
+            style={[styles.menuItem, { justifyContent: 'space-between' }]}
+            onPress={async () => {
+              try {
+                const sent = await NotificationService.sendLocalNotification(
+                  '🔔 Notificación de Prueba',
+                  '¡Funciona! Las notificaciones están activas y llegando correctamente.'
+                );
+                if (!sent && Platform.OS === 'web') {
+                  showAlert(
+                    'Sin permiso',
+                    'Activa las notificaciones con el switch de arriba primero.'
+                  );
+                }
+              } catch (e) {
+                showAlert('Error', 'No se pudo enviar la notificación de prueba.');
+              }
+            }}
+          >
+            <View style={styles.iconContainer}>
+              <FontAwesome5 name="paper-plane" size={16} color={colors.primary} />
+            </View>
+            <Text style={styles.menuText}>Probar Notificación</Text>
+            <FontAwesome5 name="chevron-right" size={12} color={colors.text.secondary} />
+          </TouchableOpacity>
           {isAdmin && (
             <TouchableOpacity style={styles.menuItem} onPress={() => {
-              if (businessInfo?.transferDetails?.length > 0) {
-                const first = businessInfo.transferDetails[0];
-                setTempTransfer({ Banco: first.Banco, No_Cuenta: first.No_Cuenta || first.Cuenta, Titular: first.Titular });
-              }
+              setTempTransfer({ Banco: '', No_Cuenta: '', Titular: '' });
+              setIsEditingBank(false);
               setTransferModalVisible(true);
             }}>
               <View style={styles.iconContainer}>
@@ -466,6 +558,11 @@ const ConfigScreen = () => {
               <FontAwesome5 name="chevron-right" size={12} color={colors.text.light} />
             </TouchableOpacity>
           )}
+          <SettingItem 
+            icon={isCheckingUpdates ? "spinner" : "download"} 
+            title={isCheckingUpdates ? "Buscando..." : "Buscar Actualizaciones"} 
+            onPress={handleCheckUpdates} 
+          />
         </View>
 
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
@@ -474,7 +571,7 @@ const ConfigScreen = () => {
         </TouchableOpacity>
         
         <Text style={styles.footerText}>
-          DSicarioApp v1.2.0 • Hecho con amor 🇩🇴
+          DSicarioApp v{Constants.expoConfig?.version || '1.0.0'} • Hecho con amor 🇩🇴
         </Text>
       </ScrollView>
 
@@ -772,77 +869,142 @@ const ConfigScreen = () => {
       <Modal visible={transferModalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Datos de Transferencia</Text>
+            <Text style={styles.modalTitle}>{isEditingBank ? 'Editar Datos de Banco' : 'Cuentas Bancarias'}</Text>
             
-            <View style={{ marginBottom: spacing.md }}>
-              <Text style={{ color: colors.text.secondary, marginBottom: 5 }}>Nombre del Banco</Text>
-              <TextInput
-                style={styles.rateInput}
-                value={tempTransfer.Banco}
-                onChangeText={(val) => setTempTransfer(prev => ({ ...prev, Banco: val }))}
-                placeholder="Ej: BanReservas"
-                placeholderTextColor={colors.text.light}
-              />
-            </View>
+            {!isEditingBank ? (
+              <View>
+                <ScrollView style={{ maxHeight: 300, marginBottom: spacing.md }} showsVerticalScrollIndicator={false}>
+                  {(!businessInfo?.transferDetails || businessInfo.transferDetails.length === 0) && (
+                    <Text style={{ textAlign: 'center', color: colors.text.light, marginVertical: 20 }}>No hay bancos registrados</Text>
+                  )}
+                  {businessInfo?.transferDetails?.map((bank, index) => (
+                    <View key={index} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, backgroundColor: colors.surface, borderRadius: borders.radius.md, marginBottom: 8, borderWidth: 1, borderColor: colors.border }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: 'bold', color: colors.primary, fontSize: 16 }}>{bank.Banco}</Text>
+                        <Text style={{ color: colors.text.primary, fontSize: 13 }}>{bank.No_Cuenta || bank.Cuenta}</Text>
+                        <Text style={{ color: colors.text.secondary, fontSize: 12 }}>{bank.Titular}</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: 15, paddingRight: 10 }}>
+                        <TouchableOpacity onPress={() => { setTempTransfer(bank); setIsEditingBank(true); }}>
+                          <FontAwesome5 name="edit" size={18} color={colors.primary} />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => {
+                          showAlert('Eliminar', `¿Seguro que deseas borrar la cuenta del ${bank.Banco}?`, [
+                            { text: 'Cancelar', style: 'cancel' },
+                            { text: 'Borrar', style: 'destructive', onPress: async () => {
+                                setIsSaving(true);
+                                try {
+                                  if (bank.Id_transf) {
+                                    await deleteTransferDetail(bank.Id_transf);
+                                  }
+                                  const updated = businessInfo.transferDetails.filter(t => t !== bank);
+                                  updateBusinessInfo({ ...businessInfo, transferDetails: updated });
+                                  showAlert('Éxito', 'Cuenta borrada.');
+                                } catch (e) {
+                                  showAlert('Error', 'No se pudo borrar.');
+                                } finally {
+                                  setIsSaving(false);
+                                }
+                            }}
+                          ]);
+                        }}>
+                          <FontAwesome5 name="trash" size={18} color={colors.error} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+                
+                <TouchableOpacity 
+                  style={[styles.modalBtn, styles.modalBtnSave, { width: '100%', marginBottom: 15 }]} 
+                  onPress={() => {
+                    setTempTransfer({ Banco: '', No_Cuenta: '', Titular: '' });
+                    setIsEditingBank(true);
+                  }}
+                >
+                  <Text style={{ color: '#FFF', fontWeight: 'bold', textAlign: 'center' }}>+ Añadir Banco</Text>
+                </TouchableOpacity>
 
-            <View style={{ marginBottom: spacing.md }}>
-              <Text style={{ color: colors.text.secondary, marginBottom: 5 }}>Número de Cuenta</Text>
-              <TextInput
-                style={styles.rateInput}
-                value={tempTransfer.No_Cuenta}
-                onChangeText={(val) => setTempTransfer(prev => ({ ...prev, No_Cuenta: val }))}
-                placeholder="000-0000000-0"
-                placeholderTextColor={colors.text.light}
-                keyboardType="numeric"
-              />
-            </View>
+                <TouchableOpacity 
+                  style={[styles.modalBtn, styles.modalBtnCancel, { width: '100%', marginHorizontal: 0 }]} 
+                  onPress={() => setTransferModalVisible(false)}
+                >
+                  <Text style={{ color: colors.text.primary, fontWeight: 'bold', textAlign: 'center' }}>Cerrar</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View>
+                <View style={{ marginBottom: spacing.md }}>
+                  <Text style={{ color: colors.text.secondary, marginBottom: 5 }}>Nombre del Banco</Text>
+                  <TextInput
+                    style={styles.rateInput}
+                    value={tempTransfer.Banco}
+                    onChangeText={(val) => setTempTransfer(prev => ({ ...prev, Banco: val }))}
+                    placeholder="Ej: BanReservas"
+                    placeholderTextColor={colors.text.light}
+                  />
+                </View>
 
-            <View style={{ marginBottom: spacing.md }}>
-              <Text style={{ color: colors.text.secondary, marginBottom: 5 }}>Titular de la Cuenta</Text>
-              <TextInput
-                style={styles.rateInput}
-                value={tempTransfer.Titular}
-                onChangeText={(val) => setTempTransfer(prev => ({ ...prev, Titular: val }))}
-                placeholder="Nombre completo"
-                placeholderTextColor={colors.text.light}
-              />
-            </View>
+                <View style={{ marginBottom: spacing.md }}>
+                  <Text style={{ color: colors.text.secondary, marginBottom: 5 }}>Número de Cuenta</Text>
+                  <TextInput
+                    style={styles.rateInput}
+                    value={tempTransfer.No_Cuenta}
+                    onChangeText={(val) => setTempTransfer(prev => ({ ...prev, No_Cuenta: val }))}
+                    placeholder="000-0000000-0"
+                    placeholderTextColor={colors.text.light}
+                    keyboardType="numeric"
+                  />
+                </View>
 
-            <View style={styles.modalBtnRow}>
-              <TouchableOpacity 
-                style={[styles.modalBtn, styles.modalBtnCancel]} 
-                onPress={() => setTransferModalVisible(false)}
-                disabled={isSaving}
-              >
-                <Text style={{ color: colors.text.primary, fontWeight: 'bold' }}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.modalBtn, styles.modalBtnSave]} 
-                onPress={async () => {
-                  setIsSaving(true);
-                  try {
-                    const res = await saveTransferDetail(tempTransfer);
-                    if (res && res.success) {
-                      const updated = businessInfo.transferDetails || [];
-                      const idx = updated.findIndex(t => t.Banco === tempTransfer.Banco);
-                      if (idx >= 0) updated[idx] = { ...updated[idx], ...tempTransfer };
-                      else updated.push(tempTransfer);
-                      
-                      updateBusinessInfo({ ...businessInfo, transferDetails: updated });
-                      Alert.alert('Éxito', 'Datos bancarios guardados.');
-                      setTransferModalVisible(false);
-                    }
-                  } catch (e) {
-                    Alert.alert('Error', 'No se pudo guardar.');
-                  } finally {
-                    setIsSaving(false);
-                  }
-                }}
-                disabled={isSaving}
-              >
-                {isSaving ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Guardar</Text>}
-              </TouchableOpacity>
-            </View>
+                <View style={{ marginBottom: spacing.md }}>
+                  <Text style={{ color: colors.text.secondary, marginBottom: 5 }}>Titular de la Cuenta</Text>
+                  <TextInput
+                    style={styles.rateInput}
+                    value={tempTransfer.Titular}
+                    onChangeText={(val) => setTempTransfer(prev => ({ ...prev, Titular: val }))}
+                    placeholder="Nombre completo"
+                    placeholderTextColor={colors.text.light}
+                  />
+                </View>
+
+                <View style={styles.modalBtnRow}>
+                  <TouchableOpacity 
+                    style={[styles.modalBtn, styles.modalBtnCancel]} 
+                    onPress={() => setIsEditingBank(false)}
+                    disabled={isSaving}
+                  >
+                    <Text style={{ color: colors.text.primary, fontWeight: 'bold' }}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.modalBtn, styles.modalBtnSave]} 
+                    onPress={async () => {
+                      setIsSaving(true);
+                      try {
+                        const res = await saveTransferDetail(tempTransfer);
+                        if (res && res.success) {
+                          const updated = businessInfo.transferDetails || [];
+                          const idx = updated.findIndex(t => (t.Id_transf && t.Id_transf === tempTransfer.Id_transf) || (t.Banco === tempTransfer.Banco && !t.Id_transf));
+                          if (idx >= 0) updated[idx] = { ...updated[idx], ...tempTransfer };
+                          else updated.push(tempTransfer);
+                          
+                          updateBusinessInfo({ ...businessInfo, transferDetails: updated });
+                          showAlert('Éxito', 'Datos bancarios guardados.');
+                          setIsEditingBank(false);
+                        }
+                      } catch (e) {
+                        showAlert('Error', 'No se pudo guardar.');
+                      } finally {
+                        setIsSaving(false);
+                      }
+                    }}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Guardar</Text>}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
           </View>
         </View>
       </Modal>

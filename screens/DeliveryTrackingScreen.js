@@ -1,3 +1,4 @@
+import { showAlert } from '../utils/showAlert';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   View, 
@@ -7,7 +8,6 @@ import {
   ScrollView, 
   Dimensions, 
   Image,
-  SafeAreaView,
   Animated,
   Platform,
   Linking,
@@ -15,6 +15,7 @@ import {
   Modal,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { updateOrderStatus, getRouteDetails } from '../utils/api';
 import { getDistance } from '../utils/mathUtils';
@@ -51,12 +52,32 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
 
   // Ubicaciones
   const storeLocation = CONFIG.STORE_LOCATION;
-  const clientLocation = useMemo(() => orderDetails?.location || { 
-    latitude: route.params?.lat || 18.486, 
-    longitude: route.params?.lng || -69.931 
+  
+  const clientLocation = useMemo(() => {
+    let loc = orderDetails?.location || { 
+      latitude: route.params?.lat || 18.486, 
+      longitude: route.params?.lng || -69.931 
+    };
+
+    // Si viene como string "lat,lng", parsearlo
+    if (typeof loc === 'string') {
+      try {
+        const [lat, lng] = loc.split(',').map(n => parseFloat(n.trim()));
+        loc = { latitude: lat, longitude: lng };
+      } catch (e) {
+        console.error("Error parsing location string:", loc, e);
+      }
+    }
+    
+    // Asegurar que lat y lng sean números
+    return {
+      latitude: Number(loc.latitude) || 18.486,
+      longitude: Number(loc.longitude) || -69.931
+    };
   }, [orderDetails, route.params]);
 
   const tipoEntrega = (orderDetails?.tipo || 'Domicilio').toLowerCase();
+
   const isDelivery = tipoEntrega === 'domicilio' || tipoEntrega === 'delivery' || tipoEntrega === 'envio' || tipoEntrega === 'envío';
 
   // Cargar ruta real de Google
@@ -320,14 +341,14 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
         const isCash = payload.paymentMethod?.toLowerCase().includes('efectivo');
         const message = isCash ? '¡RECIBIDO Y PAGADO ✅! Gracias por tu preferencia.' : '¡RECIBIDO ✅! Esperamos que disfrutes tu pedido.';
         
-        Alert.alert('Éxito', message);
+        showAlert('Éxito', message);
       } else {
-        Alert.alert('Error', 'Este código no corresponde a tu pedido actual.');
+        showAlert('Error', 'Este código no corresponde a tu pedido actual.');
         setScanned(false);
       }
     } catch (error) {
       console.error("Error scanning QR:", error);
-      Alert.alert('Error', 'Código no válido.');
+      showAlert('Error', 'Código no válido.');
       setScanned(false);
     } finally {
       setIsProcessingQR(false);
@@ -338,7 +359,7 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     if (!permission || !permission.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
-        Alert.alert('Permiso denegado', 'Necesitamos acceso a la cámara para confirmar la entrega.');
+        showAlert('Permiso denegado', 'Necesitamos acceso a la cámara para confirmar la entrega.');
         return;
       }
     }
@@ -450,7 +471,7 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
               onPress={() => {
                 // Ya no hace falta mostrar mapa si sabe llegar
                 // Se queda en esta misma vista
-                Alert.alert("¡Genial!", "Te esperamos en nuestro local para entregarte tu pedido.");
+                showAlert("¡Genial!", "Te esperamos en nuestro local para entregarte tu pedido.");
               }}
             >
               <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 16 }}>Sí</Text>
@@ -543,9 +564,9 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
                     entregadoPor: username || 'Empleado' 
                   });
                   await refreshOrder(orderId);
-                  Alert.alert('Éxito', 'Pedido entregado en local correctamente.');
+                  showAlert('Éxito', 'Pedido entregado en local correctamente.');
                 } catch (e) {
-                  Alert.alert('Error', 'No se pudo confirmar la entrega.');
+                  showAlert('Error', 'No se pudo confirmar la entrega.');
                 } finally {
                   setIsProcessingQR(false);
                 }

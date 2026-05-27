@@ -1,3 +1,4 @@
+import { showAlert } from '../utils/showAlert';
 import React, { useState, useMemo } from 'react';
 import { 
   View, 
@@ -10,10 +11,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  SafeAreaView,
   Dimensions,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -63,7 +64,7 @@ const LoginScreen = () => {
 
   const handleLogin = async () => {
     if (!email || !password) {
-       Alert.alert('Atención', 'Por favor ingresa tus credenciales');
+       showAlert('Atención', 'Por favor ingresa tus credenciales');
        return;
     }
     try {
@@ -79,7 +80,7 @@ const LoginScreen = () => {
         await signInWithGoogleWeb();
       } catch (error) {
         if (error.code !== 'auth/popup-closed-by-user') {
-          Alert.alert('Error', 'Hubo un problema al iniciar sesión con Google.');
+          showAlert('Error', 'Hubo un problema al iniciar sesión con Google.');
         }
       }
       return;
@@ -106,7 +107,7 @@ const LoginScreen = () => {
     } catch (error) {
       console.log('Google Native Error:', error);
       if (error.code !== 'status_codes.SIGN_IN_CANCELLED') {
-        Alert.alert('Error', 'No se pudo completar el inicio de sesión con Google.');
+        showAlert('Error', 'No se pudo completar el inicio de sesión con Google.');
       }
     }
   };

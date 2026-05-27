@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["http://localhost:8081", "http://localhost:8080", "http://localhost:19006", "https://*.web.app", "https://*.firebaseapp.com"],
+    "method": ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],
+    "responseHeader": ["Content-Type", "Authorization", "Content-Length", "User-Agent", "x-goog-resumable"],
+    "maxAgeSeconds": 3600
+  }
+]

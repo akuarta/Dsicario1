@@ -3,6 +3,9 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { useTheme } from '../contexts/ThemeContext';
 import ConfigScreen from '../screens/ConfigScreen';
 import AdminDeliveryScreen from '../screens/AdminDeliveryScreen';
+import StaffModeScreen from '../screens/StaffModeScreen';
+
+import AdminStaffScreen from '../screens/AdminStaffScreen';
 
 const Stack = createStackNavigator();
 
@@ -25,6 +28,21 @@ const ConfigStack = () => {
           headerTintColor: '#FFFFFF',
           headerTitleStyle: { fontWeight: 'bold' },
         }}
+      />
+      <Stack.Screen
+        name="AdminStaff"
+        component={AdminStaffScreen}
+        options={{
+          title: 'Gestión de Personal',
+          headerStyle: { backgroundColor: colors.primary },
+          headerTintColor: '#FFFFFF',
+          headerTitleStyle: { fontWeight: 'bold' },
+        }}
+      />
+      <Stack.Screen
+        name="StaffModeSettings"
+        component={StaffModeScreen}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );

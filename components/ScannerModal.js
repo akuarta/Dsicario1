@@ -1,7 +1,6 @@
 import React from 'react';
 import { 
   Modal, 
-  SafeAreaView, 
   View, 
   Text, 
   TouchableOpacity, 
@@ -9,6 +8,7 @@ import {
   StyleSheet, 
   Platform 
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView } from 'expo-camera';
 import { FontAwesome5 } from '@expo/vector-icons';
 

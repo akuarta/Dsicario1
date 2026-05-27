@@ -28,6 +28,7 @@ const SearchBar = memo(({
   showClearButton = true,
   showFilterButton = true,
   showMenuButton = true,
+  filterActive = false,
 }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
@@ -121,8 +122,15 @@ const SearchBar = memo(({
         {showFilterButton ? (
           <>
             <View style={styles.divider} />
-            <TouchableOpacity onPress={onFilterPress} style={styles.filterButton} activeOpacity={0.7}>
-              <FontAwesome5 name="sliders-h" size={16} color={colors.primary} />
+            <TouchableOpacity 
+              onPress={onFilterPress} 
+              style={[
+                styles.filterButton, 
+                filterActive && { backgroundColor: colors.primary + '20', borderRadius: 8 }
+              ]} 
+              activeOpacity={0.7}
+            >
+              <FontAwesome5 name="sliders-h" size={16} color={filterActive ? colors.primary : colors.text.secondary} />
             </TouchableOpacity>
           </>
         ) : null}

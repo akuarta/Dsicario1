@@ -29,12 +29,12 @@ import RegisterScreen from '../screens/RegisterScreen';
 import KitchenScreen from '../screens/KitchenScreen';
 import RiderScreen from '../screens/RiderScreen';
 import WaiterScreen from '../screens/WaiterScreen';
-import AdminStaffScreen from '../screens/AdminStaffScreen';
 import ProductListScreen from '../screens/ProductListScreen';
 import OrderCenterScreen from '../screens/OrderCenterScreen';
 import AdminDeliveryScreen from '../screens/AdminDeliveryScreen';
 import ProductEditorScreen from '../screens/ProductEditorScreen';
 import InventoryScreen from '../screens/InventoryScreen';
+import UpdateService from '../utils/UpdateService';
 
 const Tab = createBottomTabNavigator();
 const Drawer = createDrawerNavigator();
@@ -119,7 +119,6 @@ const MainTabs = () => {
       if (activeStaffMode === 'cocina') return KitchenScreen;
       if (activeStaffMode === 'mesero') return WaiterScreen;
       if (activeStaffMode === 'repartidor') return RiderScreen;
-      if (activeStaffMode === 'personal') return AdminStaffScreen;
       
       // Por rol (empleados sin modo admin por defecto)
       if (isCocina && !isAdmin) return KitchenScreen;
@@ -134,7 +133,6 @@ const MainTabs = () => {
       if (activeStaffMode === 'cocina') return 'COCINA';
       if (activeStaffMode === 'mesero') return 'MESAS';
       if (activeStaffMode === 'repartidor') return 'REPARTIDOR';
-      if (activeStaffMode === 'personal') return 'PERSONAL';
 
       if (isCocina && !isAdmin) return 'MONITOR';
       if (isDelivery && !isAdmin) return 'ENTREGAS';
@@ -200,20 +198,13 @@ const MainTabs = () => {
       <Tab.Screen name="DeliveryTracking" component={DeliveryTrackingScreen} options={{ tabBarButton: () => null }} />
       <Tab.Screen name="CarritoTab" component={CartStack} options={{ tabBarButton: () => null }} />
       
-      {(isStaff) && (
-        <Tab.Screen name="CocinaAdmin" component={KitchenScreen} options={{ tabBarButton: () => null }} />
-      )}
-      {(isStaff) && (
-        <Tab.Screen name="WaiterHome" component={WaiterScreen} options={{ tabBarButton: () => null }} />
-      )}
-      {(isStaff) && (
-        <Tab.Screen name="RiderView" component={RiderScreen} options={{ tabBarButton: () => null }} />
-      )}
-      {isAdmin && (
-        <>
-          <Tab.Screen name="AdminStaff" component={AdminStaffScreen} options={{ tabBarButton: () => null }} />
-        </>
-      )}
+      {isStaff ? (
+        <React.Fragment>
+          <Tab.Screen name="CocinaAdmin" component={KitchenScreen} options={{ tabBarButton: () => null }} />
+          <Tab.Screen name="WaiterHome" component={WaiterScreen} options={{ tabBarButton: () => null }} />
+          <Tab.Screen name="RiderView" component={RiderScreen} options={{ tabBarButton: () => null }} />
+        </React.Fragment>
+      ) : null}
     </Tab.Navigator>
   );
 };
@@ -272,18 +263,25 @@ const AppNavigator = () => {
 
   const isLoading = authLoading || !roleReady || (isAuthenticated && productsLoading);
 
+  useEffect(() => {
+    // Check for updates on mount (if not in loading state)
+    if (!isLoading) {
+      UpdateService.checkUpdate();
+    }
+  }, [isLoading]);
+
   if (isLoading) return <FullLoadingScreen />;
 
   return (
     <NavigationContainer theme={darkMode ? DarkTheme : DefaultTheme}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {!isAuthenticated ? (
-          <>
+        {isAuthenticated ? (
+          <Stack.Screen name="Main" component={DrawerNavigator} />
+        ) : (
+          <React.Fragment>
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="Register" component={RegisterScreen} />
-          </>
-        ) : (
-          <Stack.Screen name="Main" component={DrawerNavigator} />
+          </React.Fragment>
         )}
       </Stack.Navigator>
     </NavigationContainer>

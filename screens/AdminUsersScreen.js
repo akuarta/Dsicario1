@@ -1,9 +1,9 @@
+import { showAlert } from '../utils/showAlert';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   FlatList,
   TouchableOpacity,
   TextInput,
@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
@@ -53,7 +54,7 @@ const AdminUsersScreen = ({ navigation }) => {
 
   const handleSave = async () => {
     if (!userName || !userId) {
-      Alert.alert('Error', 'ID y Nombre son obligatorios');
+      showAlert('Error', 'ID y Nombre son obligatorios');
       return;
     }
 
@@ -71,11 +72,11 @@ const AdminUsersScreen = ({ navigation }) => {
       // Update local state
       setUsers(prev => prev.map(u => u.ID_User === editingUser.ID_User ? updatedUser : u));
       
-      Alert.alert('Éxito', 'Usuario actualizado correctamente');
+      showAlert('Éxito', 'Usuario actualizado correctamente');
       setIsModalVisible(false);
       syncAllData();
     } catch (error) {
-      Alert.alert('Error', 'No se pudo actualizar el usuario');
+      showAlert('Error', 'No se pudo actualizar el usuario');
     } finally {
       setIsSaving(false);
     }

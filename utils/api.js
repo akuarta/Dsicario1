@@ -15,9 +15,116 @@ const apiCache = {
   kitchenOrders: { data: [], timestamp: 0 },
   deliveries: { data: [], timestamp: 0 },
   tables: { data: [], timestamp: 0 },
-  business: { data: null, timestamp: 0 }
+  business: { data: null, timestamp: 0 },
+  products: { data: [], timestamp: 0 },
+  suggested: { data: [], timestamp: 0 },
+  allData: { data: null, timestamp: 0 }
 };
 const API_TTL_MS = 45000; // 45 segundos de vida de caché
+
+const PERSIST_CACHE_KEY = '@dsicario_persistent_api_data';
+
+/**
+ * ✅ POST centralizado al GAS API — SIEMPRE usa text/plain para evitar CORS preflight en Web.
+ * GAS soporta JSON en body aunque el Content-Type sea text/plain.
+ * Sin este header, los browsers envían un preflight OPTIONS que GAS no responde → CORS error.
+ */
+const gasPost = async (payload) => {
+  const response = await fetch(CONFIG.GAS_API_URL, {
+    method: 'POST',
+    redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload),
+  });
+  return response.json();
+};
+
+/**
+ * Fetch whole data from GAS API with caching and persistence
+ * @param {boolean} forceRefresh - If true, ignores memory cache and fetches from network
+ * @param {boolean} returnCacheImmediately - If true, returns cache if available and fetches in background
+ */
+let activeFetchPromise = null;
+
+export const fetchWholeData = async (forceRefresh = false, returnCacheImmediately = false) => {
+  const now = Date.now();
+  
+  // 1. Intentar desde caché en memoria (rápido)
+  if (!forceRefresh && apiCache.allData.data && (now - apiCache.allData.timestamp < API_TTL_MS)) {
+    return apiCache.allData.data;
+  }
+
+  // Deduplicación: Si ya hay una petición en vuelo, la reutilizamos para no hacer 3 peticiones a la vez
+  if (activeFetchPromise && !forceRefresh) {
+    console.log('⏳ Reutilizando petición en vuelo para evitar llamadas duplicadas a la API...');
+    return activeFetchPromise;
+  }
+
+  const executeFetch = async () => {
+    // 2. Si no hay en memoria, intentar cargar desde AsyncStorage
+    if (!apiCache.allData.data) {
+      console.log('🔍 Buscando caché persistente con clave:', PERSIST_CACHE_KEY);
+      try {
+        const saved = await AsyncStorage.getItem(PERSIST_CACHE_KEY);
+        console.log(`🔍 Resultado de AsyncStorage: ${saved ? 'Encontrado (' + saved.length + ' bytes)' : 'No encontrado (Nulo o vacío)'}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          // Actualizar caché en memoria y poner timestamp "fresco" para evitar fetch inmediato si no es necesario
+          apiCache.allData = { data: parsed, timestamp: now };
+          
+          if (returnCacheImmediately) {
+            // Disparamos el fetch en background sin await
+            console.log('🔄 Cargado de AsyncStorage, actualizando en segundo plano...');
+            fetchAndPersistData().catch(console.error);
+            return parsed;
+          }
+
+          // Si no queremos forzar refresco, retornamos caché, pero IGUAL iniciamos un fetch en background
+          // para mantener el AsyncStorage y memory cache actualizados para la próxima vez.
+          if (!forceRefresh) {
+            console.log('✅ Usando caché persistente de AsyncStorage, actualizando en background...');
+            fetchAndPersistData().catch(console.error);
+            return parsed;
+          }
+        }
+      } catch (e) {
+        console.warn('Error loading persistent cache:', e);
+      }
+    }
+
+    // 3. Si llegamos aquí, es que necesitamos el fetch real
+    console.log('📡 Solicitando datos frescos de la red...');
+    return await fetchAndPersistData();
+  };
+
+  activeFetchPromise = executeFetch().finally(() => {
+    activeFetchPromise = null;
+  });
+
+  return activeFetchPromise;
+};
+
+/**
+ * Función interna para realizar el fetch y guardar en caché
+ */
+const fetchAndPersistData = async () => {
+  try {
+    const url = `${CONFIG.GAS_API_URL}`;
+    const response = await fetch(url, { redirect: 'follow' });
+    const data = await response.json();
+    
+    // Guardar en memoria y persistir
+    apiCache.allData = { data, timestamp: Date.now() };
+    AsyncStorage.setItem(PERSIST_CACHE_KEY, JSON.stringify(data))
+      .then(() => console.log(`💾 ✅ Todo el bloque de datos (${data?.productos?.length || 0} productos) se ha guardado físicamente en el teléfono (AsyncStorage).`))
+      .catch(e => console.warn('❌ Error guardando en AsyncStorage:', e));
+    
+    return data;
+  } catch (error) {
+    console.error('Error fetching data from network:', error);
+    return apiCache.allData.data || null;
+  }
+};
 
 
 /**
@@ -119,11 +226,7 @@ export const syncOfflineActions = async () => {
         const payload = { ...action };
         delete payload._timestamp; // Remove local meta
         
-        const response = await fetch(CONFIG.GAS_API_URL, {
-          method: 'POST',
-          body: JSON.stringify(payload),
-          redirect: 'follow'
-        });
+        const response = await gasPost(payload);
         
         if (!response.ok) {
            remainingQueue.push(action);
@@ -321,11 +424,10 @@ export const mapProductData = (item) => {
 /**
  * Fetch products from Google Sheets
  */
-export const fetchProducts = async () => {
+export const fetchProducts = async (returnCacheImmediately = false) => {
   try {
-    const url = `${CONFIG.GAS_API_URL}`;
-    const response = await fetch(url, { redirect: 'follow' });
-    const data = await response.json();
+    const data = await fetchWholeData(false, returnCacheImmediately);
+    if (!data) return [];
     
     // Obtener productos normales
     const normalProducts = resolveSheetData(data, 'productos') || [];
@@ -333,13 +435,17 @@ export const fetchProducts = async () => {
     
     // Obtener sugerencias
     const suggestedProducts = resolveSheetData(data, 'productos sugeridos') || [];
-    const mappedSuggested = suggestedProducts.map(mapSuggestedProductData);
+    const mappedSuggested = suggestedProducts.map(item => ({
+      ...mapSuggestedProductData(item),
+      isSuggestion: true
+    }));
     
-    // Combinar ambos
-    return [...mappedNormal, ...mappedSuggested];
+    const combined = [...mappedNormal, ...mappedSuggested];
+    apiCache.products = { data: combined, timestamp: Date.now() };
+    return combined;
   } catch (error) {
     console.error('Error fetching products:', error);
-    return [];
+    return apiCache.products.data || [];
   }
 };
 
@@ -348,11 +454,10 @@ export const fetchProducts = async () => {
  */
 export const fetchSuggestedProducts = async () => {
   try {
-    const url = `${CONFIG.GAS_API_URL}`;
-    const response = await fetch(url, { redirect: 'follow' });
-    const data = await response.json();
+    const data = await fetchWholeData();
+    if (!data) return [];
     const suggested = resolveSheetData(data, 'productos sugeridos');
-    return suggested || [];
+    return (suggested || []).map(mapSuggestedProductData);
   } catch (error) {
     console.error('Error fetching suggested products:', error);
     return [];
@@ -395,13 +500,8 @@ export const voteSuggestion = async (id, type, currentCount) => {
       }
     };
     
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      redirect: 'follow',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
-    });
-    return await response.json();
+    return await gasPost(payload);
+
   } catch (error) {
     console.error('Error voting:', error);
     return { success: false };
@@ -447,9 +547,11 @@ export const fetchBusinessInfo = async () => {
         deliveryBaseFee: parseFloat(getRobustProp(b, 'CostoEnvioBase')) || 100,
         expressFee: parseFloat(getRobustProp(b, 'CostoEnvioExpress')) || 50,
         deliveryMaxRadius: parseFloat(getRobustProp(b, 'RadioEntregaMax')) || 15, // km
-        paymentMethods: mP.length > 0 
-          ? mP.map(m => getRobustProp(m, 'Metodo Pago')).filter(Boolean)
-          : (getRobustProp(b, 'MetodosPago') || 'Efectivo, Tarjeta').split(',').map(s => s.trim()),
+        paymentMethods: (() => {
+          const raw = (getRobustProp(b, 'MetodosPago') || 'Efectivo, Tarjeta').split(',').map(s => s.trim());
+          const normalized = raw.map(m => m.toLowerCase().includes('transf') ? 'Transferencia' : m);
+          return [...new Set(normalized)]; // deduplicate
+        })(),
         paymentMethodsDetailed: mP,
         transferDetails: tD,
         paymentNotes: (() => {
@@ -504,18 +606,13 @@ export const saveBusinessInfo = async (info) => {
         'CostoEnvioBase': info.deliveryBaseFee,
         'CostoEnvioExpress': info.expressFee,
         'Monedas': (info.currencies || []).join(', '),
-        'MetodosPago': (info.paymentMethods || []).join(', '),
+        'MetodosPago': [...new Set((info.paymentMethods || []).map(m => m.toLowerCase().includes('transf') ? 'Transferencia' : m))].join(', '),
         'NotasMetodosPago': JSON.stringify(info.paymentNotes || {}),
         'NotaGeneralPago': info.generalPaymentNote || ''
       }
     };
 
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    return await response.json();
+    return await gasPost(payload);
   } catch (error) {
     console.error('Error saving business info:', error);
     return { success: false, error: error.message };
@@ -534,12 +631,7 @@ export const savePaymentMethod = async (methodData) => {
         'Tipo Entrega': methodData.deliveryType || methodData['Tipo Entrega'] || ''
       }
     };
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    return await response.json();
+    return await gasPost(payload);
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -559,12 +651,23 @@ export const saveTransferDetail = async (transferData) => {
         'Disponible?': transferData['Disponible?'] || 'TRUE'
       }
     };
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    return await response.json();
+    return await gasPost(payload);
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+};
+
+export const deleteTransferDetail = async (transferId) => {
+  try {
+    const payload = {
+      action: "DELETE",
+      sheet: "Transferencias_detalles",
+      idField: "Id_transf",
+      data: {
+        'Id_transf': transferId
+      }
+    };
+    return await gasPost(payload);
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -605,22 +708,16 @@ export const updateOrderStatus = async (orderId, newStatus, extraData = {}) => {
       }
     };
     
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    }).then(r => r.json());
+    console.log('[UPDATE] Enviando a GAS -> ID:', idStr, '| Estado:', excelStatus, '| Extra:', JSON.stringify(extraData));
+    const response = await gasPost(payload);
+    console.log('[UPDATE] Respuesta GAS:', JSON.stringify(response));
 
     // También actualizar detalle para consistencia en segundo plano
-    fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify({
+    gasPost({
         action: "UPDATE",
         sheet: "pedido detalle",
         data: { 'ID_Pedido': idStr, 'Estado': excelStatus, ...extraData }
-      }),
-      redirect: 'follow'
-    }).catch(() => {});
+      }).catch(() => {});
 
     // 🚀 [AUTO-DESCUENTO] Si el pedido se marca como COMPLETADO o COBRADO, procesar inventario
     if (newStatus === 'completed' || newStatus === 'paid') {
@@ -730,12 +827,7 @@ export const blacklistUser = async (emailOrId) => {
       }
     };
     
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    return await response.json();
+    return await gasPost(payload);
   } catch (error) {
     console.error('Error blacklisting user:', error);
     return { success: false };
@@ -831,16 +923,25 @@ export const respondToOffer = async (orderId, riderId, accept = true) => {
  */
 export const fetchOrderStatus = async (orderId) => {
   try {
-    const res = await fetch(`${CONFIG.GAS_API_URL}?sheet=pedidos`, { redirect: 'follow' });
+    const res = await fetch(`${CONFIG.GAS_API_URL}?sheet=Pedidos`, { redirect: 'follow' });
     const data = await res.json();
-    const rawOrders = resolveSheetData(data, 'pedidos');
+    // 🔍 DIAGNÓSTICO: Mostrar estructura de la respuesta en la primera llamada
+    const dataKeys = data ? Object.keys(data) : [];
+    console.log('[POLL] Keys en respuesta GAS:', dataKeys);
+    const rawOrders = resolveSheetData(data, 'Pedidos');
+    console.log('[POLL] Total pedidos encontrados:', rawOrders.length, '| Buscando ID:', orderId);
     const order = rawOrders.find(o => {
       const id = getRobustProp(o, 'ID_Pedido');
       return String(id).trim().toLowerCase() === String(orderId).trim().toLowerCase();
     });
-    if (!order) return null;
+    if (!order) {
+      console.log('[POLL] Pedido NO encontrado. IDs disponibles:', rawOrders.slice(0, 5).map(o => getRobustProp(o, 'ID_Pedido')));
+      return null;
+    }
     const excelStatus = getRobustProp(order, 'Estado') || '';
-    return STATUS_MAP.fromExcel(excelStatus); // 'ready' | 'rechazado' | 'propuesta' | etc.
+    const mappedStatus = STATUS_MAP.fromExcel(excelStatus);
+    console.log('[POLL] Pedido encontrado. Estado Excel:', excelStatus, '-> Estado app:', mappedStatus);
+    return mappedStatus;
   } catch (e) {
     console.warn('[fetchOrderStatus] Error:', e.message);
     return null;
@@ -1195,7 +1296,7 @@ export const fetchRiderStats = async (riderId, email = null) => {
       String(d.id) === String(riderId) || 
       String(d.id_delivery) === String(riderId) ||
       String(getRobustProp(d, 'id_user')) === String(riderId) ||
-      (email && String(getRobustProp(d, 'Email')).toLowerCase() === String(email).toLowerCase())
+      (email && String(d.email).toLowerCase() === String(email).toLowerCase())
     );
     
     const resolvedName = (riderUser ? (getRobustProp(riderUser, 'NombreUser') || getRobustProp(riderUser, 'Nombre')) : null) || 
@@ -1466,6 +1567,11 @@ export const fetchDeliveries = async () => {
  * Update rider heartbeat/connection
  */
 export const pingRider = async (riderId, firebaseUid = null, name = null) => {
+  if (!riderId || riderId === 'N/A') {
+    console.warn('[API] Skipping pingRider: Invalid riderId:', riderId);
+    return { success: false };
+  }
+  
   try {
     const promises = [];
     
@@ -1478,14 +1584,17 @@ export const pingRider = async (riderId, firebaseUid = null, name = null) => {
         'ID_UserType': String(riderId),
         'ID_Delivery': String(riderId),
         'ID_Rider': String(riderId),
-        'Ultima_Conexion': new Date().toISOString()
+        'Ultima_Conexion': new Date().toISOString(),
+        'Online?': 'TRUE'
       }
     };
-    promises.push(fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payloadDelivery),
-      redirect: 'follow'
-    }));
+    
+    if (firebaseUid) {
+      payloadDelivery.data['id_user'] = firebaseUid;
+    }
+
+    console.log(`[API] 💓 Enviando Ping para ${riderId}...`);
+    promises.push(gasPost(payloadDelivery));
 
     // 👤 Actualizar hoja de Usuarios usando la función robusta (mantiene Online=TRUE)
     if (firebaseUid) {
@@ -1504,6 +1613,7 @@ export const pingRider = async (riderId, firebaseUid = null, name = null) => {
  * Mark rider as offline in both sheets
  */
 export const setOffline = async (riderId, firebaseUid = null, name = null) => {
+  console.log(`[API] 😴 Marcando OFFLINE a: ${riderId} / UID: ${firebaseUid}`);
   try {
     const promises = [];
     
@@ -1520,11 +1630,7 @@ export const setOffline = async (riderId, firebaseUid = null, name = null) => {
           'Online?': 'FALSE'
         }
       };
-      promises.push(fetch(CONFIG.GAS_API_URL, {
-        method: 'POST',
-        body: JSON.stringify(payloadDelivery),
-        redirect: 'follow'
-      }));
+      promises.push(gasPost(payloadDelivery));
     }
 
     // 2. Actualizar hoja Usuarios usando la función robusta
@@ -1590,13 +1696,7 @@ export const updateAlmacenItem = async (itemId, updateData) => {
     
     console.log('🌐 [API] updateAlmacenItem Sending:', payload);
     
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    
-    const result = await response.json();
+    const result = await gasPost(payload);
     console.log('🌐 [API] updateAlmacenItem Result:', result);
     return result;
   } catch (error) {
@@ -1637,12 +1737,7 @@ export const saveRecipeIngredient = async (recipeData) => {
       }
     };
     
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    return await response.json();
+    return await gasPost(payload);
   } catch (error) {
     console.error('Error saving recipe ingredient:', error);
     return { success: false, error: error.message };
@@ -1661,12 +1756,7 @@ export const deleteRecipeIngredient = async (idReceta) => {
       idValue: String(idReceta)
     };
     
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    return await response.json();
+    return await gasPost(payload);
   } catch (error) {
     console.error('Error deleting recipe ingredient:', error);
     return { success: false, error: error.message };
@@ -1706,13 +1796,7 @@ export const setUserOnlineStatus = async (firebaseUid, isOnline, email = null, n
 
     console.log(`[USER_PRESENCE] 📤 Enviando payload (con NombreUser):`, JSON.stringify(payload));
     
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    
-    const result = await response.json();
+    const result = await gasPost(payload);
     console.log(`[USER_PRESENCE] 📡 Respuesta del servidor (Usuarios):`, JSON.stringify(result));
     
     return { success: result.success, result };
@@ -1737,12 +1821,7 @@ export const liquidateRiderCash = async (riderId) => {
         'UltimaLiquidacion': new Date().toISOString()
       }
     };
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    return await response.json();
+    return await gasPost(payload);
   } catch (error) {
     console.error('Error liquidating cash:', error);
     return { success: false };
@@ -1802,12 +1881,7 @@ export const updateTableStatus = async (tableId, status, orderId = '', clientNam
       }
     };
     console.log('🚀 ENVIANDO A GOOGLE SHEETS (UPSERT):', JSON.stringify(payload, null, 2));
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    const result = await response.json();
+    const result = await gasPost(payload);
     console.log('📥 RESPUESTA DEL SERVIDOR:', result);
     return result;
   } catch (error) {
@@ -1836,11 +1910,7 @@ export const hardResetTable = async (tableId, tableName = '', capacity = 4) => {
         'UltimaActualizacion': new Date().toISOString()
       }
     };
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(payload)
-    });
+    const response = await gasPost(payload);
     return await response.json();
   } catch (error) {
     console.error('❌ Error in hardResetTable:', error);
@@ -1862,12 +1932,7 @@ export const deleteOrder = async (orderId) => {
     };
     
     console.log('🗑️ ENVIANDO DELETE A GAS:', JSON.stringify(payload, null, 2));
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
+    const response = await gasPost(payload);
     const result = await response.json();
     console.log('📥 RESULTADO DELETE:', result);
     return result;
@@ -1937,12 +2002,7 @@ export const updateDelivery = async (deliveryData) => {
 
     console.log(`[DEBUG] Enviando UPSERT a Deliverys (ID=${finalRiderId})`);
 
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    const result = await response.json();
+    const result = await gasPost(payload);
     console.log(`[API] Resultado updateDelivery:`, JSON.stringify(result));
     return result;
   } catch (error) {
@@ -1981,12 +2041,7 @@ export const saveOrderDetail = async (detailData) => {
         'Cantidad': detailData.cantidad || 1
       }
     };
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    return await response.json();
+    return await gasPost(payload);
   } catch (error) {
     return { success: false };
   }
@@ -2043,12 +2098,7 @@ export const saveOrder = async (orderData) => {
 
     console.log('[API] Guardando pedido con Estado:', payload.data.Estado, 'Rider:', payload.data.ID_Rider);
 
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    const headerResult = await response.json();
+    const headerResult = await gasPost(payload);
 
     if (headerResult.success || headerResult.status === 'success') {
       const detailPromises = orderData.items.map(item => 
@@ -2085,7 +2135,7 @@ export const saveOrder = async (orderData) => {
       apiCache.kitchenOrders.timestamp = 0;
     }
 
-    return { ...headerResult, internalId, externalId };
+    return { ...headerResult, internalId: headerResult.internalId || internalId, externalId };
   } catch (error) {
     console.error('Error in saveOrder:', error);
     return { success: false, error: error.message };
@@ -2127,13 +2177,7 @@ export const saveUser = async (userData) => {
     
     console.log('[API] Enviando usuario a Excel:', payload);
 
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    
-    const result = await response.json();
+    const result = await gasPost(payload);
     console.log('[API] Respuesta de Excel:', result);
     return result;
   } catch (error) {
@@ -2144,10 +2188,26 @@ export const saveUser = async (userData) => {
 
 export const uploadVoucherImage = async (base64Data, orderId) => {
   try {
-    const storageRef = ref(storage, `vouchers/${orderId}_${Date.now()}.jpg`);
-    // Quitar el prefijo data:image/jpeg;base64, si existe
+    const fileName = `voucher_${orderId}_${Date.now()}.jpg`;
+    console.log('[API] Intentando subir comprobante a Google Drive...');
+    const response = await gasPost({
+      action: "UPLOAD_IMAGE",
+      base64Data: base64Data,
+      fileName: fileName
+    });
+    if (response && response.success && response.url) {
+      console.log('[API] Comprobante subido exitosamente a Google Drive:', response.url);
+      return response.url;
+    }
+    console.warn('[API] Falló subida a Google Drive, intentando Firebase Storage...');
+  } catch (err) {
+    console.warn('[API] Error subiendo a Google Drive, intentando Firebase Storage:', err);
+  }
+
+  try {
     const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
-    
+    const fileName = `vouchers/${orderId}_${Date.now()}.jpg`;
+    const storageRef = ref(storage, fileName);
     await uploadString(storageRef, cleanBase64, 'base64');
     const downloadURL = await getDownloadURL(storageRef);
     return downloadURL;
@@ -2158,6 +2218,23 @@ export const uploadVoucherImage = async (base64Data, orderId) => {
 };
 
 export const uploadProductImage = async (base64Data, productId) => {
+  try {
+    const fileName = `product_${productId}.jpg`;
+    console.log('[API] Intentando subir imagen de producto a Google Drive...');
+    const response = await gasPost({
+      action: "UPLOAD_IMAGE",
+      base64Data: base64Data,
+      fileName: fileName
+    });
+    if (response && response.success && response.url) {
+      console.log('[API] Imagen de producto subida exitosamente a Google Drive:', response.url);
+      return response.url;
+    }
+    console.warn('[API] Falló subida de producto a Google Drive, intentando Firebase Storage...');
+  } catch (err) {
+    console.warn('[API] Error subiendo producto a Google Drive, intentando Firebase Storage:', err);
+  }
+
   try {
     const storageRef = ref(storage, `products/${productId}.jpg`);
     const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
@@ -2190,12 +2267,7 @@ export const saveTransferRecord = async (transferData) => {
         'Continuar?': 'NO'
       }
     };
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    return await response.json();
+    return await gasPost(payload);
   } catch (error) {
     console.error('Error saving transfer record:', error);
     return { success: false, error: error.message };
@@ -2221,11 +2293,7 @@ export const createDraftOrder = async (orderData) => {
           'UltimaActualizacion': new Date().toISOString()
         }
       };
-      await fetch(CONFIG.GAS_API_URL, { 
-        method: 'POST', 
-        body: JSON.stringify(tablePayload), 
-        redirect: 'follow' 
-      }).catch(e => console.warn('Table update fail:', e));
+      await gasPost(tablePayload).catch(e => console.warn('Table update fail:', e));
     }
 
     // 2. Crear cabecera del pedido como Borrador
@@ -2244,12 +2312,7 @@ export const createDraftOrder = async (orderData) => {
       }
     };
 
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    return await response.json();
+    return await gasPost(payload);
   } catch (error) {
     console.error('Error creating draft:', error);
     return { success: false };
@@ -2277,12 +2340,7 @@ export const saveWaiterCartItem = async (data) => {
       }
     };
 
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      redirect: 'follow'
-    });
-    return await response.json();
+    return await gasPost(payload);
   } catch (error) {
     console.error('Error saving waiter item:', error);
     return { success: false };
@@ -2307,11 +2365,7 @@ export const submitReview = async (reviewData) => {
     }
   };
 
-  const response = await fetch(CONFIG.GAS_API_URL, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-    redirect: 'follow'
-  });
+  const response = await gasPost(payload);
   return response.json();
 };
 
@@ -2420,15 +2474,12 @@ export const fetchOrderDetails = async (orderId) => {
  */
 export const deleteUser = async (email) => {
   try {
-    const response = await fetch(CONFIG.GAS_API_URL, {
-      method: 'POST',
-      body: JSON.stringify({
+    const response = await gasPost({
         action: 'DELETE',
         sheet: 'usuarios',
         idField: 'Email',
         data: { Email: email }
-      })
-    });
+      });
     return await response.json();
   } catch (error) {
     console.error('Error deleting user:', error);
@@ -2515,6 +2566,147 @@ export const updateProduct = async (productData) => {
   }
 };
 
+/**
+ * Cambio rápido de disponibilidad de un producto (agotado ↔ disponible).
+ * Solo envía el campo `agotado` para que sea muy rápido.
+ */
+export const toggleProductStock = async (productId, currentAgotado) => {
+  try {
+    const payload = {
+      action: 'UPSERT',
+      sheet: 'productos',
+      idField: 'ID_Producto',
+      data: {
+        'ID_Producto': productId,
+        'agotado': !currentAgotado,
+      }
+    };
+    console.log(`[API] Toggle stock: ${productId} → ${!currentAgotado ? 'AGOTADO' : 'DISPONIBLE'}`);
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error toggling stock:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+
+export const getRouteDetails = async (origin, destination) => {
+  const apiKey = CONFIG.GOOGLE_MAPS_API_KEY;
+  if (!apiKey) {
+    console.warn('Google Maps API Key no configurada en Config.js');
+    return null;
+  }
+
+  if (!origin || !destination || !origin.latitude || !destination.latitude) {
+    console.warn('getRouteDetails: Origin or Destination invalid', { origin, destination });
+    return null;
+  }
+
+  const originStr = `${origin.latitude},${origin.longitude}`;
+  const destStr = `${destination.latitude},${destination.longitude}`;
+  
+  const googleUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${originStr}&destination=${destStr}&key=${apiKey}`;
+
+  try {
+    let data;
+
+    // EN NATIVO: Llamada directa (Sin problemas de CORS y para mayor velocidad)
+    if (Platform.OS !== 'web') {
+      console.log('Fetching route directly (Native)...');
+      const response = await fetch(googleUrl);
+      if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+      data = await response.json();
+    } else {
+      // EN WEB: Usar Proxy GAS para evitar CORS
+      console.log('Fetching route via Proxy (Web)...');
+      const proxyUrl = CONFIG.GAS_API_URL;
+      
+      try {
+        const response = await fetch(proxyUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({
+            action: 'GET_ROUTE',
+            data: { origin: originStr, destination: destStr, key: apiKey }
+          })
+        });
+        
+        data = await response.json();
+
+        // Si el proxy nos devolvió productos en lugar de ruta, es que no soporta action=GET_ROUTE vía POST
+        if (data && data.productos && !data.routes) {
+          console.warn('Proxy GAS no reconoce GET_ROUTE via POST. Reintentando con GET params...');
+          const fallbackUrl = `${proxyUrl}${proxyUrl.includes('?') ? '&' : '?'}action=GET_ROUTE&origin=${originStr}&destination=${destStr}&key=${apiKey}`;
+          const res2 = await fetch(fallbackUrl);
+          data = await res2.json();
+        }
+      } catch (e) {
+        console.error('Proxy failure, trying direct (might fail due to CORS):', e);
+        const res3 = await fetch(googleUrl);
+        data = await res3.json();
+      }
+    }
+
+    if (!data) return null;
+
+    // Normalizar respuesta (Formato Google o Formato Optimizado del Proxy)
+    const routes = data.routes || (data.data && data.data.routes);
+    const polylineDirect = data.polyline || (data.data && data.data.polyline);
+
+    if (polylineDirect) {
+      const r = data.data || data;
+      return {
+        distance: r.distance || '---',
+        distanceValue: r.distanceValue || 0,
+        duration: r.duration || '---',
+        durationValue: r.durationValue || 0,
+        polyline: r.polyline || '',
+        bounds: r.bounds || null,
+        steps: r.steps || []
+      };
+    }
+
+    if (routes && routes.length > 0) {
+      const route = routes[0];
+      const leg = route.legs[0];
+      return {
+        distance: leg.distance?.text || '---',
+        distanceValue: leg.distance?.value || 0,
+        duration: leg.duration?.text || '---',
+        durationValue: leg.duration?.value || 0,
+        polyline: route.overview_polyline?.points || '',
+        bounds: route.bounds,
+        steps: leg.steps || []
+      };
+    }
+
+    console.warn('No se encontró una ruta válida en la respuesta:', data);
+    return null;
+
+  } catch (error) {
+    console.error('Error fatal en getRouteDetails:', error);
+    return null;
+  }
+};
+
+export const decodePolyline = (t) => {
+  let points = [];
+  if (!t) return points;
+  for (let i = 0, l = 0, r = 0, n = 0, o = 0, s = 0, a = 0, u = 0, c = 0; i < t.length; ) {
+    for (n = 0, o = 0, s = 0; (a = t.charCodeAt(i++) - 63), (s |= (31 & a) << o), (o += 5), a >= 32; );
+    u = 1 & s ? ~(s >> 1) : s >> 1, (l += u);
+    for (n = 0, o = 0, s = 0; (a = t.charCodeAt(i++) - 63), (s |= (31 & a) << o), (o += 5), a >= 32; );
+    c = 1 & s ? ~(s >> 1) : s >> 1, (r += c);
+    points.push({ latitude: l / 1e5, longitude: r / 1e5 });
+  }
+  return points;
+};
 export default {
   fetchProducts,
   mapProductData,
@@ -2534,6 +2726,7 @@ export default {
   formatPrice,
   fetchUserRoleByEmail,
   fetchReviews,
+  getRouteDetails,
   fetchOrderDetails,
   saveWaiterCartItem,
   createDraftOrder,
@@ -2546,101 +2739,4 @@ export default {
   updateAlmacenItem,
   fetchRecetas,
   processInventoryDeduction
-};
-/**
- * Obtiene los detalles de la ruta real entre dos puntos usando Google Maps Directions API
- * @param {Object} origin {latitude, longitude}
- * @param {Object} destination {latitude, longitude}
- * @returns {Promise<Object>} {distance, duration, polyline, points}
- */
-export const getRouteDetails = async (origin, destination) => {
-  const apiKey = CONFIG.GOOGLE_MAPS_API_KEY;
-  if (!apiKey) {
-    console.warn('Google Maps API Key no configurada en Config.js');
-    return null;
-  }
-
-  const originStr = origin.latitude + ',' + origin.longitude;
-  const destinationStr = destination.latitude + ',' + destination.longitude;
-
-  // En web: proxy via GAS para evitar CORS
-  if (Platform.OS === 'web') {
-    try {
-      const gasUrl = CONFIG.GAS_API_URL + '?action=GET_ROUTE&origin=' + originStr + '&destination=' + destinationStr + '&key=' + apiKey;
-      const response = await fetch(gasUrl);
-      const data = await response.json();
-      if (!data.success) {
-        console.error('Error en ruta (GAS proxy):', data.message);
-        return null;
-      }
-      return {
-        distance: data.distance,
-        distanceValue: data.distanceValue,
-        duration: data.duration,
-        durationValue: data.durationValue,
-        polyline: data.polyline,
-        bounds: data.bounds,
-      };
-    } catch (err) {
-      console.error('Error fetching route via GAS:', err);
-      return null;
-    }
-  }
-
-  // En movil: llamada directa a Directions API
-  const apiKey2 = CONFIG.GOOGLE_MAPS_API_KEY;
-  
-  if (!apiKey) {
-    console.warn('Google Maps API Key no configurada en Config.js');
-    return null;
-  }
-
-  try {
-    const originStr = `${origin.latitude},${origin.longitude}`;
-    const destinationStr = `${destination.latitude},${destination.longitude}`;
-    
-    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originStr}&destination=${destinationStr}&key=${apiKey}&mode=driving`;
-    
-    const response = await fetch(url);
-    const data = await response.json();
-    
-    if (data.status !== 'OK') {
-      console.error('Error en Directions API:', data.status, data.error_message);
-      return null;
-    }
-
-    const route = data.routes[0];
-    const leg = route.legs[0];
-
-    return {
-      distance: leg.distance.text,
-      distanceValue: leg.distance.value, // metros
-      duration: leg.duration.text,
-      durationValue: leg.duration.value, // segundos
-      polyline: route.overview_polyline.points,
-      bounds: route.bounds,
-      steps: leg.steps
-    };
-  } catch (error) {
-    console.error('Error fetching route details:', error);
-    return null;
-  }
-};
-
-/**
- * Decodifica una polilínea de Google Maps en un array de coordenadas
- * @param {string} t Polilínea codificada
- * @returns {Array} [{latitude, longitude}]
- */
-export const decodePolyline = (t) => {
-  let points = [];
-  if (!t) return points;
-  for (let i = 0, l = 0, r = 0, n = 0, o = 0, s = 0, a = 0, u = 0, c = 0; i < t.length; ) {
-    for (n = 0, o = 0, s = 0; (a = t.charCodeAt(i++) - 63), (s |= (31 & a) << o), (o += 5), a >= 32; );
-    u = 1 & s ? ~(s >> 1) : s >> 1, (l += u);
-    for (n = 0, o = 0, s = 0; (a = t.charCodeAt(i++) - 63), (s |= (31 & a) << o), (o += 5), a >= 32; );
-    c = 1 & s ? ~(s >> 1) : s >> 1, (r += c);
-    points.push({ latitude: l / 1e5, longitude: r / 1e5 });
-  }
-  return points;
 };

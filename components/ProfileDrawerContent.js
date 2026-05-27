@@ -1,5 +1,7 @@
+import { showAlert } from '../utils/showAlert';
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, Alert, Platform, Switch, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, Switch, Image } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -16,21 +18,19 @@ const ProfileDrawerContent = (props) => {
   const roleLow = role ? role.toLowerCase() : '';
   const isAdmin = roleLow.includes('admin') || roleLow === 'owner';
   const isDelivery = roleLow.includes('delivery') || roleLow.includes('repartidor');
-  const isCocina = roleLow.includes('cocina') || roleLow.includes('cosina');
+  const isCocina = roleLow.includes('cocina') || roleLow === 'cosina';
   const isMesero = roleLow.includes('mesero');
   
   const isOwner = email?.toLowerCase()?.trim() === 'hairoman28@gmail.com';
   // Temporalmente habilitamos el switch para más gente si algo falla
   const isStaff = isCocina || isDelivery || isMesero || isAdmin || isOwner;
 
-  const showAlert = (title, message) => Alert.alert(title, message);
-
   const handleClearCart = () => {
     if (totalItems === 0) {
       showAlert('Carrito vacío', 'No hay productos en el carrito');
       return;
     }
-    Alert.alert(
+    showAlert(
       'Vaciar carrito',
       '¿Estás seguro de que quieres vaciar todo el carrito?',
       [
@@ -63,58 +63,30 @@ const ProfileDrawerContent = (props) => {
       label: '🍳 Monitor de Cocina',
       sub: activeStaffMode === 'cocina' ? 'Modo cocina activo' : 'Ver pedidos en cocina',
       color: '#E67E22',
-      visible: isStaff && !isClientMode,
-      value: activeStaffMode === 'cocina',
-      onToggle: () => { 
-        const turningOff = activeStaffMode === 'cocina';
-        setActiveStaffMode('cocina'); 
-        if (turningOff) navigate('InicioTab');
-        else navigate('CocinaAdmin');
-      },
-    },
-    {
-      id: 'mesero',
-      label: '🤵 Modo Mesero',
-      sub: activeStaffMode === 'mesero' ? 'Tomando órdenes de mesa' : 'Activar para tomar órdenes',
-      color: '#FF8C00',
-      visible: isStaff && !isClientMode,
-      value: activeStaffMode === 'mesero',
-      onToggle: () => { 
-        const turningOff = activeStaffMode === 'mesero';
-        setActiveStaffMode('mesero'); 
-        if (turningOff) navigate('InicioTab');
-        else navigate('WaiterHome');
-      },
+      visible: (isAdmin || isCocina) && !isClientMode,
+      onToggle: () => setActiveStaffMode(activeStaffMode === 'cocina' ? null : 'cocina'),
+      isActive: activeStaffMode === 'cocina'
     },
     {
       id: 'repartidor',
-      label: '🚴 Vista de Repartidor',
-      sub: activeStaffMode === 'repartidor' ? 'Modo repartidor activo' : 'Ver rutas y pedidos',
-      color: '#2980B9',
-      visible: isStaff && !isClientMode,
-      value: activeStaffMode === 'repartidor',
-      onToggle: () => { 
-        const turningOff = activeStaffMode === 'repartidor';
-        setActiveStaffMode('repartidor'); 
-        if (turningOff) navigate('InicioTab');
-        else navigate('RiderView');
-      },
+      label: '🛵 Modo Repartidor',
+      sub: activeStaffMode === 'repartidor' ? 'Modo repartidor activo' : 'Habilitar GPS y entregas',
+      color: '#3498DB',
+      visible: (isAdmin || isDelivery) && !isClientMode,
+      onToggle: () => setActiveStaffMode(activeStaffMode === 'repartidor' ? null : 'repartidor'),
+      isActive: activeStaffMode === 'repartidor'
     },
     {
-      id: 'personal',
-      label: '👥 Gestión de Personal',
-      sub: activeStaffMode === 'personal' ? 'Gestión activa' : 'Roles y permisos del staff',
-      color: '#16A085',
-      visible: isAdmin && !isClientMode,
-      value: activeStaffMode === 'personal',
-      onToggle: () => { 
-        const turningOff = activeStaffMode === 'personal';
-        setActiveStaffMode('personal'); 
-        if (turningOff) navigate('InicioTab');
-        else navigate('AdminStaff');
-      },
-    },
+      id: 'mesero',
+      label: '🔔 Modo Mesero',
+      sub: activeStaffMode === 'mesero' ? 'Modo mesero activo' : 'Toma pedidos en mesa',
+      color: '#F1C40F',
+      visible: (isAdmin || isMesero) && !isClientMode,
+      onToggle: () => setActiveStaffMode(activeStaffMode === 'mesero' ? null : 'mesero'),
+      isActive: activeStaffMode === 'mesero'
+    }
   ];
+
   const menuItems = [
     // --- SECCIÓN CLIENTE (PARA TODOS O SI ESTÁ EN MODO CLIENTE) ---
     {
@@ -219,51 +191,40 @@ const ProfileDrawerContent = (props) => {
             <Text style={[styles.userRole, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>ID: {userTypeId || 'Cargando...'}</Text>
           </View>
         </View>
+
         {isStaff && (
-          <View style={[styles.modeSection, { backgroundColor: colors.primary + '15', marginTop: 10, borderBottomWidth: 0, borderRadius: 15, marginHorizontal: 10 }]}>
-            <View>
-              <Text style={styles.modeText}>CONTROL DE MODO</Text>
-              <Text style={styles.modeSub}>{isClientMode ? 'Viendo como cliente' : 'Viendo como personal'}</Text>
+          <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border || '#eee', paddingBottom: 5 }}>
+            <View style={styles.modeSection}>
+              <View>
+                <Text style={[styles.modeText, { color: colors.primary }]}>👤 Modo Cliente</Text>
+                <Text style={styles.modeSub}>{isClientMode ? 'Viendo como cliente' : 'Viendo como staff'}</Text>
+              </View>
+              <Switch
+                value={isClientMode}
+                onValueChange={setIsClientMode}
+                trackColor={{ false: '#ddd', true: colors.primary + '80' }}
+                thumbColor={isClientMode ? colors.primary : '#f4f3f4'}
+              />
             </View>
-            <Switch
-              value={isClientMode}
-              onValueChange={setIsClientMode}
-              trackColor={{ false: '#767577', true: colors.primary + '80' }}
-              thumbColor={isClientMode ? colors.primary : '#f4f3f4'}
-            />
           </View>
         )}
-        {/* Panel de accesos del personal — switches por modo */}
-        {isStaff && !isClientMode && (
-          <View style={{ marginHorizontal: 10, marginTop: 6 }}>
-            <Text style={{ fontSize: 11, fontWeight: 'bold', color: colors.text?.secondary || '#888', paddingHorizontal: 4, marginBottom: 4 }}>ACCESOS DE PERSONAL</Text>
-            {staffSwitches.filter(s => s.visible !== false).map(sw => (
-              <View
-                key={sw.id}
-                style={[
-                  styles.modeSection,
-                  { backgroundColor: sw.color + '15', borderBottomWidth: 0, borderRadius: 12, marginBottom: 5, paddingVertical: 10 }
-                ]}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.modeText, { color: sw.color }]}>{sw.label}</Text>
-                  <Text style={styles.modeSub}>{sw.sub}</Text>
-                </View>
-                {sw.isLink ? (
-                  <TouchableOpacity onPress={sw.onToggle} style={{ padding: 4 }}>
-                    <FontAwesome5 name="chevron-right" size={14} color={sw.color} />
-                  </TouchableOpacity>
-                ) : (
-                  <Switch
-                    value={sw.value || false}
-                    onValueChange={sw.onToggle}
-                    trackColor={{ false: '#767577', true: sw.color + '80' }}
-                    thumbColor={sw.value ? sw.color : '#f4f3f4'}
-                  />
-                )}
+
+        {isStaff && (
+          <TouchableOpacity 
+            style={[styles.modeSection, { backgroundColor: colors.primary + '15', marginTop: 10, borderBottomWidth: 0, borderRadius: 15, marginHorizontal: 10 }]}
+            onPress={() => props.navigation.navigate('MainTabs', { screen: 'Configuracion', params: { screen: 'StaffModeSettings' } })}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+              <View style={{ backgroundColor: colors.primary, padding: 8, borderRadius: 10, marginRight: 12 }}>
+                <FontAwesome5 name="user-shield" size={16} color="#FFF" />
               </View>
-            ))}
-          </View>
+              <View>
+                <Text style={styles.modeText}>GESTIÓN EMPLEADO</Text>
+                <Text style={styles.modeSub}>{isClientMode ? 'Modo Cliente activo' : 'Modo Personal activo'}</Text>
+              </View>
+            </View>
+            <FontAwesome5 name="chevron-right" size={14} color={colors.primary} />
+          </TouchableOpacity>
         )}
         <View style={styles.menuContainer}>
           {menuItems.map(item => {
@@ -316,7 +277,7 @@ const ProfileDrawerContent = (props) => {
                 handleLogout();
               }
             } else {
-              Alert.alert(
+              showAlert(
                 "Cerrar Sesión",
                 "¿Estás seguro de que quieres salir?",
                 [

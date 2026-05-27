@@ -6,22 +6,30 @@ import {
   Image, 
   StyleSheet, 
   ScrollView,
-  SafeAreaView,
   Alert,
   TextInput,
-  Dimensions
+  Dimensions,
+  Modal,
+  ActivityIndicator
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useCart, useProducts } from '../contexts/AppContext';
 import { useUser } from '../contexts/UserContext';
 import ProductItem from '../components/ProductItem';
 import { showAlert } from '../utils/showAlert';
-import { formatPrice, calculateDiscountedPrice, submitReview, fetchReviews } from '../utils/api';
+import { 
+  formatPrice, 
+  calculateDiscountedPrice, 
+  submitReview, 
+  fetchReviews
+} from '../utils/api';
 import ProductBadges from '../components/ProductBadges';
 import { CustomHeader } from '../components/CustomHeader';
 import GlassPanel from '../components/GlassPanel';
 import { useThemeMode } from '../contexts/ThemeContext';
+import { useFavorites } from '../contexts/FavoritesContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 
 const { width } = Dimensions.get('window');
@@ -61,8 +69,9 @@ const ProductDetailScreen = ({ navigation, route }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const { product, isPreOrder } = route.params;
-  const { addToCart, businessInfo, isWaiterMode, waiterActiveSession } = useCart();
-  const { products } = useProducts();
+  const { cart, addToCart, updateCartItemQuantity, businessInfo, isWaiterMode, waiterActiveSession } = useCart();
+  const { toggleFavorite, isFavorite } = useFavorites();
+  const { products, isEditorMode } = useProducts();
   const { username, email, isClientMode, role } = useUser();
   
   const isClosed = businessInfo?.closed === true;
@@ -75,6 +84,29 @@ const ProductDetailScreen = ({ navigation, route }) => {
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [submittedReview, setSubmittedReview] = useState(null);
   const [publicReviews, setPublicReviews] = useState([]);
+  
+  const isAdmin = role?.toLowerCase().includes('admin') || role?.toLowerCase().includes('owner');
+  
+  // 🧠 Lógica Especial del Botón (Estado del Carrito)
+  const cartItem = useMemo(() => {
+    const prodId = product.id || product.ID_Producto || product.id_producto;
+    const isPre = !!isPreOrder || isClosed;
+    const note = (kitchenNote || '').trim();
+    const cartItemId = `${prodId}_${isPre ? 'pre' : 'norm'}_${note}`;
+    return cart.find(item => item.cartItemId === cartItemId);
+  }, [cart, product, isPreOrder, isClosed, kitchenNote]);
+
+  const isInCart = !!cartItem;
+  const hasChanges = cartItem ? cartItem.quantity !== quantity : false;
+  const isButtonDisabled = isInCart && !hasChanges;
+
+  // 🔄 Sincronizar estado inicial con el carrito si el producto ya existe
+  useEffect(() => {
+    if (cartItem && quantity === 1 && kitchenNote === '') {
+      setQuantity(cartItem.quantity);
+      setKitchenNote(cartItem.orderNote || '');
+    }
+  }, [cartItem]); // Se ejecuta al cargar o si el item del carrito cambia externamente
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
@@ -113,7 +145,24 @@ const ProductDetailScreen = ({ navigation, route }) => {
     reviewCard: { backgroundColor: colors.background, padding: 15, borderRadius: 15, borderWidth: 1, borderColor: colors.border, marginBottom: 10 },
     reviewUser: { fontWeight: 'bold', color: colors.text.primary, fontSize: 14 },
     reviewComment: { color: colors.text.secondary, fontStyle: 'italic', marginTop: 5 },
-    reviewDate: { fontSize: 10, color: colors.text.disabled, marginTop: 5 }
+    reviewDate: { fontSize: 10, color: colors.text.disabled, marginTop: 5 },
+    favoriteBtn: {
+      position: 'absolute',
+      top: 20,
+      right: 20,
+      width: 45,
+      height: 45,
+      borderRadius: 22.5,
+      backgroundColor: 'rgba(255,255,255,0.9)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.3,
+      shadowRadius: 5,
+      elevation: 5,
+      zIndex: 10
+    }
   }), [colors, darkMode]);
 
   const suggestedProducts = useMemo(() => {
@@ -137,18 +186,24 @@ const ProductDetailScreen = ({ navigation, route }) => {
 
   const handleAddToCart = useCallback(() => {
     const isActuallyPreOrder = !!isPreOrder || isClosed;
-    console.log(`[🛒 AÑADIR AL CARRITO] Botón presionado para: ${product.nombre}`);
-    console.log(`- Es Pre-Orden: ${isActuallyPreOrder}`);
     
-    addToCart({ 
-      ...product, 
-      quantity, 
-      subtotal, 
-      orderNote: kitchenNote, 
-      isPreOrder: isActuallyPreOrder 
-    });
-    showAlert('¡Listo!', `${product.nombre} se agregó al carrito.`);
-  }, [product, quantity, subtotal, kitchenNote, addToCart, finalPrice, isPreOrder, isClosed]);
+    if (isInCart && hasChanges) {
+      // 🔄 Actualizar cantidad si ya existe
+      updateCartItemQuantity(cartItem.cartItemId, quantity);
+      showAlert('¡Actualizado!', `${product.nombre} ha sido actualizado en el carrito.`);
+    } else {
+      // 🛒 Agregar nuevo o incrementar
+      console.log(`[🛒 AÑADIR AL CARRITO] Botón presionado para: ${product.nombre}`);
+      addToCart({ 
+        ...product, 
+        quantity, 
+        subtotal, 
+        orderNote: kitchenNote, 
+        isPreOrder: isActuallyPreOrder 
+      });
+      showAlert('¡Listo!', `${product.nombre} se agregó al carrito.`);
+    }
+  }, [product, quantity, subtotal, kitchenNote, addToCart, updateCartItemQuantity, isInCart, hasChanges, cartItem, isPreOrder, isClosed]);
 
   const handleSubmitReview = async () => {
     if (!reviewText.trim()) return;
@@ -171,12 +226,28 @@ const ProductDetailScreen = ({ navigation, route }) => {
     }
   };
 
+
   return (
     <SafeAreaView style={styles.container}>
       <CustomHeader title={product.nombre} showBack={true} />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <View style={styles.imageContainer}>
           <Image source={{ uri: product.imagen }} style={styles.productImage} />
+          
+          {/* ❤️ Botón Favorito */}
+          <TouchableOpacity 
+            style={styles.favoriteBtn} 
+            activeOpacity={0.7}
+            onPress={() => toggleFavorite(product)}
+          >
+            <FontAwesome5 
+              name="heart" 
+              solid={isFavorite(product.id || product.ID_Producto || product.id_producto)} 
+              size={20} 
+              color={isFavorite(product.id || product.ID_Producto || product.id_producto) ? '#E74C3C' : '#95A5A6'} 
+            />
+          </TouchableOpacity>
+
           <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.imageOverlay}>
             <View style={styles.priceOverlay}>
               <Text style={{ color: '#FFF' }}>{quantity} unidad(es)</Text>
@@ -276,6 +347,7 @@ const ProductDetailScreen = ({ navigation, route }) => {
         </View>
       </ScrollView>
 
+
       <GlassPanel intensity={30} style={styles.fixedFooter}>
         {/* 🛒 Botón de Compra / Agregar */}
         {((isClientMode || role === 'Cliente' || role === 'Admin' || role === 'Owner') && 
@@ -283,23 +355,38 @@ const ProductDetailScreen = ({ navigation, route }) => {
           <TouchableOpacity 
             activeOpacity={0.8}
             onPress={handleAddToCart}
+            disabled={isButtonDisabled}
             style={{ 
-              shadowColor: isClosed ? '#6A5ACD' : colors.primary, 
+              shadowColor: isButtonDisabled ? '#000' : (isInCart ? '#F39C12' : (isClosed ? '#6A5ACD' : colors.primary)), 
               shadowOffset: { width: 0, height: 5 }, 
               shadowOpacity: 0.4, 
               shadowRadius: 10, 
-              elevation: 8 
+              elevation: 8,
+              opacity: isButtonDisabled ? 0.7 : 1
             }}
           >
             <LinearGradient
-              colors={isClosed ? ['#6A5ACD', '#483D8B'] : [colors.primary, colors.primary + 'DD']}
+              colors={
+                isButtonDisabled 
+                  ? ['#BDC3C7', '#95A5A6'] // Gris (Deshabilitado)
+                  : isInCart 
+                    ? ['#F39C12', '#D35400'] // Naranja/Dorado (Actualizar)
+                    : isClosed 
+                      ? ['#6A5ACD', '#483D8B'] // Púrpura (Pre-orden)
+                      : [colors.primary, colors.primary + 'DD'] // Azul (Normal)
+              }
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={[styles.addToCartBtn, { marginTop: 0 }]}
             >
-              <FontAwesome5 name={isClosed ? "moon" : "shopping-cart"} size={20} color="#FFF" style={{ marginRight: 12 }} />
+              <FontAwesome5 
+                name={isButtonDisabled ? "check-circle" : (isInCart ? "sync-alt" : (isClosed ? "moon" : "shopping-cart"))} 
+                size={20} 
+                color="#FFF" 
+                style={{ marginRight: 12 }} 
+              />
               <Text style={[styles.addToCartText, { flex: 1 }]}>
-                {isClosed ? 'Pre-ordenar' : 'Agregar'}
+                {isButtonDisabled ? 'Ya en el carrito' : (isInCart ? 'Actualizar cantidad' : (isClosed ? 'Pre-ordenar' : 'Agregar'))}
               </Text>
               <View style={{ 
                 backgroundColor: 'rgba(255,255,255,0.25)', 

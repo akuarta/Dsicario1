@@ -15,14 +15,35 @@ export const UserProvider = ({ children }) => {
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isClientMode, setIsClientMode] = useState(false);
+  const [isClientMode, setIsClientModeState] = useState(false);
 
-  // Determinar si el usuario es puramente cliente
+  // Wrapper para persistir isClientMode
+  const setIsClientMode = async (value) => {
+    setIsClientModeState(value);
+    try {
+      await AsyncStorage.setItem('@dsicario_client_mode', JSON.stringify(value));
+    } catch (e) {
+      console.warn('Error saving client mode:', e);
+    }
+  };
+
+  // Cargar isClientMode inicial y sincronizar con el rol
+  useEffect(() => {
+    const loadClientMode = async () => {
+      try {
+        const saved = await AsyncStorage.getItem('@dsicario_client_mode');
+        if (saved !== null) {
+          setIsClientModeState(JSON.parse(saved));
+        }
+      } catch (e) {}
+    };
+    loadClientMode();
+  }, []);
+
+  // Forzar modo cliente si el rol es 'Cliente' o no existe
   useEffect(() => {
     if (role?.toLowerCase() === 'cliente' || !role) {
-      setIsClientMode(true);
-    } else {
-      setIsClientMode(false);
+      setIsClientModeState(true);
     }
   }, [role]);
 
@@ -121,7 +142,9 @@ export const UserProvider = ({ children }) => {
 
         setAddress(profile.direccion || '');
         setPhone(profile.telefono || '');
-      } else {
+      } else if (profile && profile.notFound) {
+        // 🆕 SOLO si se confirma que no existe el usuario
+        console.log('[UserContext] Usuario no encontrado en Excel, creando como Cliente...');
         const isOwner = cleanAuthEmail === 'hairoman28@gmail.com';
         const counts = profile?.roleCounts || {};
         const roleToAssign = isOwner ? 'Owner' : 'Cliente';
@@ -140,14 +163,21 @@ export const UserProvider = ({ children }) => {
         
         const saveResult = await saveUser(newUser);
         if (saveResult && saveResult.success) {
-          setTimeout(() => syncUserRole(cleanAuthEmail), 1500);
+          setTimeout(() => syncUserRole(cleanAuthEmail), 2000);
+        }
+      } else {
+        // Caso de error de red o profile null
+        console.warn('[UserContext] No se pudo verificar el perfil (posible error de red). Manteniendo datos actuales.');
+        if (cleanAuthEmail === 'hairoman28@gmail.com') {
+          setRole('Owner');
+          setUserId('DS01');
         }
       }
     } catch (error) {
       console.error('Error syncing role:', error);
-      // Fallback para el dueño en caso de error de red
       if (cleanAuthEmail === 'hairoman28@gmail.com') {
-        setRole('Admin');
+        setRole('Owner');
+        setUserId('DS01');
       }
     } finally {
       setIsSyncing(false);

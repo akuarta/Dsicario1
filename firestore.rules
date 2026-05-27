@@ -1,67 +1,13 @@
-rules_version = '2';
+rules_version='2'
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Autenticación básica
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-    
-    // Verificación de roles usando el documento del usuario (suponiendo colección "users")
-    function getUserRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
-    }
-    
-    function isAdmin() {
-      return isAuthenticated() && getUserRole() == 'admin';
-    }
-    
-    function isStaff() {
-      return isAuthenticated() && (getUserRole() == 'staff' || getUserRole() == 'admin' || getUserRole() == 'waiter' || getUserRole() == 'owner');
-    }
-    
-    function isRider() {
-      return isAuthenticated() && getUserRole() == 'rider';
-    }
-    
-    // -----------------------------------------------------
-    // COLECCIÓN: Pedidos (Órdenes)
-    // -----------------------------------------------------
-    match /pedidos/{pedidoId} {
-      // Los clientes pueden crear pedidos y leer solo sus propios pedidos
-      // El staff puede leer todos los pedidos
-      // Los riders pueden leer los pedidos asignados a ellos
-      allow create: if isAuthenticated();
-      allow read: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid || 
-        isStaff() || 
-        (isRider() && (resource.data.riderId == request.auth.uid || resource.data.estado == 'ready'))
-      );
-      
-      // Staff/Admin pueden actualizar todo
-      // Riders solo pueden actualizar para aceptar un pedido o cambiar su estado a entregado
-      allow update: if isStaff() || (isRider() && (resource.data.riderId == request.auth.uid || request.resource.data.riderId == request.auth.uid));
-      allow delete: if isAdmin();
-    }
-    
-    // -----------------------------------------------------
-    // COLECCIÓN: Usuarios
-    // -----------------------------------------------------
-    match /users/{userId} {
-      // Cada usuario puede leer/actualizar su propia data
-      allow read, update: if isAuthenticated() && request.auth.uid == userId;
-      // Solo admins pueden crear/borrar o ver la de otros
-      allow read, write: if isAdmin();
-    }
-    
-    // -----------------------------------------------------
-    // COLECCIÓN: Productos (Catálogo)
-    // -----------------------------------------------------
-    match /productos/{productoId} {
-      // Acceso público de lectura
+    match /app_config/{document} {
       allow read: if true;
-      // Solo admins y staff pueden modificar el catálogo o el inventario
-      allow write: if isStaff();
+    }
+
+    match /{document=**} {
+      allow read, write: if request.time < timestamp.date(2026, 6, 9);
     }
   }
 }

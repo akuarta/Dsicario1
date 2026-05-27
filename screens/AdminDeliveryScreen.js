@@ -1,9 +1,9 @@
+import { showAlert } from '../utils/showAlert';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   FlatList,
   TouchableOpacity,
   RefreshControl,
@@ -17,6 +17,7 @@ import {
   Platform,
   StatusBar
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Contacts from 'expo-contacts';
@@ -39,7 +40,7 @@ const AdminDeliveryScreen = ({ navigation }) => {
 
   useEffect(() => {
     if (!isAdmin) {
-      Alert.alert('Acceso Denegado', 'No tienes permisos para acceder a esta sección.');
+      showAlert('Acceso Denegado', 'No tienes permisos para acceder a esta sección.');
       navigation.replace('ConfigScreen');
     }
   }, [isAdmin]);
@@ -98,7 +99,7 @@ const AdminDeliveryScreen = ({ navigation }) => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
     
     if (permissionResult.granted === false) {
-      Alert.alert("Permiso Requerido", "Necesitas darnos permiso para acceder a tus fotos.");
+      showAlert("Permiso Requerido", "Necesitas darnos permiso para acceder a tus fotos.");
       return;
     }
 
@@ -117,7 +118,7 @@ const AdminDeliveryScreen = ({ navigation }) => {
   const importContact = async (field) => {
     const { status } = await Contacts.requestPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Error', 'Se requiere permiso para acceder a los contactos.');
+      showAlert('Error', 'Se requiere permiso para acceder a los contactos.');
       return;
     }
 
@@ -126,7 +127,7 @@ const AdminDeliveryScreen = ({ navigation }) => {
     });
 
     if (data.length > 0) {
-      Alert.alert(
+      showAlert(
         "Importar un Contacto", 
         "Cargando el primer contacto de tu lista como prueba...",
         [
@@ -174,11 +175,11 @@ const AdminDeliveryScreen = ({ navigation }) => {
         }
       });
 
-      Alert.alert('✅ Éxito', 'Repartidor guardado correctamente.');
+      showAlert('✅ Éxito', 'Repartidor guardado correctamente.');
       setModalVisible(false);
       syncAllData();
     } catch (error) {
-      Alert.alert('Error al guardar', error.message);
+      showAlert('Error al guardar', error.message);
     }
   };
 
@@ -197,7 +198,7 @@ const AdminDeliveryScreen = ({ navigation }) => {
           setDeliveries(prev => prev.map(d =>
             d.id === item.id ? { ...d, activo: item.activo } : d
           ));
-          Alert.alert('Error', 'No se pudo actualizar el estado en el servidor.');
+          showAlert('Error', 'No se pudo actualizar el estado en el servidor.');
         }
       }
     );
@@ -562,7 +563,7 @@ const AdminDeliveryScreen = ({ navigation }) => {
             style={[styles.addCarteraBtn, { backgroundColor: colors.error }]}
             onPress={() => {
               if ((item.deuda_efectivo || 0) <= 0) return;
-              Alert.alert(
+              showAlert(
                 'Liquidar Efectivo',
                 `¿Confirmas la recepción de RD$ ${item.deuda_efectivo}?`,
                 [
@@ -573,7 +574,7 @@ const AdminDeliveryScreen = ({ navigation }) => {
                       const res = await liquidateRiderCash(item.id_delivery || item.id);
                       if (res.success) syncAllData();
                     } catch (e) {
-                      Alert.alert('Error', 'No se pudo liquidar.');
+                      showAlert('Error', 'No se pudo liquidar.');
                     } finally {
                       setUpdatingId(null);
                     }

@@ -3,11 +3,24 @@ const SETTINGS = { DEFAULT_BUSINESS_NAME: "D'SICARIO" };
 function doGet(e) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const params = e?.parameter || {};
-  if (params.action === 'getReviews') return handleGetReviews(ss, params.id);
-  if (params.action === 'GET_ROUTE') return handleGetRoute(params.origin, params.destination, params.key);
+  const action = (params.action || "").toUpperCase();
+  
+  if (action === 'GETREVIEWS') return handleGetReviews(ss, params.id);
+  if (action === 'GET_ROUTE') return handleGetRoute(params.origin, params.destination, params.key);
+  
   const result = { success: true };
   let targetSheetName = params.sheet;
-  let sheets = targetSheetName ? [ss.getSheetByName(targetSheetName)] : ss.getSheets();
+  let sheets;
+  if (targetSheetName) {
+    let sheet = ss.getSheetByName(targetSheetName);
+    if (!sheet) {
+      const sheetsList = ss.getSheets();
+      sheet = sheetsList.find(s => s.getName().toLowerCase().trim() === targetSheetName.toLowerCase().trim());
+    }
+    sheets = sheet ? [sheet] : [null];
+  } else {
+    sheets = ss.getSheets();
+  }
 
   sheets.forEach(s => {
     if (!s) return;
@@ -44,11 +57,80 @@ function doPost(e) {
     const sheetName = body.sheet;
     const data = body.data || body.item || body;
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName || "Data");
     
-    if (body.action === "GENERATE_PDF") return generateRealPDF(body);
+    // Handle specific actions that don't require a target data sheet first
+    if (action === "GENERATE_PDF") return generateRealPDF(body);
+    if (action === "GET_ROUTE") {
+      const routeData = body.data || body;
+      return handleGetRoute(routeData.origin, routeData.destination, routeData.key);
+    }
+    if (action === "CREATE_SHEET") {
+      const newName = body.sheet || body.name;
+      if (!newName) return createJsonResponse({ success: false, message: "Nombre de hoja no proporcionado" });
+      if (ss.getSheetByName(newName)) return createJsonResponse({ success: false, message: "La hoja '" + newName + "' ya existe" });
+      ss.insertSheet(newName);
+      return createJsonResponse({ success: true, message: "Hoja '" + newName + "' creada correctamente" });
+    }
+    if (action === "DELETE_SHEET") {
+      const target = ss.getSheetByName(body.sheet);
+      if (!target) return createJsonResponse({ success: false, message: "Hoja no encontrada" });
+      if (ss.getSheets().length <= 1) return createJsonResponse({ success: false, message: "No puedes eliminar la única hoja" });
+      ss.deleteSheet(target);
+      return createJsonResponse({ success: true, message: "Hoja eliminada" });
+    }
 
-    // Validación mandataria para la hoja USUARIOS: requiere ID_User y NombreUser
+    if (action === "UPLOAD_IMAGE") {
+      try {
+        const base64Data = body.base64Data || body.data;
+        const fileName = body.fileName || ("Upload_" + Date.now() + ".jpg");
+        if (!base64Data) {
+          return createJsonResponse({ success: false, message: "No se proporcionaron datos de imagen" });
+        }
+        const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
+        const decoded = Utilities.base64Decode(cleanBase64);
+        const blob = Utilities.newBlob(decoded, "image/jpeg", fileName);
+        
+        let folder;
+        const folders = DriveApp.getFoldersByName("Dsicario_Vouchers");
+        if (folders.hasNext()) {
+          folder = folders.next();
+        } else {
+          folder = DriveApp.createFolder("Dsicario_Vouchers");
+        }
+        
+        const file = folder.createFile(blob);
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        
+        // Direct download URL format
+        const downloadUrl = "https://docs.google.com/uc?export=download&id=" + file.getId();
+        return createJsonResponse({ 
+          success: true, 
+          url: downloadUrl,
+          fileId: file.getId()
+        });
+      } catch (err) {
+        return createJsonResponse({ success: false, message: "Error al guardar en Google Drive: " + err.message });
+      }
+    }
+
+    // Determine the target sheet for CRUD operations
+    let sheet = null;
+    if (sheetName) {
+      sheet = ss.getSheetByName(sheetName);
+      if (!sheet) {
+        const sheetsList = ss.getSheets();
+        sheet = sheetsList.find(s => s.getName().toLowerCase().trim() === sheetName.toLowerCase().trim());
+      }
+    }
+    if (!sheet) {
+      if (!sheetName || sheetName === "Data") {
+        sheet = ss.getSheetByName("Data") || ss.insertSheet("Data");
+      } else {
+        sheet = ss.insertSheet(sheetName);
+      }
+    }
+    
+    // Mandatory validation for USUARIOS sheet
     if (sheetName && sheetName.toUpperCase() === "USUARIOS" && (action === "UPSERT" || action === "ADD")) {
       const hasId = data.ID_User || data.id_user || data.id;
       const hasName = data.NombreUser || data.nombreuser || data.username;
@@ -71,21 +153,6 @@ function doPost(e) {
 
     // --- ACCIONES DE ADMINISTRACIÓN DE ESTRUCTURA ---
     
-    if (action === "CREATE_SHEET") {
-      const newName = body.sheet || body.name;
-      if (ss.getSheetByName(newName)) return createJsonResponse({ success: false, message: "La hoja ya existe" });
-      ss.insertSheet(newName);
-      return createJsonResponse({ success: true, message: "Hoja '" + newName + "' creada correctamente" });
-    }
-
-    if (action === "DELETE_SHEET") {
-      const target = ss.getSheetByName(body.sheet);
-      if (!target) return createJsonResponse({ success: false, message: "Hoja no encontrada" });
-      if (ss.getSheets().length <= 1) return createJsonResponse({ success: false, message: "No puedes eliminar la única hoja" });
-      ss.deleteSheet(target);
-      return createJsonResponse({ success: true, message: "Hoja eliminada" });
-    }
-
     if (action === "DELETE_COLUMN") {
       const colName = body.columnName || body.column;
       const headers = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0];
@@ -212,7 +279,10 @@ function getSafeLastRow(s) {
 }
 
 function handleGetReviews(ss, pid) {
-  const s = ss.getSheetByName("Valoraciones");
+  let s = ss.getSheetByName("Valoraciones");
+  if (!s) {
+    s = ss.getSheets().find(sh => sh.getName().toLowerCase().trim() === "valoraciones");
+  }
   if (!s) return createJsonResponse({ success: true, reviews: [] });
   const d = s.getDataRange().getValues();
   const h = d[0];
