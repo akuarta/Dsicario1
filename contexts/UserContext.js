@@ -44,6 +44,9 @@ export const UserProvider = ({ children }) => {
   useEffect(() => {
     if (role?.toLowerCase() === 'cliente' || !role) {
       setIsClientModeState(true);
+      // Limpiar el caché de staff mode para evitar contaminación cruzada de sesiones
+      AsyncStorage.removeItem('@dsicario_staff_mode').catch(()=>null);
+      AsyncStorage.removeItem('@dsicario_client_mode').catch(()=>null);
     }
   }, [role]);
 
@@ -196,7 +199,8 @@ export const UserProvider = ({ children }) => {
     userTypeId, setUserTypeId,
     address, setAddress,
     phone, setPhone,
-    isClientMode, setIsClientMode,
+    isClientMode: (role?.toLowerCase() === 'cliente' || !role) ? true : isClientMode,
+    setIsClientMode,
     syncUserRole,
     isSyncing
   }), [username, email, role, userId, user?.uid, isClientMode, isSyncing]);

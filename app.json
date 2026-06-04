@@ -29,15 +29,16 @@
       "googleServicesFile": "./google-services.json",
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyAHlSOFsyfIUNPeECflWwpdHcSZqxgVp3U"
+          "apiKey": "AIzaSyBTOwNNoRVgVpDmnGvWOZNCSLbJPCV9mZw"
         }
-      }
+      },
+      "permissions": ["ACCESS_FINE_LOCATION","ACCESS_COARSE_LOCATION"]
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.akuarta.dsicarioapp",
       "config": {
-        "googleMapsApiKey": "AIzaSyAHlSOFsyfIUNPeECflWwpdHcSZqxgVp3U"
+        "googleMapsApiKey": "AIzaSyBTOwNNoRVgVpDmnGvWOZNCSLbJPCV9mZw"
       }
     },
     "owner": "hairoman28",

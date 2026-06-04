@@ -144,6 +144,14 @@ const CheckoutScreen = ({ navigation, route }) => {
   const costoEnvioCalculado = getDynamicDeliveryFee();
   const finalTotal = (totalCost - totalDiscount) + itbis + propina + costoEnvioCalculado;
   
+  const getFormattedAddress = () => {
+    if (deliveryType !== 'delivery') return 'Local';
+    if (selectedLocation && selectedLocation.latitude) {
+      return `${selectedLocation.latitude},${selectedLocation.longitude} | ${deliveryAddress}`;
+    }
+    return deliveryAddress;
+  };
+  
   const currentRate = (currency === 'DOP' || currency === 'RD$') ? 1 : (exchangeRates?.[currency] || 1);
   const numericAmountReceived = parseFloat(amountReceived) || 0;
   const convertedAmountReceived = numericAmountReceived * currentRate;
@@ -158,14 +166,30 @@ const CheckoutScreen = ({ navigation, route }) => {
     setDeliveryAddress(locationData.address);
     
     // Obtener ruta real
-    if (CONFIG.STORE_LOCATION) {
-      const route = await getRouteDetails(CONFIG.STORE_LOCATION, {
+    const originLocation = businessInfo?.location || CONFIG.STORE_LOCATION;
+    if (originLocation) {
+      const originSource = businessInfo?.location ? "Ubicación guardada del negocio" : "Ubicación por defecto (Config.js)";
+      console.log(`\n=== LOG DE CÁLCULO DE DISTANCIA ===`);
+      console.log(`1. ORIGEN (${originSource}): Lat ${originLocation.latitude}, Lng ${originLocation.longitude}`);
+      console.log(`2. DESTINO (Cliente): Lat ${locationData.latitude}, Lng ${locationData.longitude}`);
+      
+      const route = await getRouteDetails(originLocation, {
         latitude: locationData.latitude,
         longitude: locationData.longitude
       });
+      
       if (route) {
         setRouteData(route);
-        console.log('Distancia real de ruta:', route.distance);
+        console.log(`3. RESULTADO GOOGLE MAPS: Distancia = ${route.distance}, Tiempo = ${route.duration}`);
+        console.log(`===================================\n`);
+        
+        // Alerta de debug para que el usuario lo vea en pantalla
+        showAlert(
+          'Log del Cálculo 🔍',
+          `Origen: ${originSource}\n` +
+          `A Destino: Tu selección en el mapa\n` +
+          `Resultado: ${route.distance}`
+        );
         
         // Validar radio máximo (si existe)
         const maxRadius = businessInfo?.deliveryMaxRadius || 15;
@@ -392,7 +416,7 @@ const CheckoutScreen = ({ navigation, route }) => {
         'Delivery?': deliveryType === 'delivery', // ✅ Campo booleano para el Excel
         ID_Rider: rider?.id_delivery || '',
         Notas: (isBusinessClosed ? '[PRE-ORDEN] ' : '') + orderNote,
-        Direccion: deliveryType === 'delivery' ? deliveryAddress : 'Local',
+        Direccion: getFormattedAddress(),
         Metodo: paymentType,
         Usuario: email || 'App User',
         total: finalTotal,
@@ -412,7 +436,7 @@ const CheckoutScreen = ({ navigation, route }) => {
           orderId: finalOrderId, 
           cliente: username, 
           total: finalTotal.toFixed(2), 
-          direccion: deliveryType === 'delivery' ? deliveryAddress : 'Local', 
+          direccion: getFormattedAddress(), 
           riderId: rider.id_delivery 
         });
         currentOrderIdRef.current = finalOrderId;
@@ -505,7 +529,7 @@ const CheckoutScreen = ({ navigation, route }) => {
         Tipo: deliveryType === 'delivery' ? 'Domicilio' : 'Local',
         'Delivery?': deliveryType === 'delivery', // ✅ Campo booleano para el Excel
         ID_Rider: selectedRider?.id_delivery || '',
-        direccion: deliveryType === 'delivery' ? deliveryAddress : 'Local',
+        direccion: getFormattedAddress(),
         metodo: paymentType,
         Pagado: (paymentType.toLowerCase().includes('efectivo') || paymentType === 'cash') ? numericAmountReceived : 0,
         Devuelta: (paymentType.toLowerCase().includes('efectivo') || paymentType === 'cash') ? devuelta : 0,
@@ -541,7 +565,7 @@ const CheckoutScreen = ({ navigation, route }) => {
             orderId: finalOrderId, 
             cliente: username, 
             total: finalTotal.toFixed(2), 
-            direccion: deliveryAddress, 
+            direccion: getFormattedAddress(), 
             riderId: selectedRider.id_delivery 
           });
           startWaitingCycle(finalOrderId, selectedRider);

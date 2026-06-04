@@ -114,6 +114,9 @@ const MainTabs = () => {
   
   // La pantalla de Inicio depende del modo activo, no solo del rol
   const getInicioScreen = () => {
+    // Bloqueo estricto: Si NO es staff, siempre InicioStack (evita heredar caché de otros usuarios)
+    if (!isStaff) return InicioStack;
+
     if (!isClientMode) {
       // Por modo activo (Cualquier empleado con switch)
       if (activeStaffMode === 'cocina') return KitchenScreen;

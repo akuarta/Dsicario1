@@ -547,6 +547,11 @@ export const fetchBusinessInfo = async () => {
         deliveryBaseFee: parseFloat(getRobustProp(b, 'CostoEnvioBase')) || 100,
         expressFee: parseFloat(getRobustProp(b, 'CostoEnvioExpress')) || 50,
         deliveryMaxRadius: parseFloat(getRobustProp(b, 'RadioEntregaMax')) || 15, // km
+        location: (getRobustProp(b, 'LatitudLocal') && getRobustProp(b, 'LongitudLocal')) ? {
+          latitude: parseFloat(String(getRobustProp(b, 'LatitudLocal')).replace("'", "")),
+          longitude: parseFloat(String(getRobustProp(b, 'LongitudLocal')).replace("'", "")),
+          address: getRobustProp(b, 'DireccionLocal')
+        } : null,
         paymentMethods: (() => {
           const raw = (getRobustProp(b, 'MetodosPago') || 'Efectivo, Tarjeta').split(',').map(s => s.trim());
           const normalized = raw.map(m => m.toLowerCase().includes('transf') ? 'Transferencia' : m);
@@ -602,6 +607,8 @@ export const saveBusinessInfo = async (info) => {
         'TelefonoLocal': info.phone,
         'EmailLocal': info.email,
         'DireccionLocal': info.address,
+        'LatitudLocal': info.location?.latitude ? `'${info.location.latitude}` : '',
+        'LongitudLocal': info.location?.longitude ? `'${info.location.longitude}` : '',
         'Cerrado?': info.closed ? 'TRUE' : 'FALSE',
         'CostoEnvioBase': info.deliveryBaseFee,
         'CostoEnvioExpress': info.expressFee,
@@ -2610,6 +2617,31 @@ export const getRouteDetails = async (origin, destination) => {
 
   const originStr = `${origin.latitude},${origin.longitude}`;
   const destStr = `${destination.latitude},${destination.longitude}`;
+
+  // 🛡️ Detección de distancia cero: si ambos puntos están a menos de 100m,
+  // retornar 0 directamente sin gastar cuota de la API
+  const toRad = (val) => (val * Math.PI) / 180;
+  const R = 6371000; // metros
+  const dLat = toRad(destination.latitude - origin.latitude);
+  const dLon = toRad(destination.longitude - origin.longitude);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(origin.latitude)) * Math.cos(toRad(destination.latitude)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const straightLineMeters = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  if (straightLineMeters < 100) {
+    console.log(`[getRouteDetails] Origen y destino a ${straightLineMeters.toFixed(0)}m → retornando 0 km`);
+    return {
+      distance: '0 m',
+      distanceValue: 0,
+      duration: '1 min',
+      durationValue: 60,
+      polyline: '',
+      bounds: null,
+      steps: []
+    };
+  }
   
   const googleUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${originStr}&destination=${destStr}&key=${apiKey}`;
 

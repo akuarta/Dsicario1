@@ -60,7 +60,7 @@ const DeliveryMap = ({
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
         style={styles.map}
-        customMapStyle={darkMode ? darkMapStyle : []}
+        customMapStyle={darkMode ? darkMapStyle : lightMapStyle}
         onMapReady={() => {
           console.log('DeliveryMap Native: Mapa cargado correctamente');
           setMapReady(true);
@@ -136,6 +136,18 @@ const darkMapStyle = [
   { "elementType": "labels.text.stroke", "stylers": [{ "color": "#242f3e" }] },
   { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#38414e" }] },
   { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#17263c" }] }
+];
+
+const lightMapStyle = [
+  { "featureType": "landscape", "elementType": "geometry", "stylers": [{ "color": "#f5f5f5" }] },
+  { "featureType": "poi", "elementType": "geometry", "stylers": [{ "color": "#eeeeee" }] },
+  { "featureType": "poi", "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
+  { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#ffffff" }] },
+  { "featureType": "road.arterial", "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
+  { "featureType": "road.highway", "elementType": "geometry", "stylers": [{ "color": "#dadada" }] },
+  { "featureType": "road.highway", "elementType": "labels.text.fill", "stylers": [{ "color": "#616161" }] },
+  { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#9ed5f0" }] },
+  { "featureType": "poi.business", "elementType": "labels", "stylers": [{ "visibility": "off" }] }
 ];
 
 const styles = StyleSheet.create({

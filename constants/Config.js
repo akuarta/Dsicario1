@@ -18,7 +18,7 @@ export const CONFIG = {
   VAPID_PRIVATE_KEY: 'b3JqjGvxvmMPSWLLItD_gv_ltZpnbFWglf1Zgms3KXE', // Solo se usa en servidor/Code.gs
 
   // GOOGLE MAPS API KEY (Necesaria para rutas y mapas reales)
-  GOOGLE_MAPS_API_KEY: 'AIzaSyAHlSOFsyfIUNPeECflWwpdHcSZqxgVp3U', 
+  GOOGLE_MAPS_API_KEY: 'AIzaSyBTOwNNoRVgVpDmnGvWOZNCSLbJPCV9mZw', 
 
   // UBICACIÓN DEL LOCAL (Punto de partida de todos los deliveries)
   STORE_LOCATION: {

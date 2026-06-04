@@ -24,7 +24,7 @@ const StaffModeScreen = () => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const navigation = useNavigation();
-  const { role, email, isClientMode, setIsClientMode } = useUser();
+  const { role, email, username, isClientMode, setIsClientMode } = useUser();
   const { activeStaffMode, setActiveStaffMode } = useCart();
 
   const roleLow = role ? role.toLowerCase() : '';

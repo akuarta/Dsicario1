@@ -96,6 +96,12 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
   const colors = getThemeColors(darkMode);
   const activeWaiterSession = waiterActiveSession;
   const isAdmin = role?.toLowerCase().includes('admin') || role?.toLowerCase().includes('owner');
+  const isStaff = isAdmin ||
+    role?.toLowerCase().includes('cocina') ||
+    role?.toLowerCase().includes('cosina') ||
+    role?.toLowerCase().includes('delivery') ||
+    role?.toLowerCase().includes('repartidor') ||
+    role?.toLowerCase().includes('mesero');
   const isPreOrderMode = !!businessInfo?.closed;
   const isInicio = mode === 'inicio' || route.params?.mode === 'inicio';
   const isExplorar = mode === 'explorar' || route.params?.mode === 'explorar';
@@ -253,6 +259,14 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
         { text: 'COBRADA ✅', onPress: () => processLiberacion('completed'), style: 'default' }
       ]);
     }
+  };
+
+  const handleFavoritePress = (productId) => {
+    if (!isAuthenticated) {
+      showAlert('¡Atención!', 'Inicia sesión para guardar favoritos', () => navigation.navigate('Configuracion', { screen: 'Login' }));
+      return;
+    }
+    toggleFavorite(productId);
   };
 
   const handleSendToKitchen = async () => {
@@ -753,7 +767,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
         )}
 
         {/* 👨‍💼 Banner de Modo Personal Activo (Vista Inicio) */}
-        {!isClientMode && staffModeDetails && !(activeStaffMode === 'mesero' && activeWaiterSession) && (
+        {!isClientMode && isStaff && staffModeDetails && !(activeStaffMode === 'mesero' && activeWaiterSession) && (
           <View style={[styles.editorToggleBar, { backgroundColor: staffModeDetails.color, marginTop: 10, justifyContent: 'center' }]}>
             <FontAwesome5 name={staffModeDetails.icon} size={14} color="#FFF" />
             <Text style={[styles.editorToggleText, { color: '#FFF' }]}>
@@ -948,7 +962,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       )}
 
       {/* 🤵 Banner de Modo Personal Activo (Resto de modos) */}
-      {!isClientMode && staffModeDetails && activeStaffMode !== 'mesero' && (
+      {!isClientMode && isStaff && staffModeDetails && activeStaffMode !== 'mesero' && (
         <View style={[styles.editorToggleBar, { backgroundColor: staffModeDetails.color, justifyContent: 'center' }]}>
           <FontAwesome5 name={staffModeDetails.icon} size={14} color="#FFF" />
           <Text style={[styles.editorToggleText, { color: '#FFF' }]}>

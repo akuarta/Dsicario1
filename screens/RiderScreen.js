@@ -18,20 +18,28 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
-import { fetchRiderOrders, fetchRiderStats, updateOrderStatus, pickupOrder, formatPrice, respondToOffer, updateDelivery, pingRider } from '../utils/api';
+import { fetchRiderOrders, fetchRiderStats, updateOrderStatus, pickupOrder, formatPrice, respondToOffer, updateDelivery, pingRider, getRouteDetails, decodePolyline } from '../utils/api';
 import { registerForPushNotifications, saveRiderPushToken, setupNotificationResponseListener } from '../utils/notifications';
 import { useDataSync } from '../contexts/AppContext';
 import GlassPanel from '../components/GlassPanel';
 import { LinearGradient } from 'expo-linear-gradient';
+// Conditionally require react-native-maps only on native platforms to avoid codegen errors on web
+const MapView = Platform.OS !== 'web' ? require('react-native-maps').default : null;
+const MapProvider = Platform.OS !== 'web' ? require('react-native-maps').PROVIDER_GOOGLE : null;
+const Polyline = Platform.OS !== 'web' ? require('react-native-maps').Polyline : null;
+const Marker = Platform.OS !== 'web' ? require('react-native-maps').Marker : null;
 import { useUser } from '../contexts/UserContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useIsFocused } from '@react-navigation/native';
 import { CONFIG } from '../constants/Config';
 
 const RiderScreen = ({ navigation, route }) => {
   const { user, logout } = useAuth();
-  const { username, userId: contextUserId } = useUser();
+  const { username, userId: contextUserId, isClientMode } = useUser();
+  const isFocused = useIsFocused();
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const riderId = route.params?.riderId || contextUserId || 'DLV01'; 
@@ -46,7 +54,137 @@ const RiderScreen = ({ navigation, route }) => {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState('ready'); 
+  const [activeTab, setActiveTab] = useState('ready');
+  const defaultRegion = { latitude: 18.466, longitude: -69.9, latitudeDelta: 0.0922, longitudeDelta: 0.0421 };
+  const [currentRegion, setCurrentRegion] = useState(defaultRegion);
+  const [locationPermission, setLocationPermission] = useState(null);
+  const [MapComponents, setMapComponents] = useState(null);
+  const [routeSegments, setRouteSegments] = useState([]); // [ { points: [{lat,lng},...], orderId, cliente } ]
+  const [isLoadingRoutes, setIsLoadingRoutes] = useState(false);
+  const mapRef = useRef(null);
+
+  // Helper para extraer coordenadas de la dirección de una orden ("lat,lng")
+  const parseOrderCoords = useCallback((direccion) => {
+    if (!direccion || typeof direccion !== 'string') return null;
+    const coordsMatch = direccion.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+    if (coordsMatch) {
+      const lat = parseFloat(coordsMatch[1]);
+      const lng = parseFloat(coordsMatch[2]);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        return { latitude: lat, longitude: lng };
+      }
+    }
+    return null;
+  }, []);
+
+  // Obtener la ubicación actual de forma optimizada y robusta
+  useEffect(() => {
+    const fetchLocation = async () => {
+      if (locationPermission === true) {
+        try {
+          // Intentar obtener primero la última ubicación conocida (rápida, sin consumo excesivo)
+          let lastLoc = await Location.getLastKnownPositionAsync({});
+          if (lastLoc && lastLoc.coords) {
+            setCurrentRegion({
+              latitude: lastLoc.coords.latitude,
+              longitude: lastLoc.coords.longitude,
+              latitudeDelta: 0.015,
+              longitudeDelta: 0.015,
+            });
+          }
+          
+          // Luego intentar refrescar con la ubicación precisa balanceada
+          const preciseLoc = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          if (preciseLoc && preciseLoc.coords) {
+            setCurrentRegion({
+              latitude: preciseLoc.coords.latitude,
+              longitude: preciseLoc.coords.longitude,
+              latitudeDelta: 0.015,
+              longitudeDelta: 0.015,
+            });
+          }
+        } catch (e) {
+          console.warn('Error al obtener la geolocalización:', e);
+        }
+      }
+    };
+    fetchLocation();
+  }, [locationPermission]);
+
+  // Cargar componentes de Leaflet para Web dinámicamente
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+
+      import('react-leaflet').then(mod => setMapComponents(mod));
+
+      return () => {
+        try { document.head.removeChild(link); } catch (e) {}
+      };
+    }
+  }, []);
+
+  // Calcular rutas desde el local hasta cada pedido activo con coordenadas
+  const loadRoutes = useCallback(async (activeOrders) => {
+    const ordersWithCoords = activeOrders.filter(o => parseOrderCoords(o.direccion));
+    if (ordersWithCoords.length === 0) { setRouteSegments([]); return; }
+    setIsLoadingRoutes(true);
+    try {
+      const results = await Promise.all(
+        ordersWithCoords.map(async (o) => {
+          const dest = parseOrderCoords(o.direccion);
+          const routeData = await getRouteDetails(CONFIG.STORE_LOCATION, dest);
+          if (!routeData || !routeData.polyline) return null;
+          return {
+            orderId: o.id,
+            cliente: o.cliente,
+            estado: o.estado,
+            total: o.total,
+            distance: routeData.distance,
+            duration: routeData.duration,
+            dest,
+            points: decodePolyline(routeData.polyline),
+          };
+        })
+      );
+      const valid = results.filter(Boolean);
+      setRouteSegments(valid);
+      // En nativo, ajustar el mapa para que entren todos los puntos
+      if (Platform.OS !== 'web' && mapRef.current && valid.length > 0) {
+        const allCoords = [
+          CONFIG.STORE_LOCATION,
+          ...valid.flatMap(r => r.points),
+          ...valid.map(r => r.dest)
+        ];
+        setTimeout(() => {
+          mapRef.current.fitToCoordinates(allCoords, {
+            edgePadding: { top: 80, right: 60, bottom: 80, left: 60 },
+            animated: true,
+          });
+        }, 600);
+      }
+    } catch (e) {
+      console.warn('Error cargando rutas:', e);
+    } finally {
+      setIsLoadingRoutes(false);
+    }
+  }, [parseOrderCoords]);
+
+  // Calcular rutas cuando se activa la pestaña RUTA o cuando cambian los pedidos
+  useEffect(() => {
+    if (activeTab === 'route') {
+      const activeOrders = orders.filter(o =>
+        ['ready', 'listo', 'on_the_way', 'transit', 'en camino'].includes(String(o.estado).toLowerCase().trim())
+      );
+      loadRoutes(activeOrders);
+    }
+  }, [activeTab, orders, loadRoutes]);
+
   const { isAutoSyncEnabled } = useDataSync();
   const [proposal, setProposal] = useState(null);
   const [timeLeft, setTimeLeft] = useState(20);
@@ -57,6 +195,22 @@ const RiderScreen = ({ navigation, route }) => {
   const isFetchingRef = useRef(false); // ✅ Previene llamadas concurrentes que causan stack overflow
 
   // Sincronización de propuesta y contador
+  const requestLocationPermission = async () => {
+    if (Platform.OS !== 'web') {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        setLocationPermission(true);
+      } else {
+        setLocationPermission(false);
+        console.warn('Location permission not granted');
+      }
+    }
+  };
+
+  useEffect(() => {
+    requestLocationPermission();
+  }, []);
+// Existing effect for proposal sync follows below
   useEffect(() => {
     if (proposal && proposal.id) {
       // Intentamos extraer el timestamp del ID (ORD-123456789)
@@ -182,6 +336,11 @@ const RiderScreen = ({ navigation, route }) => {
   
   // 💓 Heartbeat / Ping: Mantener al rider online en las hojas de Excel
   useEffect(() => {
+    // Si la pantalla no está enfocada o el usuario está en modo cliente, NO hacer ping
+    if (!isFocused || isClientMode) {
+      return;
+    }
+
     // 🛡️ IMPORTANTE: No hacer ping si el ID es el valor por defecto o no es válido
     // Esto evita marcar como online a 'DLV01' si el contexto aún está sincronizando
     if (!riderId || riderId === 'N/A' || (riderId === 'DLV01' && !route.params?.riderId && contextUserId !== 'DLV01')) {
@@ -208,7 +367,7 @@ const RiderScreen = ({ navigation, route }) => {
       console.log(`[RiderHeartbeat] 🛑 Deteniendo ping para: ${riderId}`);
       clearInterval(interval);
     };
-  }, [riderId, contextUserId, user?.uid, username]);
+  }, [riderId, contextUserId, user?.uid, username, isFocused, isClientMode]);
 
   // Cerrar Modal QR si el pedido se confirma (desde el lado del cliente)
   useEffect(() => {
@@ -550,6 +709,20 @@ const RiderScreen = ({ navigation, route }) => {
       fontSize: 16,
       fontWeight: '900',
       letterSpacing: 1
+    },
+    markerIconCircle: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderWidth: 2,
+      borderColor: '#FFF',
+      elevation: 5,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 3.84,
     }
   }), [colors, darkMode]);
 
@@ -607,7 +780,9 @@ const RiderScreen = ({ navigation, route }) => {
               <Text style={styles.customerName}>{item.Cliente || item.cliente || 'Desconocido'}</Text>
               <View style={styles.addressBox}>
                 <Ionicons name="location-sharp" size={14} color={colors.primary} />
-                <Text style={styles.infoText} numberOfLines={2}>{item.Direccion || item.direccion || 'No especificada'}</Text>
+                <Text style={styles.infoText} numberOfLines={2}>
+                  {String(item.Direccion || item.direccion || '').split('|').pop().trim() || 'No especificada'}
+                </Text>
               </View>
               <View style={styles.itemsBrief}>
                  <Text style={styles.itemsText} numberOfLines={2}>{item.items?.map(i => `${i.cantidad}x ${i.nombre}`).join(', ') || 'Sin items'}</Text>
@@ -752,21 +927,173 @@ const RiderScreen = ({ navigation, route }) => {
         {isLoading && !refreshing ? <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View> : 
           activeTab === 'route' ? (
             <View style={{ flex: 1, borderRadius: 20, overflow: 'hidden', margin: 10 }}>
-               {Platform.OS === 'web' ? (
-                 <iframe
-                   width="100%"
-                   height="100%"
-                   frameBorder="0"
-                   style={{ border: 0 }}
-                   src={`https://maps.google.com/maps?q=Santo+Domingo&hl=es&z=14&output=embed`}
-                   allowFullScreen
-                 ></iframe>
-               ) : (
-                 <View style={{ flex: 1, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' }}>
-                   <Ionicons name="map" size={50} color={colors.border} />
-                   <Text style={{ color: colors.text.secondary, marginTop: 10 }}>Mapa de Ruta (Nativo)</Text>
-                 </View>
-               )}
+              {locationPermission === false && (
+                <TouchableOpacity style={[styles.mainBtn, { margin: 10 }]} onPress={requestLocationPermission}>
+                  <Text style={styles.mainBtnText}>Activar permiso de ubicación</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Overlay de carga de rutas */}
+              {isLoadingRoutes && (
+                <View style={{ position: 'absolute', top: 12, alignSelf: 'center', zIndex: 20, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface + 'EE', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, gap: 8, elevation: 10 }}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={{ color: colors.text.primary, fontSize: 12, fontWeight: '700' }}>Calculando rutas...</Text>
+                </View>
+              )}
+
+              {Platform.OS === 'web' ? (
+                MapComponents ? (() => {
+                  const { MapContainer, TileLayer, Marker: LeafletMarker, Polyline: LeafletPolyline, Popup } = MapComponents;
+                  const storeCoords = { latitude: CONFIG.STORE_LOCATION.latitude, longitude: CONFIG.STORE_LOCATION.longitude };
+
+                  return (
+                    <MapContainer 
+                      center={[CONFIG.STORE_LOCATION.latitude, CONFIG.STORE_LOCATION.longitude]} 
+                      zoom={13} 
+                      style={{ width: '100%', height: '100%', borderRadius: 20 }}
+                      zoomControl={true}
+                    >
+                      <TileLayer 
+                        url={darkMode 
+                          ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" 
+                          : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+                        } 
+                      />
+
+                      {/* Marcador del Restaurante (origen de todas las rutas) */}
+                      <LeafletMarker position={[CONFIG.STORE_LOCATION.latitude, CONFIG.STORE_LOCATION.longitude]}>
+                        <Popup><strong>🏪 DSicario Local</strong><br />Origen de entregas</Popup>
+                      </LeafletMarker>
+
+                      {/* Rutas + marcadores de destino */}
+                      {routeSegments.map((seg, idx) => {
+                        const lineColor = seg.estado === 'on_the_way' ? '#E31837' : '#FF8C00';
+                        return (
+                          <React.Fragment key={seg.orderId}>
+                            {/* Polilínea de la ruta */}
+                            {LeafletPolyline && seg.points.length > 0 && (
+                              <LeafletPolyline
+                                positions={seg.points.map(p => [p.latitude, p.longitude])}
+                                pathOptions={{ color: lineColor, weight: 4, opacity: 0.85, dashArray: seg.estado !== 'on_the_way' ? '8,6' : null }}
+                              />
+                            )}
+                            {/* Marcador de destino */}
+                            <LeafletMarker position={[seg.dest.latitude, seg.dest.longitude]}>
+                              <Popup>
+                                <strong>📦 Pedido #{String(seg.orderId).slice(-4)}</strong><br />
+                                Cliente: {seg.cliente}<br />
+                                {seg.distance && <span>Distancia: {seg.distance}<br /></span>}
+                                {seg.duration && <span>Tiempo estimado: {seg.duration}</span>}
+                              </Popup>
+                            </LeafletMarker>
+                          </React.Fragment>
+                        );
+                      })}
+
+                      {/* Si no hay rutas calculadas, mostrar marcador del rider */}
+                      {routeSegments.length === 0 && (
+                        <LeafletMarker position={[currentRegion?.latitude || 18.486, currentRegion?.longitude || -69.931]}>
+                          <Popup><strong>🏍️ Tú (Repartidor)</strong><br />Sin pedidos activos con coordenadas</Popup>
+                        </LeafletMarker>
+                      )}
+                    </MapContainer>
+                  );
+                })() : (
+                  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={{ color: colors.text.secondary, marginTop: 8 }}>Cargando mapa web...</Text>
+                  </View>
+                )
+              ) : (
+                MapView ? (
+                  <MapView
+                    ref={mapRef}
+                    provider={MapProvider}
+                    style={{ flex: 1 }}
+                    initialRegion={{
+                      latitude: CONFIG.STORE_LOCATION.latitude,
+                      longitude: CONFIG.STORE_LOCATION.longitude,
+                      latitudeDelta: 0.08,
+                      longitudeDelta: 0.08,
+                    }}
+                    showsUserLocation={true}
+                    customMapStyle={darkMode ? darkMapStyle : lightMapStyle}
+                  >
+                    {/* Marcador del Local (origen) */}
+                    {Marker && (
+                      <Marker
+                        coordinate={{ latitude: CONFIG.STORE_LOCATION.latitude, longitude: CONFIG.STORE_LOCATION.longitude }}
+                        title="DSicario Local"
+                        description="Punto de partida"
+                      >
+                        <View style={[styles.markerIconCircle, { backgroundColor: '#1A1A1A', borderColor: colors.primary, width: 38, height: 38, borderRadius: 19 }]}>
+                          <FontAwesome5 name="store-alt" size={16} color="#FFF" />
+                        </View>
+                      </Marker>
+                    )}
+
+                    {/* Polilíneas y marcadores de destino por cada pedido */}
+                    {routeSegments.map((seg) => {
+                      const lineColor = seg.estado === 'on_the_way' ? colors.primary : '#FF8C00';
+                      return (
+                        <React.Fragment key={seg.orderId}>
+                          {/* Polilínea de la ruta */}
+                          {Polyline && seg.points.length > 0 && (
+                            <Polyline
+                              coordinates={seg.points}
+                              strokeColor={lineColor}
+                              strokeWidth={4}
+                              lineDashPattern={seg.estado !== 'on_the_way' ? [10, 6] : null}
+                            />
+                          )}
+                          {/* Marcador del cliente */}
+                          {Marker && (
+                            <Marker
+                              coordinate={seg.dest}
+                              flat={true}
+                              title={`Pedido #${String(seg.orderId).slice(-4)}`}
+                              description={`${seg.cliente} · ${seg.distance || ''} · ${seg.duration || ''}`}
+                            >
+                              <View style={[styles.markerIconCircle, { backgroundColor: lineColor }]}>
+                                <FontAwesome5 name="box-open" size={12} color="#FFF" />
+                              </View>
+                            </Marker>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+
+                    {/* Fallback: si no hay rutas, mostrar marcador del rider */}
+                    {routeSegments.length === 0 && !isLoadingRoutes && Marker && (
+                      <Marker coordinate={currentRegion} flat={true} title="Tu Ubicación">
+                        <View style={[styles.markerIconCircle, { backgroundColor: colors.primary }]}>
+                          <FontAwesome5 name="motorcycle" size={12} color="#FFF" />
+                        </View>
+                      </Marker>
+                    )}
+                  </MapView>
+                ) : (
+                  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                    <Text style={{ color: colors.text.secondary, fontSize: 16 }}>Mapa nativo no disponible</Text>
+                  </View>
+                )
+              )}
+
+              {/* Panel de info de rutas calculadas */}
+              {routeSegments.length > 0 && (
+                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: colors.surface + 'F0', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 12, gap: 6 }}>
+                  {routeSegments.map((seg) => (
+                    <View key={seg.orderId} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: seg.estado === 'on_the_way' ? colors.primary : '#FF8C00' }} />
+                      <Text style={{ flex: 1, color: colors.text.primary, fontSize: 12, fontWeight: '600' }}>
+                        #{String(seg.orderId).slice(-4)} · {seg.cliente}
+                      </Text>
+                      <Text style={{ color: colors.text.secondary, fontSize: 11 }}>{seg.distance}</Text>
+                      <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>{seg.duration}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
           ) : (
             <FlatList data={filteredOrders} renderItem={renderOrderItem} keyExtractor={item => item?.id?.toString() || Math.random().toString()} contentContainerStyle={styles.listContainer} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />} ListEmptyComponent={<View style={styles.emptyContainer}><Ionicons name="bicycle-outline" size={80} color={colors.border} /><Text style={styles.emptyText}>Sin entregas activas.</Text></View>} />
@@ -875,3 +1202,31 @@ const RiderScreen = ({ navigation, route }) => {
 };
 
 export default RiderScreen;
+
+const lightMapStyle = [
+  { "featureType": "landscape", "elementType": "geometry", "stylers": [{ "color": "#f5f5f5" }] },
+  { "featureType": "poi", "elementType": "geometry", "stylers": [{ "color": "#eeeeee" }] },
+  { "featureType": "poi", "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
+  { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#ffffff" }] },
+  { "featureType": "road.arterial", "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
+  { "featureType": "road.highway", "elementType": "geometry", "stylers": [{ "color": "#dadada" }] },
+  { "featureType": "road.highway", "elementType": "labels.text.fill", "stylers": [{ "color": "#616161" }] },
+  { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#9ed5f0" }] },
+  { "featureType": "poi.business", "elementType": "labels", "stylers": [{ "visibility": "off" }] }
+];
+
+const darkMapStyle = [
+  { "elementType": "geometry", "stylers": [{ "color": "#212121" }] },
+  { "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] },
+  { "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
+  { "elementType": "labels.text.stroke", "stylers": [{ "color": "#212121" }] },
+  { "featureType": "administrative", "elementType": "geometry", "stylers": [{ "color": "#757575" }] },
+  { "featureType": "poi", "elementType": "geometry", "stylers": [{ "color": "#181818" }] },
+  { "featureType": "poi", "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
+  { "featureType": "road", "elementType": "geometry.fill", "stylers": [{ "color": "#2c2c2c" }] },
+  { "featureType": "road", "elementType": "labels.text.fill", "stylers": [{ "color": "#8a8a8a" }] },
+  { "featureType": "road.arterial", "elementType": "geometry.fill", "stylers": [{ "color": "#2c2c2c" }] },
+  { "featureType": "road.highway", "elementType": "geometry.fill", "stylers": [{ "color": "#3c3c3c" }] },
+  { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#000000" }] },
+  { "featureType": "water", "elementType": "labels.text.fill", "stylers": [{ "color": "#3d3d3d" }] }
+];

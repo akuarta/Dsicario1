@@ -6,6 +6,10 @@ import AdminDeliveryScreen from '../screens/AdminDeliveryScreen';
 import StaffModeScreen from '../screens/StaffModeScreen';
 
 import AdminStaffScreen from '../screens/AdminStaffScreen';
+import ConfigPersonalDataScreen from '../screens/ConfigPersonalDataScreen';
+import ConfigDeliveryRatesScreen from '../screens/ConfigDeliveryRatesScreen';
+import ConfigExchangeRatesScreen from '../screens/ConfigExchangeRatesScreen';
+import ConfigPaymentMethodsScreen from '../screens/ConfigPaymentMethodsScreen';
 
 const Stack = createStackNavigator();
 
@@ -15,7 +19,7 @@ const ConfigStack = () => {
   return (
     <Stack.Navigator>
       <Stack.Screen
-        name="ConfigScreen"
+        name="Config"
         component={ConfigScreen}
         options={{ headerShown: false }}
       />
@@ -42,6 +46,26 @@ const ConfigStack = () => {
       <Stack.Screen
         name="StaffModeSettings"
         component={StaffModeScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="ConfigPersonalData"
+        component={ConfigPersonalDataScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="ConfigDeliveryRates"
+        component={ConfigDeliveryRatesScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="ConfigExchangeRates"
+        component={ConfigExchangeRatesScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="ConfigPaymentMethods"
+        component={ConfigPaymentMethodsScreen}
         options={{ headerShown: false }}
       />
     </Stack.Navigator>

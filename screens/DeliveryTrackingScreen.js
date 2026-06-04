@@ -494,7 +494,7 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
               {currentStepIndex === 1 ? '¡Tu pedido está volando!' : currentStepIndex === 2 ? '¡Pedido entregado con éxito!' : 'Estamos preparando tu delicia'}
             </Text>
             <Text style={styles.deliveryAddress}>
-              <FontAwesome5 name="map-marker-alt" color={colors.error} /> {orderDetails?.direccion || 'Buscando dirección...'}
+              <FontAwesome5 name="map-marker-alt" color={colors.error} /> {String(orderDetails?.direccion || '').split('|').pop().trim() || 'Buscando dirección...'}
             </Text>
           </View>
           <View style={styles.stepsContainer}>
