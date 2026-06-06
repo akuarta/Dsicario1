@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import NotificationService from '../utils/notificationService';
 import {
   notifyOrderReady,
@@ -537,15 +537,26 @@ export const DataSyncProvider = ({ children }) => {
 
     mountedRef.current = true;
     syncAllData();
+    
+    const SYNC_INTERVAL_MS = 60000;
     const interval = setInterval(() => {
       if (mountedRef.current) {
         syncAllData();
       }
-    }, 20000); 
+    }, SYNC_INTERVAL_MS); 
+
+    const handleAppStateChange = (nextState) => {
+      if (nextState === 'active' && mountedRef.current) {
+        syncAllData();
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
 
     return () => {
       mountedRef.current = false;
       clearInterval(interval);
+      subscription.remove();
     };
   }, []);
 
