@@ -18,7 +18,7 @@ import {
   syncOfflineActions,
   clearAllCache
 } from '../utils/api';
-import { useUser } from './UserContext';
+import { useUser, UserContext } from './UserContext';
 import { useAuth } from './AuthContext';
 
 // Context para productos
@@ -272,6 +272,12 @@ export const CartProvider = ({ children }) => {
   const [waiterActiveSession, setWaiterActiveSession] = useState(null);
   const [businessInfo, setBusinessInfo] = useState({ name: 'DSicario', closed: false });
   const [activeStaffMode, setActiveStaffModeState] = useState(null);
+  const [paymentType, _setPaymentType] = useState('Efectivo');
+  const setPaymentType = useCallback((value) => _setPaymentType(value || 'Efectivo'), []);
+  const [exchangeRates, _setExchangeRates] = useState([]);
+  const setExchangeRates = useCallback((value) => _setExchangeRates(Array.isArray(value) ? value : []), []);
+  const [deliveryRates, _setDeliveryRates] = useState([]);
+  const setDeliveryRates = useCallback((value) => _setDeliveryRates(Array.isArray(value) ? value : []), []);
 
   // Radio-button: activa un modo y desactiva el resto. Persiste en AsyncStorage.
   const setActiveStaffMode = async (mode) => {
