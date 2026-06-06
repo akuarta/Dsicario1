@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetchUserRoleByEmail, fetchDeliveries, saveUser, setOffline, setUserOnlineStatus } from '../utils/api';
 import { useAuth } from './AuthContext';
+import { CONFIG } from '../constants/Config';
 
 const UserContext = createContext();
 
@@ -68,7 +69,7 @@ export const UserProvider = ({ children }) => {
       markUserOnline(user.uid, true, user.email, cleanName);
       
       // 🛡️ REFUERZO: Si es el dueño, asegurar que NO esté en modo cliente por defecto
-      if (user.email?.toLowerCase().trim() === 'hairoman28@gmail.com') {
+      if (user.email?.toLowerCase().trim() === CONFIG.OWNER_EMAIL) {
         setIsClientMode(false);
         setRole('Admin');
       }
@@ -102,7 +103,7 @@ export const UserProvider = ({ children }) => {
         let finalId = profile.id || 'N/A';
 
         // 👑 Soporte para el nuevo rol de "Owner"
-        const isOwner = cleanAuthEmail === 'hairoman28@gmail.com' || finalRole?.toLowerCase() === 'owner' || finalRole?.toLowerCase() === 'admin';
+        const isOwner = cleanAuthEmail === CONFIG.OWNER_EMAIL || finalRole?.toLowerCase() === 'owner' || finalRole?.toLowerCase() === 'admin';
         if (isOwner) {
           finalRole = 'Owner'; 
         }
@@ -115,10 +116,10 @@ export const UserProvider = ({ children }) => {
             const myRiderInfo = allRiders.find(r => 
               (String(r.id_user || '').trim() === internalId && internalId !== '') ||
               (String(r.email || '').toLowerCase().trim() === cleanAuthEmail) ||
-              (isOwner && (r.id_delivery === 'DS01' || r.id_delivery === 'DS001'))
+              (isOwner && (r.id_delivery === CONFIG.OWNER_RIDER_ID || r.id_delivery === `${CONFIG.OWNER_RIDER_ID}1`))
             );
             if (myRiderInfo) finalId = myRiderInfo.id_delivery;
-            else if (isOwner) finalId = 'DS01'; 
+            else if (isOwner) finalId = CONFIG.OWNER_RIDER_ID; 
           } catch (e) { console.warn('Error vinculando repartidor:', e); }
         }
         
@@ -148,7 +149,7 @@ export const UserProvider = ({ children }) => {
       } else if (profile && profile.notFound) {
         // 🆕 SOLO si se confirma que no existe el usuario
         console.log('[UserContext] Usuario no encontrado en Excel, creando como Cliente...');
-        const isOwner = cleanAuthEmail === 'hairoman28@gmail.com';
+        const isOwner = cleanAuthEmail === CONFIG.OWNER_EMAIL;
         const counts = profile?.roleCounts || {};
         const roleToAssign = isOwner ? 'Owner' : 'Cliente';
         const prefix = isOwner ? 'DS' : 'CLN';
@@ -171,16 +172,16 @@ export const UserProvider = ({ children }) => {
       } else {
         // Caso de error de red o profile null
         console.warn('[UserContext] No se pudo verificar el perfil (posible error de red). Manteniendo datos actuales.');
-        if (cleanAuthEmail === 'hairoman28@gmail.com') {
+        if (cleanAuthEmail === CONFIG.OWNER_EMAIL) {
           setRole('Owner');
-          setUserId('DS01');
+          setUserId(CONFIG.OWNER_RIDER_ID);
         }
       }
     } catch (error) {
       console.error('Error syncing role:', error);
-      if (cleanAuthEmail === 'hairoman28@gmail.com') {
+      if (cleanAuthEmail === CONFIG.OWNER_EMAIL) {
         setRole('Owner');
-        setUserId('DS01');
+        setUserId(CONFIG.OWNER_RIDER_ID);
       }
     } finally {
       setIsSyncing(false);

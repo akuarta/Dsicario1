@@ -23,18 +23,26 @@ const DeliveryMap = ({
 
   useEffect(() => {
     console.log('DeliveryMap: Received routeData', routeData ? 'YES' : 'NO');
-    if (routeData?.polyline) {
-      const points = decodePolyline(routeData.polyline);
-      console.log('DeliveryMap: Decoded points count:', points.length);
-      setRoutePoints(points);
-      
-      if (mapRef.current && points.length > 0) {
-        setTimeout(() => {
-          mapRef.current.fitToCoordinates(points, {
-            edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
-            animated: true,
-          });
-        }, 500);
+    if (routeData?.polyline && typeof routeData.polyline === 'string') {
+      try {
+        const points = decodePolyline(routeData.polyline);
+        if (!Array.isArray(points) || points.length === 0) {
+          console.warn('DeliveryMap: decoded polyline is empty or invalid');
+          return;
+        }
+        console.log('DeliveryMap: Decoded points count:', points.length);
+        setRoutePoints(points);
+        
+        if (mapRef.current && points.length > 0) {
+          setTimeout(() => {
+            mapRef.current.fitToCoordinates(points, {
+              edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
+              animated: true,
+            });
+          }, 500);
+        }
+      } catch (e) {
+        console.error('DeliveryMap: error decoding polyline', e);
       }
     }
   }, [routeData]);

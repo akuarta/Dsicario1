@@ -414,8 +414,12 @@ export const DataSyncProvider = ({ children }) => {
   const [deliveries, setDeliveries] = useState([]);
   const [tables, setTables] = useState([]); // 👈 Agregado
   const [isSyncing, setIsSyncing] = useState(false);
-  // ✅ Ref-based guard: previene stale closure en setInterval
   const isSyncingRef = useRef(false);
+  const mountedRef = useRef(false);
+
+  if (!mountedRef.current) {
+    mountedRef.current = true;
+  }
 
   const syncAllData = async () => {
     if (isSyncingRef.current) return; // ✅ Usa ref, no estado (evita stale closure)
@@ -522,13 +526,18 @@ export const DataSyncProvider = ({ children }) => {
     // Solicitar permisos de notificación al cargar
     NotificationService.requestPermissions().catch(console.warn);
 
+    mountedRef.current = true;
     syncAllData();
-    // ⏲️ Auto-sincronización inteligente (cada 20 segundos)
     const interval = setInterval(() => {
-      syncAllData();
+      if (mountedRef.current) {
+        syncAllData();
+      }
     }, 20000); 
 
-    return () => clearInterval(interval);
+    return () => {
+      mountedRef.current = false;
+      clearInterval(interval);
+    };
   }, []);
 
   const value = React.useMemo(() => ({ 
