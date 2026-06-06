@@ -244,7 +244,7 @@ export const syncOfflineActions = async () => {
         
         const response = await gasPost(payload);
         
-        if (!response.ok) {
+        if (!response.success) {
            remainingQueue.push(action);
         } else {
            console.log('✅ Acción offline sincronizada con éxito:', action.action);
@@ -1436,8 +1436,15 @@ export const getNextId = async (sheetName, prefix) => {
     const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=${sheetName}`, { redirect: 'follow' });
     const data = await response.json();
     const rows = resolveSheetData(data, sheetName);
-    const count = rows.length;
-    return `${prefix}${String(count + 1).padStart(2, '0')}`;
+    const maxNum = rows.reduce((max, row) => {
+      const id = row[Object.keys(row).find(k => k.toLowerCase() === 'id') || Object.keys(row)[0]];
+      if (id) {
+        const num = parseInt(String(id).replace(/[^0-9]/g, ''), 10);
+        return isNaN(num) ? max : Math.max(max, num);
+      }
+      return max;
+    }, 0);
+    return `${prefix}${String(maxNum + 1).padStart(2, '0')}`;
   } catch (error) {
     console.error(`Error generating next ID for ${sheetName}:`, error);
     return `${prefix}${Date.now().toString().slice(-4)}`;
@@ -1447,9 +1454,9 @@ export const getNextId = async (sheetName, prefix) => {
 /**
  * Formatter and Helpers
  */
-export const formatPrice = (price) => {
-  if (price === undefined || price === null) return 'DOP $0.00';
-  return `DOP $${parseFloat(price).toFixed(2)}`;
+export const formatPrice = (price, currency = 'DOP') => {
+  if (price === undefined || price === null) return `${currency} $0.00`;
+  return `${currency} $${parseFloat(price).toFixed(2)}`;
 };
 
 export const fetchUserRoleByEmail = async (email) => {
@@ -1994,8 +2001,7 @@ export const hardResetTable = async (tableId, tableName = '', capacity = 4) => {
         'UltimaActualizacion': new Date().toISOString()
       }
     };
-    const response = await gasPost(payload);
-    return await response.json();
+    return await gasPost(payload);
   } catch (error) {
     console.error('❌ Error in hardResetTable:', error);
     return { success: false };
@@ -2455,8 +2461,7 @@ export const submitReview = async (reviewData) => {
     }
   };
 
-  const response = await gasPost(payload);
-  return response.json();
+  return await gasPost(payload);
 };
 
 /**
@@ -2564,13 +2569,12 @@ export const fetchOrderDetails = async (orderId) => {
  */
 export const deleteUser = async (email) => {
   try {
-    const response = await gasPost({
+    return await gasPost({
         action: 'DELETE',
         sheet: 'usuarios',
         idField: 'Email',
         data: { Email: email }
       });
-    return await response.json();
   } catch (error) {
     console.error('Error deleting user:', error);
     return { success: false, error: error.message };
