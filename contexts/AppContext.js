@@ -353,11 +353,20 @@ export const CartProvider = ({ children }) => {
     await AsyncStorage.setItem('@dsicario_business_cache', JSON.stringify(newInfo));
   };
 
-  useEffect(() => { 
+  useEffect(() => {
     if (isLoaded) {
       AsyncStorage.setItem('@dsicario_all_carts', JSON.stringify(allCarts)); 
     }
   }, [allCarts, isLoaded]);
+
+  useEffect(() => {
+    if (!user && isLoaded) {
+      setAllCarts({ default: [] });
+      setWaiterActiveSession(null);
+      setActiveStaffModeState(null);
+      setPaymentType('Efectivo');
+    }
+  }, [user, isLoaded]);
 
   const addToCart = (product) => {
     updateActiveCart((prevCart) => {
