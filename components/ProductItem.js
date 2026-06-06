@@ -146,6 +146,24 @@ const ProductItem = memo(({
       paddingVertical: 4,
       zIndex: 10,
     },
+    firebaseBadge: {
+      position: 'absolute',
+      bottom: 6,
+      left: 6,
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(230, 81, 0, 0.85)', // Naranja oscuro Firebase
+      borderRadius: borders.radius.sm,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      zIndex: 15,
+    },
+    firebaseBadgeText: {
+      fontSize: 9,
+      fontWeight: 'bold',
+      color: '#FFFFFF',
+      marginLeft: 4,
+    },
     ratingText: {
       fontSize: 10,
       fontWeight: 'bold',
@@ -317,7 +335,12 @@ const ProductItem = memo(({
     onPress?.(product);
   };
 
-  const renderSharedImageContent = () => (
+  const renderSharedImageContent = () => {
+    if (product.imagen) {
+      console.log(`[IMG DEPURACIÓN] Intentando cargar imagen de producto "${product.nombre}":`, product.imagen.substring(0, 150) + (product.imagen.length > 150 ? '...' : ''));
+    }
+
+    return (
     <>
       <Image 
         source={product.imagen ? { uri: product.imagen } : require('../assets/logo.png')}
@@ -330,6 +353,10 @@ const ProductItem = memo(({
         contentFit="cover"
         transition={300}
         cachePolicy="memory-disk"
+        onError={(err) => {
+          console.warn(`[IMG ERROR] Falló la carga de imagen para "${product.nombre}"! URL intentada: ${product.imagen}`);
+          console.warn(`[IMG ERROR Detalles]:`, err);
+        }}
       />
       
       {/* ❤️ Favorito en Lista */}
@@ -360,6 +387,15 @@ const ProductItem = memo(({
           <FontAwesome5 name="times-circle" size={24} color="rgba(255,255,255,0.7)" />
         </View>
       )}
+      
+      {/* 🔥 Marca de Agua de Respaldo Firebase (Solo Admin/Owner) */}
+      {(role === 'Owner' || role === 'Admin') && product._fromFirebaseBackup && (
+        <View style={styles.firebaseBadge}>
+          <FontAwesome5 name="fire" size={10} color="#FFD54F" solid />
+          <Text style={styles.firebaseBadgeText}>Firebase</Text>
+        </View>
+      )}
+      
       <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.gradient}>
         <Text style={[styles.productName, product.agotado && styles.outOfStockText, { paddingRight: 35 }]} numberOfLines={2}>
           {product.nombre}
@@ -445,6 +481,7 @@ const ProductItem = memo(({
       )}
     </>
   );
+};
 
   const renderSharedInfoContent = () => (
     <View style={styles.infoContainer}>

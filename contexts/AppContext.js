@@ -15,7 +15,8 @@ import {
   fetchKitchenOrders, 
   fetchDeliveries, 
   fetchTables,
-  syncOfflineActions
+  syncOfflineActions,
+  clearAllCache
 } from '../utils/api';
 import { useUser } from './UserContext';
 import { useAuth } from './AuthContext';
@@ -228,6 +229,19 @@ export const ProductsProvider = ({ children }) => {
   const getFeaturedProducts = () => products.filter(p => p.recomendado || p.masVendido || p.delaCasa);
   const getAvailableProducts = () => products.filter(p => p.disponible);
 
+  // 🧹 Limpia TODO el caché y fuerza una recarga fresca desde Google Sheets
+  const hardRefreshProducts = async () => {
+    console.log('🧹 [HARD REFRESH] Limpiando toda la caché y recargando desde Sheets...');
+    setProducts([]);
+    setSuggestedProducts([]);
+    await Promise.all([
+      AsyncStorage.removeItem('@dsicario_products_cache'),
+      AsyncStorage.removeItem('@dsicario_suggested_cache'),
+    ]);
+    await checkForUpdates(true);
+    console.log('✅ [HARD REFRESH] Recarga completada.');
+  };
+
   const value = React.useMemo(() => ({
     products,
     suggestedProducts,
@@ -236,6 +250,7 @@ export const ProductsProvider = ({ children }) => {
     hasUpdates,
     applyUpdates,
     refetchProducts: (force) => checkForUpdates(force),
+    hardRefreshProducts,
     updateProductLocally,
     isEditorMode,
     setIsEditorMode,

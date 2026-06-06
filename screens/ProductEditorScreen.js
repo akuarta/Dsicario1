@@ -18,7 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { CustomHeader } from '../components/CustomHeader';
-import { updateProduct, formatPrice, uploadProductImage, fetchAlmacen, fetchRecetas, saveRecipeIngredient, deleteRecipeIngredient } from '../utils/api';
+import { updateProduct, formatPrice, uploadProductImage, fetchAlmacen, fetchRecetas, saveRecipeIngredient, deleteRecipeIngredient, deleteProduct } from '../utils/api';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import GlassPanel from '../components/GlassPanel';
@@ -42,22 +42,35 @@ const ProductEditorScreen = ({ navigation, route }) => {
     return undefined;
   };
 
-  const [formData, setFormData] = useState({
-    id: resolveField(product, 'id', 'ID_Producto', 'id_producto', 'ID') || '',
-    nombre: resolveField(product, 'nombre', 'Nombre', 'name', 'Name') || '',
-    descripcion: resolveField(product, 'descripcion', 'Descripcion', 'description', 'Description') || '',
-    precio: resolveField(product, 'precio', 'Precio', 'price', 'Price')?.toString() || '',
-    descuento: resolveField(product, 'descuento', 'Descuento', 'discount', 'Discount')?.toString() || '0',
-    categoria: resolveField(product, 'categoria', 'Categoria', 'category', 'Category') || '',
-    subcategoria: resolveField(product, 'subcategoria', 'Subcategoria', 'subcategory', 'Subcategory') || '',
-    imagen: resolveField(product, 'imagen', 'Imagen', 'image', 'Image') || '',
-    agotado: !!(resolveField(product, 'agotado', 'Agotado', 'out_of_stock')),
-    enOferta: !!(resolveField(product, 'enOferta', 'EnOferta', 'en_oferta')),
-    recomendado: !!(resolveField(product, 'recomendado', 'Recomendado')),
-    masVendido: !!(resolveField(product, 'masVendido', 'MasVendido', 'mas_vendido')),
-    isPreOrder: !!(resolveField(product, 'isPreOrder', 'pre_orden?', 'tipo_orden')),
-    isSuggestion: !!(resolveField(product, 'isSuggestion', 'recomendado')),
-    suggestedBy: resolveField(product, 'suggestedBy', 'Sugerido_por') || user?.nombre || 'Usuario',
+  const [formData, setFormData] = useState(() => {
+    const resolved = {
+      id: resolveField(product, 'id', 'ID_Producto', 'id_producto', 'ID') || '',
+      nombre: resolveField(product, 'nombre', 'Nombre', 'name', 'Name') || '',
+      descripcion: resolveField(product, 'descripcion', 'Descripcion', 'description', 'Description') || '',
+      precio: resolveField(product, 'precio', 'Precio', 'price', 'Price')?.toString() || '',
+      descuento: resolveField(product, 'descuento', 'Descuento', 'discount', 'Discount')?.toString() || '0',
+      categoria: resolveField(product, 'categoria', 'Categoria', 'category', 'Category') || '',
+      subcategoria: resolveField(product, 'subcategoria', 'Subcategoria', 'subcategory', 'Subcategory') || '',
+      imagen: resolveField(product, 'imagen', 'Imagen', 'image', 'Image') || '',
+      agotado: !!(resolveField(product, 'agotado', 'Agotado', 'out_of_stock')),
+      enOferta: !!(resolveField(product, 'enOferta', 'EnOferta', 'en_oferta')),
+      recomendado: !!(resolveField(product, 'recomendado', 'Recomendado')),
+      masVendido: !!(resolveField(product, 'masVendido', 'MasVendido', 'mas_vendido')),
+      isPreOrder: !!(resolveField(product, 'isPreOrder', 'pre_orden?', 'tipo_orden')),
+      isSuggestion: !!(resolveField(product, 'isSuggestion', 'recomendado')),
+      suggestedBy: resolveField(product, 'suggestedBy', 'Sugerido_por') || user?.nombre || 'Usuario',
+    };
+
+    console.log('═══════════════════════════════════════════');
+    console.log('📋 [EDITOR DIAGNÓSTICO] Abriendo editor de producto');
+    console.log('📌 Modo:', isEditing ? 'EDITAR' : 'CREAR NUEVO');
+    console.log('📦 Objeto RAW recibido (product):', JSON.stringify(product, null, 2));
+    console.log('✅ Datos resueltos para el formulario:', JSON.stringify(resolved, null, 2));
+    console.log('🖼️  URL de imagen:', resolved.imagen || '(Sin imagen)');
+    console.log('🆔 ID resuelto:', resolved.id || '(Sin ID - producto nuevo)');
+    console.log('═══════════════════════════════════════════');
+
+    return resolved;
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -116,6 +129,15 @@ const ProductEditorScreen = ({ navigation, route }) => {
         const uploadedUrl = await uploadProductImage(formData.imagen, productId);
         if (uploadedUrl) {
           finalImageUrl = uploadedUrl;
+        } else {
+          // 🚨 DETENER: Si fallaron tanto Google Drive como Firebase Storage, no podemos guardar el base64 crudo en Sheets
+          setIsLoading(false);
+          if (Platform.OS === 'web') {
+            window.alert('Error: No se pudo subir la imagen al servidor. Intenta con una URL directa o revisa tu conexión.');
+          } else {
+            showAlert('Error', 'No se pudo subir la imagen al servidor. Intenta con una URL directa.');
+          }
+          return; // Salir sin guardar para no corromper la base de datos
         }
       }
 
@@ -160,6 +182,47 @@ const ProductEditorScreen = ({ navigation, route }) => {
       } else {
         showAlert('Error', 'No se pudo guardar el producto. Verifica tu conexión.');
       }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    const confirmDelete = () => new Promise((resolve) => {
+      if (Platform.OS === 'web') {
+        resolve(window.confirm(`¿Estás seguro de que quieres ELIMINAR "${formData.nombre}"? Esta acción no se puede deshacer.`));
+      } else {
+        showAlert(
+          '⚠️ Eliminar Producto',
+          `¿Estás seguro de que quieres eliminar "${formData.nombre}"? Esta acción no se puede deshacer.`,
+          [
+            { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'ELIMINAR', style: 'destructive', onPress: () => resolve(true) },
+          ]
+        );
+      }
+    });
+
+    const confirmed = await confirmDelete();
+    if (!confirmed) return;
+
+    setIsLoading(true);
+    try {
+      const result = await deleteProduct(formData.id);
+      if (result?.success) {
+        // Actualizar caché local eliminando el producto del estado
+        refetchProducts(true);
+        navigation.goBack();
+        console.log(`✅ Producto "${formData.nombre}" eliminado correctamente.`);
+      } else {
+        if (Platform.OS === 'web') {
+          window.alert('No se pudo eliminar el producto. Inténtalo de nuevo.');
+        } else {
+          showAlert('Error', 'No se pudo eliminar el producto. Inténtalo de nuevo.');
+        }
+      }
+    } catch (err) {
+      console.error('Error al eliminar producto:', err);
     } finally {
       setIsLoading(false);
     }
@@ -450,6 +513,17 @@ const ProductEditorScreen = ({ navigation, route }) => {
     },
     saveBtnText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
     discardBtnText: { color: colors.text.secondary, fontSize: 14, fontWeight: '600' },
+    deleteBtn: {
+      flex: 1,
+      backgroundColor: '#DC2626',
+      padding: 18,
+      borderRadius: 100,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'row',
+      gap: 6,
+    },
+    deleteBtnText: { color: '#FFF', fontSize: 14, fontWeight: 'bold' },
     switchGroup: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -693,6 +767,17 @@ const ProductEditorScreen = ({ navigation, route }) => {
         >
           <Text style={styles.discardBtnText}>DESCARTAR</Text>
         </TouchableOpacity>
+
+        {isEditing && (
+          <TouchableOpacity
+            style={styles.deleteBtn}
+            onPress={handleDelete}
+            disabled={isLoading}
+          >
+            <FontAwesome5 name="trash" size={16} color="#FFF" />
+            <Text style={styles.deleteBtnText}>BORRAR</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity 
           style={styles.saveBtn} 

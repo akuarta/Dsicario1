@@ -1,7 +1,8 @@
 import { Platform } from 'react-native';
 import { CONFIG } from '../constants/Config';
-import { storage } from '../config/firebaseConfig';
+import { storage, db } from '../config/firebaseConfig';
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
+import { doc, setDoc, collection, getDocs, writeBatch } from "firebase/firestore";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 // Caché temporal para evitar race-conditions en el monitor de cocina
@@ -12,7 +13,7 @@ let cachedDeliverySheet = 'Deliverys';
 // --- NUEVO: Caché en memoria para evitar saturar la cuota de Google Sheets ---
 const apiCache = {
   users: { data: [], timestamp: 0 },
-  kitchenOrders: { data: [], timestamp: 0 },
+  kitchenOrders: { data: [], timestamp: 0 }, // timestamp=0 fuerza refresh en cada inicio
   deliveries: { data: [], timestamp: 0 },
   tables: { data: [], timestamp: 0 },
   business: { data: null, timestamp: 0 },
@@ -23,6 +24,20 @@ const apiCache = {
 const API_TTL_MS = 45000; // 45 segundos de vida de caché
 
 const PERSIST_CACHE_KEY = '@dsicario_persistent_api_data';
+
+/**
+ * 🧹 Limpia toda la caché en memoria y en AsyncStorage.
+ * Úsala cuando los datos de Sheets cambien externamente (ej: borrar un producto manualmente).
+ */
+export const clearAllCache = async () => {
+  // 1. Resetear caché en memoria
+  Object.keys(apiCache).forEach(key => {
+    apiCache[key] = { data: Array.isArray(apiCache[key].data) ? [] : null, timestamp: 0 };
+  });
+  // 2. Borrar caché persistente del teléfono/navegador
+  await AsyncStorage.removeItem(PERSIST_CACHE_KEY);
+  console.log('🧹 [CACHE] Caché completa limpiada. El próximo fetch traerá datos frescos de Google Sheets.');
+};
 
 /**
  * ✅ POST centralizado al GAS API — SIEMPRE usa text/plain para evitar CORS preflight en Web.
@@ -178,6 +193,7 @@ const STATUS_MAP = {
       'delivered': 'delivered',
       'completed': 'completed',
       'cancelled': 'cancelled',
+      'cancelado_cliente': 'cancelado_cliente',
       'proposal': 'proposal',
       'accepted': 'accepted',
       'draft': 'draft',
@@ -440,12 +456,38 @@ export const fetchProducts = async (returnCacheImmediately = false) => {
       isSuggestion: true
     }));
     
-    const combined = [...mappedNormal, ...mappedSuggested];
+    const combined = [...mappedNormal, ...mappedSuggested].map(p => ({
+      ...p,
+      _fromFirebaseBackup: true // 👈 Se marca para que el Admin sepa que está respaldado
+    }));
+
     apiCache.products = { data: combined, timestamp: Date.now() };
+
+    // 🔥 Respaldar la base de datos de productos en Firestore en segundo plano (fire-and-forget)
+    // Solo si no estamos devolviendo inmediatamente del caché local
+    if (!returnCacheImmediately && combined.length > 0) {
+      backupProductsToFirestore(combined).catch(err => console.warn('[🔥 BACKUP FULL] Falló backup en background:', err));
+    }
+
     return combined;
   } catch (error) {
-    console.error('Error fetching products:', error);
-    return apiCache.products.data || [];
+    console.error('Error fetching products from Sheets:', error);
+    
+    // 🔥 Fallback: Si falla Google Sheets, intentamos recuperar del caché local,
+    // y si no hay caché, restauramos desde el respaldo de Firestore.
+    if (apiCache.products && apiCache.products.data && apiCache.products.data.length > 0) {
+      console.log('🔄 Recuperando productos desde caché local debido a error.');
+      return apiCache.products.data;
+    } else {
+      console.log('🔥 Intentando restaurar desde Firestore debido a error en Sheets...');
+      const restored = await restoreProductsFromFirestore();
+      if (restored && restored.length > 0) {
+        apiCache.products = { data: restored, timestamp: Date.now() };
+        return restored;
+      }
+    }
+    
+    return [];
   }
 };
 
@@ -697,12 +739,20 @@ export const updateOrderStatus = async (orderId, newStatus, extraData = {}) => {
 
     // Auto-update caché local inmediatamente para que los demás módulos lo vean
     if (apiCache.kitchenOrders.data.length > 0) {
-      apiCache.kitchenOrders.data = apiCache.kitchenOrders.data.map(order => {
-        if (String(order.id).split('.')[0].trim() === idStr) {
-          return { ...order, estado: newStatus, Estado: excelStatus, ...extraData };
-        }
-        return order;
-      });
+      const isCancelledStatus = ['cancelled', 'cancelado_cliente'].includes(newStatus);
+      if (isCancelledStatus) {
+        // 🚫 Eliminar del caché para evitar pedidos fantasma
+        apiCache.kitchenOrders.data = apiCache.kitchenOrders.data.filter(order =>
+          String(order.id).split('.')[0].trim() !== idStr
+        );
+      } else {
+        apiCache.kitchenOrders.data = apiCache.kitchenOrders.data.map(order => {
+          if (String(order.id).split('.')[0].trim() === idStr) {
+            return { ...order, estado: newStatus, Estado: excelStatus, ...extraData };
+          }
+          return order;
+        });
+      }
     }
     
     const payload = {
@@ -961,19 +1011,27 @@ export const fetchKitchenOrders = async () => {
     const now = Date.now();
     if (apiCache.kitchenOrders.data.length > 0 && (now - apiCache.kitchenOrders.timestamp) < API_TTL_MS) {
       // Servir desde caché sin hacer peticiones a GAS
-      return apiCache.kitchenOrders.data.map(order => {
-        const lockKey = order.id ? String(order.id).split('.')[0].trim() : null;
-        if (lockKey && pendingUpdates[lockKey]) {
-            const update = pendingUpdates[lockKey];
-            const elapsed = Date.now() - update.time;
-            if (elapsed < UPDATE_LOCK_MS) {
-                return { ...order, estado: update.status, Estado: STATUS_MAP.toExcel(update.status), ...update.extraData };
-            } else {
-                delete pendingUpdates[lockKey];
-            }
-        }
-        return order;
-      });
+      // 🚫 ANTI-FANTASMA: también filtrar cancelados y fantasmas del caché
+      return apiCache.kitchenOrders.data
+        .filter(order => {
+          if (!order.id && !order.ID_Pedido) return false;
+          const st = (order.estado || '').toLowerCase();
+          if (st === 'cancelled' || st === 'cancelado_cliente') return false;
+          return true;
+        })
+        .map(order => {
+          const lockKey = order.id ? String(order.id).split('.')[0].trim() : null;
+          if (lockKey && pendingUpdates[lockKey]) {
+              const update = pendingUpdates[lockKey];
+              const elapsed = Date.now() - update.time;
+              if (elapsed < UPDATE_LOCK_MS) {
+                  return { ...order, estado: update.status, Estado: STATUS_MAP.toExcel(update.status), ...update.extraData };
+              } else {
+                  delete pendingUpdates[lockKey];
+              }
+          }
+          return order;
+        });
     }
 
     const [ordersRes, itemsRes] = await Promise.all([
@@ -1000,6 +1058,19 @@ export const fetchKitchenOrders = async () => {
 
     const result = rawOrders
       .filter(order => {
+        // 🚫 FILTRO ANTI-FANTASMA: descartar filas vacías o corrompidas de Sheets
+        const rawId = getRobustProp(order, 'ID_Pedido') || getRobustProp(order, 'ID_Orden');
+        const hasId = rawId && String(rawId).trim() !== '' && String(rawId).trim() !== '-';
+        const hasCliente = !!(getRobustProp(order, 'Cliente') || getRobustProp(order, 'NombreUser') || getRobustProp(order, 'Email'));
+        const hasTotal = parseFloat(getRobustProp(order, 'Total') || 0) > 0;
+        const hasItems = !!(getRobustProp(order, 'Pedido_Items'));
+        // Requiere al minimum un ID real + algún dato de cliente, total o items
+        if (!hasId || (!hasCliente && !hasTotal && !hasItems)) {
+          return false;
+        }
+        return true;
+      })
+      .filter(order => {
         const excelStatus = getRobustProp(order, 'Estado') || getRobustProp(order, 'estado pedido') || '';
         const status = STATUS_MAP.fromExcel(excelStatus);
         
@@ -1007,9 +1078,15 @@ export const fetchKitchenOrders = async () => {
         const todayStr = new Date().toLocaleDateString();
         // ⚠️ 'on_the_way' must NOT be here — in-transit orders are still ACTIVE
         const isCompleted = ['delivered', 'entregado', 'completed'].includes(status);
+        // 🚫 Pedidos cancelados nunca deben aparecer como activos (pedidos fantasma)
+        const isCancelled = ['cancelled', 'cancelado_cliente'].includes(status);
         
         // Mostrar todas las activas. Para el historial, solo mostrar las procesadas hoy.
         // Si no tiene fecha, permitir pero con precaución.
+        if (isCancelled) {
+            return false;
+        }
+
         if (isCompleted && orderDate && orderDate !== todayStr) {
             return false;
         }
@@ -1939,9 +2016,18 @@ export const deleteOrder = async (orderId) => {
     };
     
     console.log('🗑️ ENVIANDO DELETE A GAS:', JSON.stringify(payload, null, 2));
-    const response = await gasPost(payload);
-    const result = await response.json();
+    // gasPost ya devuelve el JSON parseado (no un Response de fetch)
+    const result = await gasPost(payload);
     console.log('📥 RESULTADO DELETE:', result);
+
+    // También limpiar del caché local inmediatamente
+    const idStr = String(orderId).split('.')[0].trim();
+    if (apiCache.kitchenOrders.data.length > 0) {
+      apiCache.kitchenOrders.data = apiCache.kitchenOrders.data.filter(
+        o => String(o.id || '').split('.')[0].trim() !== idStr
+      );
+    }
+
     return result;
   } catch (error) {
     console.error('❌ Error deleting order:', error);
@@ -2225,32 +2311,29 @@ export const uploadVoucherImage = async (base64Data, orderId) => {
 };
 
 export const uploadProductImage = async (base64Data, productId) => {
-  try {
-    const fileName = `product_${productId}.jpg`;
-    console.log('[API] Intentando subir imagen de producto a Google Drive...');
-    const response = await gasPost({
-      action: "UPLOAD_IMAGE",
-      base64Data: base64Data,
-      fileName: fileName
-    });
-    if (response && response.success && response.url) {
-      console.log('[API] Imagen de producto subida exitosamente a Google Drive:', response.url);
-      return response.url;
-    }
-    console.warn('[API] Falló subida de producto a Google Drive, intentando Firebase Storage...');
-  } catch (err) {
-    console.warn('[API] Error subiendo producto a Google Drive, intentando Firebase Storage:', err);
-  }
+  console.log(`[UPLOAD DEBUG] Iniciando uploadProductImage para producto: ${productId}. Longitud: ${base64Data?.length || 0}`);
+  
+  // 🚫 SE DESHABILITÓ LA SUBIDA A GOOGLE DRIVE PORQUE SUS ENLACES YA NO SIRVEN PARA MOSTRAR IMÁGENES.
+  // 🚀 FORZANDO SUBIDA DIRECTA A FIREBASE STORAGE.
 
   try {
+    console.log(`[UPLOAD DEBUG] Iniciando proceso de Firebase Storage...`);
     const storageRef = ref(storage, `products/${productId}.jpg`);
     const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
+    console.log(`[UPLOAD DEBUG] Datos limpios listos. Tamaño: ${cleanBase64.length}. Subiendo a Firebase...`);
     
     await uploadString(storageRef, cleanBase64, 'base64');
+    console.log(`[UPLOAD DEBUG] Subida (uploadString) completada con éxito. Solicitando URL pública...`);
+    
     const downloadURL = await getDownloadURL(storageRef);
+    console.log(`[UPLOAD DEBUG] ¡ÉXITO! URL obtenida de Firebase:`, downloadURL);
     return downloadURL;
   } catch (error) {
-    console.error('Error uploading product image to Firebase:', error);
+    console.error('❌ [UPLOAD ERROR CRÍTICO] Error subiendo imagen de producto a Firebase:', error);
+    if (error.code) console.error('Código de Error Firebase:', error.code);
+    if (error.message) console.error('Mensaje de Error:', error.message);
+    if (error.customData) console.error('Datos adicionales:', error.customData);
+    console.error('Objeto de error completo:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     return null;
   }
 };
@@ -2534,12 +2617,19 @@ export const updateProduct = async (productData) => {
       if (!finalProdId) {
         finalProdId = await getNextId('productos', 'PRD');
       }
+
+      // 🔧 Google Sheets guarda id_producto como número puro (ej: 72).
+      // Si el ID tiene un prefijo de texto (ej: "PRD72"), lo extraemos para que el UPSERT encuentre la fila correcta y no duplique.
+      const numericId = String(finalProdId).replace(/[^0-9]/g, '');
+      const idForSheet = numericId ? Number(numericId) : finalProdId;
+      console.log(`[API] ID original: "${finalProdId}" → ID para Sheets: ${idForSheet}`);
+
       payload = {
         action: isNew ? 'ADD' : 'UPSERT',
         sheet: 'productos',
-        ...(isNew ? {} : { idField: 'ID_Producto' }),
+        ...(isNew ? {} : { idField: 'id_producto' }),
         data: {
-          'ID_Producto': finalProdId,
+          'id_producto': idForSheet,
           'nombre': productData.nombre || productData.name || '',
           'descripcion': productData.descripcion || productData.description || '',
           'precio': productData.precio || productData.price || 0,
@@ -2560,15 +2650,74 @@ export const updateProduct = async (productData) => {
 
     console.log(`[API] Guardando en "${payload.sheet}" (id=${productData.id || 'NUEVO'})`, payload);
 
+    const payloadStr = JSON.stringify(payload);
+    console.log(`[API UPSERT/ADD] Enviando a Sheets: Acción=${payload.action}, ID=${isSuggestion ? payload.data.ID_Sugerido : payload.data.id_producto}, URL de imagen: ${payload.data.imagen?.substring(0, 50)}`);
+
     const response = await fetch(CONFIG.GAS_API_URL, {
       method: 'POST',
       redirect: 'follow',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
+      body: payloadStr
     });
-    return await response.json();
+    const result = await response.json();
+    console.log(`[API RESPONSE] Resultado de Sheets:`, result);
+
+    // 🔥 Respaldar en Firestore en segundo plano (fire-and-forget)
+    if (!isSuggestion) {
+      backupSingleProductToFirestore({ ...payload.data, id: payload.data.id_producto })
+        .catch(err => console.warn('[🔥 BACKUP] Falló backup individual:', err));
+    }
+
+    return result;
   } catch (error) {
     console.error('Error updating product:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * 🗑️ Eliminar un producto de Google Sheets y limpiar la caché local.
+ */
+export const deleteProduct = async (productId) => {
+  try {
+    if (!productId) return { success: false, error: 'ID de producto no válido' };
+
+    // Extraer número puro del ID (ej: "PRD72" → 72)
+    const numericId = String(productId).replace(/[^0-9]/g, '');
+    const idForSheet = numericId ? Number(numericId) : productId;
+
+    console.log(`[API] 🗑️ Eliminando producto ID original: "${productId}" → ID en Sheets: ${idForSheet}`);
+
+    const payload = {
+      action: 'DELETE',
+      sheet: 'productos',
+      idField: 'id_producto',
+      data: {
+        'id_producto': idForSheet,
+      }
+    };
+
+    const response = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    console.log('[API] 🗑️ Resultado de eliminación en Sheets:', result);
+
+    if (result?.success) {
+      // Limpiar caché de productos de AppContext
+      await AsyncStorage.removeItem('@dsicario_products_cache');
+      // Resetear timestamp del caché en memoria para forzar refresh
+      apiCache.products = { data: [], timestamp: 0 };
+      apiCache.allData = { data: null, timestamp: 0 };
+      console.log('🧹 [CACHE] Caché de productos limpiada tras eliminación.');
+    }
+
+    return result;
+  } catch (error) {
+    console.error('❌ Error eliminando producto:', error);
     return { success: false, error: error.message };
   }
 };
@@ -2739,6 +2888,126 @@ export const decodePolyline = (t) => {
   }
   return points;
 };
+
+// ==========================================
+// 🔥 FIREBASE BACKUP — Respaldo de productos en Firestore
+// ==========================================
+
+/**
+ * Respalda TODOS los productos en Firestore como backup de Google Sheets.
+ * Se ejecuta automáticamente al cargar productos de Sheets exitosamente.
+ * Usa writeBatch para eficiencia (max 500 docs por batch).
+ */
+export const backupProductsToFirestore = async (products = []) => {
+  try {
+    if (!products || products.length === 0) {
+      console.log('[🔥 BACKUP] No hay productos para respaldar.');
+      return { success: false, reason: 'empty' };
+    }
+
+    console.log(`[🔥 BACKUP] Respaldando ${products.length} productos en Firestore...`);
+    
+    // Firestore writeBatch tiene un límite de 500 operaciones por batch
+    const BATCH_SIZE = 450;
+    let totalWritten = 0;
+
+    for (let i = 0; i < products.length; i += BATCH_SIZE) {
+      const chunk = products.slice(i, i + BATCH_SIZE);
+      const batch = writeBatch(db);
+
+      chunk.forEach(product => {
+        const productId = String(product.id || product.ID_Producto || `unknown_${Math.random()}`).trim();
+        if (!productId || productId.startsWith('unknown_')) return;
+
+        const docRef = doc(db, 'productos_backup', productId);
+        batch.set(docRef, {
+          ...product,
+          _backupTimestamp: new Date().toISOString(),
+          _source: 'google_sheets'
+        });
+      });
+
+      await batch.commit();
+      totalWritten += chunk.length;
+    }
+
+    // Guardar timestamp del último backup exitoso
+    const metaRef = doc(db, 'app_config', 'backup_meta');
+    await setDoc(metaRef, {
+      lastProductBackup: new Date().toISOString(),
+      totalProducts: products.length,
+      status: 'success'
+    }, { merge: true });
+
+    console.log(`[🔥 BACKUP] ✅ ${totalWritten} productos respaldados exitosamente en Firestore.`);
+    return { success: true, count: totalWritten };
+  } catch (error) {
+    console.error('[🔥 BACKUP] ❌ Error respaldando productos en Firestore:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Respalda UN SOLO producto en Firestore (se llama al crear/editar un producto).
+ */
+export const backupSingleProductToFirestore = async (productData) => {
+  try {
+    const productId = String(productData.id || productData.ID_Producto || '').trim();
+    if (!productId) {
+      console.warn('[🔥 BACKUP] Producto sin ID, no se puede respaldar.');
+      return { success: false };
+    }
+
+    const docRef = doc(db, 'productos_backup', productId);
+    await setDoc(docRef, {
+      ...productData,
+      _backupTimestamp: new Date().toISOString(),
+      _source: 'google_sheets'
+    }, { merge: true });
+
+    console.log(`[🔥 BACKUP] ✅ Producto ${productId} respaldado en Firestore.`);
+    return { success: true };
+  } catch (error) {
+    console.error(`[🔥 BACKUP] ❌ Error respaldando producto ${productData.id}:`, error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Restaura productos desde Firestore cuando Google Sheets no está disponible.
+ * Se usa como fallback si fetchProducts falla.
+ */
+export const restoreProductsFromFirestore = async () => {
+  try {
+    console.log('[🔥 RESTORE] Intentando restaurar productos desde Firestore...');
+    const querySnapshot = await getDocs(collection(db, 'productos_backup'));
+    
+    if (querySnapshot.empty) {
+      console.warn('[🔥 RESTORE] No hay productos respaldados en Firestore.');
+      return [];
+    }
+
+    const products = [];
+    querySnapshot.forEach(docSnap => {
+      const data = docSnap.data();
+      // Limpiar campos internos de backup
+      delete data._backupTimestamp;
+      delete data._source;
+      
+      // Añadir marca de agua para admin
+      data._fromFirebaseBackup = true;
+      
+      products.push(data);
+    });
+
+    console.log(`[🔥 RESTORE] ✅ ${products.length} productos restaurados desde Firestore.`);
+    return products;
+  } catch (error) {
+    console.error('[🔥 RESTORE] ❌ Error restaurando desde Firestore:', error);
+    return [];
+  }
+};
+
 export default {
   fetchProducts,
   mapProductData,
@@ -2770,5 +3039,8 @@ export default {
   fetchAlmacen,
   updateAlmacenItem,
   fetchRecetas,
-  processInventoryDeduction
+  processInventoryDeduction,
+  backupProductsToFirestore,
+  backupSingleProductToFirestore,
+  restoreProductsFromFirestore
 };
