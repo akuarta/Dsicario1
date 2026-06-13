@@ -1,5 +1,5 @@
 import { showAlert } from '../utils/showAlert';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -25,8 +25,13 @@ import Constants from 'expo-constants';
 import UpdateService from '../utils/UpdateService';
 import NotificationService from '../utils/notificationService';
 import LocationPickerModal from '../components/LocationPickerModal';
+import LoggerModal from '../components/LoggerModal';
+import { getFCMToken } from '../utils/fcm';
+import { CONFIG } from '../constants/Config';
 
 const ConfigScreen = () => {
+  const [loggerModalVisible, setLoggerModalVisible] = useState(false);
+  const [fcmToken, setFcmToken] = useState(null);
   const { darkMode, setThemeMode, themeMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const navigation = useNavigation();
@@ -39,6 +44,12 @@ const ConfigScreen = () => {
     isSyncing: isUserSyncing
   } = useUser();
   const isAdmin = !!(role && (role.toLowerCase() === 'admin' || role.toLowerCase() === 'owner'));
+
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      getFCMToken().then(t => setFcmToken(t || null)).catch(() => {});
+    }
+  }, []);
   // Inicializar estado de notificaciones según el permiso actual del browser
   const getInitialNotifState = () => {
     if (Platform.OS === 'web' && typeof window !== 'undefined' && 'Notification' in window) {
@@ -205,6 +216,88 @@ const ConfigScreen = () => {
     </TouchableOpacity>
   );
 
+  const FCMKeyConfigItem = () => {
+    const [modalVisible, setModalVisible] = useState(false);
+    const [keyValue, setKeyValue] = useState('');
+    const [configurado, setConfigurado] = useState(null);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+      (async () => {
+        try {
+          const res = await fetch(CONFIG.GAS_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'GET_PROPERTY', key: 'FCM_SERVICE_ACCOUNT' }),
+          });
+          const data = await res.json();
+          setConfigurado(data?.value ? '✅' : '❌ Sin configurar');
+        } catch { setConfigurado('⚠️ Sin conexión'); }
+      })();
+    }, []);
+
+    const handleSave = async () => {
+      setLoading(true);
+      try {
+        // Validate that it's valid JSON
+        JSON.parse(keyValue);
+        await fetch(CONFIG.GAS_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'SET_PROPERTY', key: 'FCM_SERVICE_ACCOUNT', value: keyValue }),
+        });
+        setConfigurado('✅');
+        setModalVisible(false);
+        setKeyValue('');
+      } catch (e) {
+        showAlert('Error', e.message.includes('JSON') ? 'El JSON no es válido. Copia el archivo completo.' : 'No se pudo guardar: ' + e.message);
+      } finally { setLoading(false); }
+    };
+
+    return (
+      <>
+        <TouchableOpacity style={styles.menuItem} onPress={() => setModalVisible(true)}>
+          <View style={[styles.iconContainer, { backgroundColor: colors.primary + '15' }]}>
+            <FontAwesome5 name="key" size={14} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.menuText, { fontSize: 13 }]}>Firebase Service Account</Text>
+            <Text style={{ fontSize: 10, color: colors.text.secondary, marginTop: 2 }}>
+              {configurado || 'Verificando...'}
+            </Text>
+          </View>
+        </TouchableOpacity>
+        <Modal visible={modalVisible} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Firebase Service Account</Text>
+              <Text style={{ fontSize: 12, color: colors.text.secondary, marginBottom: 12 }}>
+                Pega aquí el JSON completo de la cuenta de servicio (Firebase Console → Project Settings → Service Accounts → Generate new private key).
+              </Text>
+              <TextInput
+                style={[styles.rateInput, { minHeight: 160, textAlignVertical: 'top' }]}
+                placeholder='{\n  "type": "service_account",\n  "project_id": "dsicario-...",\n  ...\n}'
+                placeholderTextColor={colors.text.secondary}
+                value={keyValue}
+                onChangeText={setKeyValue}
+                multiline
+                autoCapitalize="none"
+              />
+              <View style={styles.modalBtnRow}>
+                <TouchableOpacity style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => { setModalVisible(false); setKeyValue(''); }}>
+                  <Text style={{ color: colors.text.primary }}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSave]} onPress={handleSave} disabled={loading || !keyValue}>
+                  <Text style={{ color: '#fff' }}>{loading ? 'Guardando...' : 'Guardar'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
@@ -240,7 +333,7 @@ const ConfigScreen = () => {
           <SettingItem icon="heart" title="Mis Favoritos" onPress={() => navigation.navigate('Favorites')} />
         </View>
 
-        {isAdmin && (
+          {isAdmin && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>⚙️ ADMINISTRACIÓN</Text>
             <SettingItem icon="users-cog" title="Gestión de Personal" onPress={() => navigation.navigate('AdminStaff')} />
@@ -248,6 +341,7 @@ const ConfigScreen = () => {
             <SettingItem icon="shipping-fast" title="Costos de Envío" onPress={() => navigation.navigate('ConfigDeliveryRates')} />
             <SettingItem icon="money-bill-wave" title="Tasas de Cambio" onPress={() => navigation.navigate('ConfigExchangeRates')} />
             <SettingItem icon="credit-card" title="Métodos de Pago" onPress={() => navigation.navigate('ConfigPaymentMethods')} />
+            <FCMKeyConfigItem />
           </View>
         )}
 
@@ -320,25 +414,29 @@ const ConfigScreen = () => {
             value={notifications} 
             onPress={async () => {
               if (Platform.OS === 'web') {
-                if (!notifications) {
-                  // El usuario quiere ACTIVAR: solicitar permiso bajo un gesto real de usuario
+                  if (!notifications) {
+                  console.log('[ConfigNotif] Activando notificaciones web...');
                   const granted = await NotificationService.requestWebPermission();
                   if (granted) {
+                    console.log('[ConfigNotif] Permiso concedido, enviando notificación de bienvenida');
                     setNotifications(true);
                     await NotificationService.sendLocalNotification(
                       '🔔 ¡Alertas Activadas!',
                       'Ahora recibirás notificaciones de tus pedidos en este navegador.'
                     );
+                    console.log('[ConfigNotif] ✅ Alert mostrado: Éxito - Notificaciones habilitadas');
                     showAlert('Éxito', '¡Notificaciones del navegador habilitadas! Recibirás alertas en tiempo real.');
                   } else {
+                    console.log('[ConfigNotif] ⚠️ Alert mostrado: Aviso - Permiso denegado');
                     showAlert(
                       'Aviso',
                       'No se pudieron habilitar las notificaciones. Para activarlas manualmente, haz clic en el candado de la barra de direcciones del navegador y cambia el permiso de notificaciones.'
                     );
                   }
                 } else {
-                  // El usuario quiere DESACTIVAR: informar que debe hacerlo manualmente
+                  console.log('[ConfigNotif] Desactivando notificaciones web');
                   setNotifications(false);
+                  console.log('[ConfigNotif] ℹ️ Alert mostrado: Notificaciones Desactivadas');
                   showAlert(
                     'Notificaciones Desactivadas',
                     'Las alertas locales han sido silenciadas en esta sesión. Para revocar el permiso permanentemente, ve a la configuración de tu navegador.'
@@ -354,18 +452,21 @@ const ConfigScreen = () => {
           <TouchableOpacity
             style={[styles.menuItem, { justifyContent: 'space-between' }]}
             onPress={async () => {
+              console.log('[ConfigNotif] Botón Probar Notificación presionado');
               try {
                 const sent = await NotificationService.sendLocalNotification(
                   '🔔 Notificación de Prueba',
                   '¡Funciona! Las notificaciones están activas y llegando correctamente.'
                 );
                 if (!sent && Platform.OS === 'web') {
+                  console.log('[ConfigNotif] ⚠️ Alert mostrado: Sin permiso');
                   showAlert(
                     'Sin permiso',
                     'Activa las notificaciones con el switch de arriba primero.'
                   );
                 }
               } catch (e) {
+                console.log('[ConfigNotif] ❌ Alert mostrado: Error -', e.message);
                 showAlert('Error', 'No se pudo enviar la notificación de prueba.');
               }
             }}
@@ -377,6 +478,57 @@ const ConfigScreen = () => {
             <FontAwesome5 name="chevron-right" size={12} color={colors.text.secondary} />
           </TouchableOpacity>
 
+          {/* Token FCM debug */}
+          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface + '80', paddingVertical: 8 }]} onPress={async () => {
+            try {
+              setFcmToken('Obteniendo...');
+              const token = await getFCMToken();
+              setFcmToken(token || null);
+              if (!token && typeof window !== 'undefined' && window.__FCM_TOKEN_ERROR__) {
+                setFcmToken(null);
+                showAlert('Error FCM', window.__FCM_TOKEN_ERROR__);
+              }
+            } catch { setFcmToken(null); }
+          }}>
+            <View style={styles.iconContainer}>
+              <FontAwesome5 name="fingerprint" size={14} color={colors.text.secondary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.menuText, { fontSize: 11 }]}>Token FCM (Firebase)</Text>
+              <Text style={{ fontSize: 9, color: colors.text.secondary, marginTop: 2 }} numberOfLines={2} selectable>
+                {fcmToken === 'Obteniendo...' 
+                  ? 'Cargando Firebase...'
+                  : fcmToken 
+                    ? fcmToken 
+                    : typeof window !== 'undefined' && window.__FCM_TOKEN_ERROR__
+                      ? window.__FCM_TOKEN_ERROR__
+                      : 'Toca para obtener token FCM'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+          {/* Expo Push Token debug */}
+          <View style={[styles.menuItem, { backgroundColor: colors.surface + '30', paddingVertical: 8 }]}>
+            <View style={styles.iconContainer}>
+              <FontAwesome5 name="bell" size={14} color={colors.text.secondary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.menuText, { fontSize: 11 }]}>Token Expo Push</Text>
+              <Text style={{ fontSize: 9, color: colors.text.secondary, marginTop: 2 }} numberOfLines={1} selectable>
+                {typeof window !== 'undefined' && window.__PUSH_TOKEN__ 
+                  ? window.__PUSH_TOKEN__ 
+                  : 'No disponible en localhost (CORS)'}
+              </Text>
+            </View>
+          </View>
+
+          {Platform.OS === 'web' && (
+            <SettingItem
+              icon="bug"
+              title="Control de Logs"
+              onPress={() => setLoggerModalVisible(true)}
+            />
+          )}
+          <LoggerModal visible={loggerModalVisible} onClose={() => setLoggerModalVisible(false)} />
           <SettingItem 
             icon={isCheckingUpdates ? "spinner" : "download"} 
             title={isCheckingUpdates ? "Buscando..." : "Buscar Actualizaciones"} 

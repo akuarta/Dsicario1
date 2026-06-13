@@ -1,0 +1,12 @@
+{
+  "name": "cors-proxy-skill",
+  "version": "1.0.0",
+  "description": "Un proxy CORS local para desarrollo web",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors-anywhere": "^0.4.4"
+  }
+}

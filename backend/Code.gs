@@ -79,6 +79,83 @@ function doPost(e) {
       return createJsonResponse({ success: true, message: "Hoja eliminada" });
     }
 
+    if (action === "SET_PROPERTY") {
+      const propKey = body.key;
+      const propValue = body.value;
+      if (!propKey) return createJsonResponse({ success: false, message: "Property key required" });
+      PropertiesService.getScriptProperties().setProperty(propKey, propValue);
+      return createJsonResponse({ success: true, message: "Property '" + propKey + "' saved" });
+    }
+
+    if (action === "GET_PROPERTY") {
+      const propKey = body.key;
+      if (!propKey) return createJsonResponse({ success: false, message: "Property key required" });
+      const value = PropertiesService.getScriptProperties().getProperty(propKey);
+      return createJsonResponse({ success: true, key: propKey, value: value || null });
+    }
+
+    if (action === "SEND_FCM") {
+      const rawToken = body.token || '';
+      const title = body.title || 'DSicario';
+      const msgBody = body.body || '';
+      const dataPayload = body.data || {};
+      const fcmToken = rawToken.replace(/^\{FCM\}/, '');
+      try {
+        var result = sendFcmV1_(fcmToken, title, msgBody, dataPayload);
+        return createJsonResponse({ success: result.success, fcmResponse: result.response });
+      } catch (err) {
+        return createJsonResponse({ success: false, message: err.message });
+      }
+    }
+
+    if (action === "SEND_EXPO_PUSH") {
+      const rawToken = body.token || '';
+      const title = body.title || 'DSicario';
+      const msgBody = body.body || '';
+      const dataPayload = body.data || {};
+      try {
+        const payload = [{
+          to: rawToken,
+          sound: 'default',
+          title: title,
+          body: msgBody,
+          data: dataPayload,
+          priority: 'high',
+          channelId: 'rider-orders',
+          badge: 1,
+        }];
+        const options = {
+          method: 'post',
+          contentType: 'application/json',
+          payload: JSON.stringify(payload),
+          muteHttpExceptions: true
+        };
+        const response = UrlFetchApp.fetch('https://exp.host/--/api/v2/push/send', options);
+        const result = JSON.parse(response.getContentText());
+        
+        let success = false;
+        let errorMessage = "Unknown error";
+        
+        // El resultado normal para un array es: { data: [{ status: 'ok' }] } o { data: [{ status: 'error', message: '...' }] }
+        if (result && result.data && Array.isArray(result.data) && result.data[0]) {
+          success = result.data[0].status === 'ok';
+          if (!success) {
+            errorMessage = result.data[0].message || JSON.stringify(result.data[0].details);
+          }
+        } else if (result && result.errors) {
+          errorMessage = JSON.stringify(result.errors);
+        }
+        
+        return createJsonResponse({ 
+          success: success, 
+          expoResponse: result,
+          errorMessage: errorMessage
+        });
+      } catch (err) {
+        return createJsonResponse({ success: false, message: err.message });
+      }
+    }
+
     if (action === "UPLOAD_IMAGE") {
       try {
         const base64Data = body.base64Data || body.data;
@@ -170,7 +247,6 @@ function doPost(e) {
     // --- ACCIONES DE DATOS (UPSERT, ADD, UPDATE, DELETE) ---
 
     if (action === "UPSERT" || action === "ADD") {
-      // (Lógica de auto-creación de columnas que ya implementamos)
       for (let k in data) {
         const kl = k.toLowerCase().trim();
         if (!lowerHeaders.includes(kl)) {
@@ -186,6 +262,7 @@ function doPost(e) {
       const lastRow = getSafeLastRow(sheet);
       let foundIndex = -1;
       const idCol = lowerHeaders.indexOf(idField);
+      let oldEstado = null;
 
       if (idCol !== -1 && lastRow >= 2) {
         const vals = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
@@ -199,10 +276,23 @@ function doPost(e) {
       }
 
       if (foundIndex !== -1) {
+        // Leer estado anterior antes de sobreescribir
+        const estadoCol = lowerHeaders.indexOf('estado');
+        if (estadoCol !== -1) {
+          oldEstado = sheet.getRange(foundIndex, estadoCol + 1).getValue();
+        }
         headers.forEach((h, ci) => {
           const hl = h.toLowerCase().trim();
           for (let k in data) { if (k.toLowerCase().trim() === hl) { sheet.getRange(foundIndex, ci + 1).setValue(data[k]); break; } }
         });
+        // Notificar cambio de estado (solo si realmente cambió)
+        if (oldEstado !== null && data.estado && String(oldEstado).toLowerCase() !== String(data.estado).toLowerCase()) {
+          try {
+            notifyOrderStatusChange_(ss, data, oldEstado, sheetName);
+          } catch (notifErr) {
+            console.error('Error notificando cambio estado:', notifErr.message);
+          }
+        }
         return createJsonResponse({ success: true, message: "OK" });
       } else {
         const nr = headers.map(h => {
@@ -221,6 +311,7 @@ function doPost(e) {
       const lastRow = getSafeLastRow(sheet);
       const idCol = lowerHeaders.indexOf(idField);
       let foundIndex = -1;
+      let oldEstado = null;
 
       if (idCol !== -1 && lastRow >= 2) {
         const vals = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
@@ -234,6 +325,10 @@ function doPost(e) {
       }
 
       if (foundIndex !== -1) {
+        const estadoCol = lowerHeaders.indexOf('estado');
+        if (estadoCol !== -1) {
+          oldEstado = sheet.getRange(foundIndex, estadoCol + 1).getValue();
+        }
         headers.forEach((h, ci) => {
           const hl = h.toLowerCase().trim();
           for (let k in data) {
@@ -243,6 +338,13 @@ function doPost(e) {
             }
           }
         });
+        if (oldEstado !== null && data.estado && String(oldEstado).toLowerCase() !== String(data.estado).toLowerCase()) {
+          try {
+            notifyOrderStatusChange_(ss, data, oldEstado, sheetName);
+          } catch (notifErr) {
+            console.error('Error notificando cambio estado:', notifErr.message);
+          }
+        }
         return createJsonResponse({ success: true, updated: foundIndex });
       } else {
         return createJsonResponse({ success: false, message: "Fila no encontrada para UPDATE" });
@@ -270,6 +372,205 @@ function doPost(e) {
 
     return createJsonResponse({ success: false, message: "Accion no reconocida" });
   } catch (err) { return createJsonResponse({ success: false, message: err.message }); }
+}
+
+// ─────────────────────────────────────────────
+// 🔐 FCM v1 — Service Account JWT + OAuth2
+// ─────────────────────────────────────────────
+
+/**
+ * Obtiene la cuenta de servicio almacenada en Script Properties.
+ * El JSON se guarda con la propiedad "FCM_SERVICE_ACCOUNT".
+ */
+function _getServiceAccount_() {
+  var jsonStr = PropertiesService.getScriptProperties().getProperty('FCM_SERVICE_ACCOUNT');
+  if (!jsonStr) return null;
+  try { return JSON.parse(jsonStr); } catch (e) { return null; }
+}
+
+/**
+ * Genera un JWT firmado con RSA-SHA256 y lo canjea por un access token
+ * para usar con la API FCM v1.
+ */
+function _getFcmAccessToken_() {
+  var sa = _getServiceAccount_();
+  if (!sa) throw new Error('FCM_SERVICE_ACCOUNT no configurada');
+
+  var now = Math.floor(Date.now() / 1000);
+  var header = { alg: 'RS256', typ: 'JWT' };
+  var claim = {
+    iss: sa.client_email,
+    scope: 'https://www.googleapis.com/auth/firebase.messaging',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now,
+  };
+
+  function b64(str) { return Utilities.base64EncodeWebSafe(Utilities.newBlob(JSON.stringify(str)).getBytes()).replace(/=+$/, ''); }
+  function b64str(s) { return Utilities.base64EncodeWebSafe(Utilities.newBlob(s).getBytes()).replace(/=+$/, ''); }
+
+  var toSign = b64(header) + '.' + b64(claim);
+  var sigBytes = Utilities.computeRsaSha256Signature(toSign, sa.private_key);
+  var signed = Utilities.base64EncodeWebSafe(sigBytes).replace(/=+$/, '');
+  var jwt = toSign + '.' + signed;
+
+  var resp = UrlFetchApp.fetch('https://oauth2.googleapis.com/token', {
+    method: 'post',
+    payload: {
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt,
+    },
+    muteHttpExceptions: true,
+  });
+  var data = JSON.parse(resp.getContentText());
+  if (!data.access_token) throw new Error('Error obteniendo token: ' + JSON.stringify(data));
+  return data.access_token;
+}
+
+/**
+ * Envía una notificación FCM v1 a un dispositivo individual.
+ */
+function sendFcmV1_(token, title, body, dataPayload) {
+  var projectId = 'dsicario-cd723';
+  var accessToken = _getFcmAccessToken_();
+
+  var msg = {
+    message: {
+      token: token,
+      notification: { title: title, body: body },
+      data: {},
+      android: { priority: 'high', ttl: '86400s' },
+      apns: { headers: { 'apns-priority': '10' } },
+      webpush: { headers: { Urgency: 'high' } },
+    },
+  };
+
+  // Pasar dataPayload como string properties para FCM
+  if (dataPayload && typeof dataPayload === 'object') {
+    for (var k in dataPayload) {
+      if (dataPayload.hasOwnProperty(k)) {
+        msg.message.data[k] = String(dataPayload[k]);
+      }
+    }
+  }
+
+  var opts = {
+    method: 'post',
+    headers: {
+      Authorization: 'Bearer ' + accessToken,
+      'Content-Type': 'application/json',
+    },
+    payload: JSON.stringify(msg),
+    muteHttpExceptions: true,
+  };
+
+  var response = UrlFetchApp.fetch(
+    'https://fcm.googleapis.com/v1/projects/' + projectId + '/messages:send',
+    opts
+  );
+  var result = JSON.parse(response.getContentText());
+  var success = !!result.name;
+  if (!success) {
+    console.error('[FCMv1] Error: ' + JSON.stringify(result));
+  }
+  return { success: success, response: result };
+}
+
+/**
+ * Notifica al rider (vía FCM v1) y opcionalmente WhatsApp cuando cambia el estado de un pedido.
+ * Se ejecuta desde el handler UPSERT/UPDATE si detecta cambio de estado.
+ */
+function notifyOrderStatusChange_(ss, orderData, oldEstado, sheetName) {
+  const riderId = orderData.ID_Rider || orderData.id_rider || orderData.riderId || '';
+  if (!riderId) return;
+
+  const newEstado = (orderData.estado || '').toLowerCase().trim();
+  const estadosNotificables = ['accepted', 'aceptado', 'on_the_way', 'en camino', 'ready', 'listo', 'delivered', 'entregado', 'cancelled', 'cancelado'];
+  if (!estadosNotificables.includes(newEstado)) return;
+
+  // Verificar si hay cuenta de servicio configurada
+  var sa = _getServiceAccount_();
+  if (!sa) { console.log('[notifyOrderStatus] FCM_SERVICE_ACCOUNT no configurada, saltando FCM'); }
+
+  const deliverysSheet = ss.getSheetByName('Deliverys');
+  if (!deliverysSheet) return;
+
+  const dHeaders = deliverysSheet.getRange(1, 1, 1, deliverysSheet.getLastColumn()).getValues()[0];
+  const dLower = dHeaders.map(function(h) { return String(h).toLowerCase().trim(); });
+  const dIdCol = dLower.indexOf('id_delivery');
+  const dPushCol = dLower.indexOf('pushtoken');
+  const dWpCol = dLower.indexOf('whatsapp');
+  const dKeyCol = dLower.indexOf('callmebotkey');
+  if (dIdCol === -1 || dPushCol === -1) return;
+
+  var riderData = null;
+  var lastRow = deliverysSheet.getLastRow();
+  if (lastRow >= 2) {
+    var vals = deliverysSheet.getRange(2, 1, lastRow - 1, deliverysSheet.getLastColumn()).getValues();
+    var strId = String(riderId).trim().toLowerCase();
+    for (var i = 0; i < vals.length; i++) {
+      if (String(vals[i][dIdCol]).trim().toLowerCase() === strId) {
+        riderData = vals[i];
+        break;
+      }
+    }
+  }
+  if (!riderData) return;
+
+  var pushToken = dPushCol !== -1 ? String(riderData[dPushCol] || '') : '';
+  var whatsapp = dWpCol !== -1 ? String(riderData[dWpCol] || '') : '';
+  var callmebotKey = dKeyCol !== -1 ? String(riderData[dKeyCol] || '') : '';
+
+  var titulos = {
+    accepted: '✅ Pedido Aceptado',
+    aceptado: '✅ Pedido Aceptado',
+    on_the_way: '🛵 Pedido en Camino',
+    'en camino': '🛵 Pedido en Camino',
+    ready: '🍽️ Pedido Listo',
+    listo: '🍽️ Pedido Listo',
+    delivered: '🎉 Pedido Entregado',
+    entregado: '🎉 Pedido Entregado',
+    cancelled: '❌ Pedido Cancelado',
+    cancelado: '❌ Pedido Cancelado',
+  };
+  var titulo = titulos[newEstado] || '🔔 Estado del Pedido';
+  var cuerpo = 'Pedido #' + (orderData.ID_Pedido || orderData.id || '').toString().slice(-6) + ': ' + (orderData.cliente || orderData.Nombre || 'Cliente');
+
+  // Enviar FCM v1
+  if (pushToken && sa) {
+    var rawToken = pushToken.replace(/^\{FCM\}/, '');
+    try {
+      var fcmResult = sendFcmV1_(rawToken, titulo, cuerpo, {
+        orderId: String(orderData.ID_Pedido || orderData.id || ''),
+        screen: 'RiderScreen',
+      });
+      if (fcmResult.success) {
+        console.log('[GAS_FCM] ✅ Notificación v1 enviada a rider ' + riderId);
+      } else {
+        console.warn('[GAS_FCM] ⚠️ Falló envío v1 a rider ' + riderId + ': ' + JSON.stringify(fcmResult.response));
+      }
+    } catch (e) {
+      console.error('[GAS_FCM] Error: ' + e.message);
+    }
+  }
+
+  // WhatsApp vía CallMeBot (solo estados críticos)
+  var estadosWhatsApp = ['accepted', 'aceptado', 'cancelled', 'cancelado'];
+  if (estadosWhatsApp.includes(newEstado) && whatsapp && callmebotKey) {
+    var waBody = encodeURIComponent(
+      titulo + '\n\n' +
+      '📦 Pedido: #' + String(orderData.ID_Pedido || orderData.id || '').slice(-6) + '\n' +
+      '👤 Cliente: ' + (orderData.cliente || orderData.Nombre || 'Desconocido') + '\n' +
+      '💰 Total: $' + (orderData.total || 0) + '\n' +
+      '📍 Dirección: ' + (orderData.direccion || orderData.Direccion || 'N/A')
+    );
+    try {
+      UrlFetchApp.fetch('https://api.callmebot.com/whatsapp.php?phone=' + encodeURIComponent(whatsapp) + '&text=' + waBody + '&apikey=' + encodeURIComponent(callmebotKey));
+      console.log('[GAS_WA] WhatsApp enviado a rider ' + riderId);
+    } catch (e) {
+      console.error('[GAS_WA] Error: ' + e.message);
+    }
+  }
 }
 
 function getSafeLastRow(s) {

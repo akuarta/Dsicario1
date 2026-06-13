@@ -2,11 +2,9 @@ import * as Notifications from 'expo-notifications';
 import { Platform, Alert } from 'react-native';
 import Constants from 'expo-constants';
 import { CONFIG } from '../constants/Config';
+import { showAlert } from './showAlert';
+import { registerExpoPushTokenWeb } from './fcm';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ⚠️  ÚNICO setNotificationHandler de toda la app.
-//     notificationService.js NO debe llamarlo — solo este archivo lo hace.
-// ─────────────────────────────────────────────────────────────────────────────
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -24,14 +22,15 @@ export const sendWhatsAppNotification = async (phone, apiKey, orderData) => {
     return false;
   }
 
-  const body =
+  const body = orderData.customBody || (
     `🛵 *¡NUEVO PEDIDO!*\n\n` +
     `📦 Pedido: #${String(orderData.orderId || '').slice(-6)}\n` +
     `👤 Cliente: ${orderData.cliente || 'Desconocido'}\n` +
     `💰 Total: $${orderData.total || 0}\n` +
     `📍 Dirección: ${orderData.direccion || 'Domicilio (App)'}\n\n` +
     `⏰ Tienes *15 segundos* para aceptarlo en la App DSicario.\n` +
-    `Si no respondes, el pedido irá al modo Random.`;
+    `Si no respondes, el pedido irá al modo Random.`
+  );
 
   const url = `https://api.callmebot.com/whatsapp.php?phone=${phone}&text=${encodeURIComponent(body)}&apikey=${apiKey}`;
 
@@ -88,16 +87,74 @@ export const sendWebBrowserNotification = async (orderData) => {
 };
 
 // ─────────────────────────────────────────────
+// 📢 NOTIFICACIÓN LOCAL (web + nativo)
+// ─────────────────────────────────────────────
+export const sendLocalNotification = async (title, body, data = {}) => {
+  try {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && 'Notification' in window) {
+      const perm = window.Notification.permission;
+      const isFocused = typeof document !== 'undefined' && document.hasFocus();
+      console.log(`[Notif] Web: permiso="${perm}", focused=${isFocused}, title="${title}"`);
+      if (isFocused) {
+        showAlert(title, body);
+        console.log('[Notif] ✅ Alert mostrado (tab activa)');
+        return true;
+      }
+      if (perm === 'granted') {
+        const n = new window.Notification(title, {
+          body,
+          icon: '/favicon.png',
+          badge: '/favicon.png',
+          requireInteraction: true,
+        });
+        n.onclick = function(event) {
+          event.preventDefault();
+          window.focus();
+          if (window.clients && window.clients.openWindow) {
+             // For PWA fallback
+          }
+          n.close();
+        };
+        console.log('[Notif] ✅ Notificación web creada');
+        return true;
+      }
+      console.warn('[Notif] ❌ Permiso no concedido en web');
+      return false;
+    } else if (Platform.OS !== 'web') {
+      console.log(`[Notif] Nativo: programando notificación "${title}"`);
+      await Notifications.scheduleNotificationAsync({
+        content: { title, body, data, sound: true, channelId: 'default' },
+        trigger: null,
+      });
+      console.log('[Notif] ✅ Notificación nativa programada');
+      return true;
+    }
+    console.warn('[Notif] ❌ No se pudo enviar (web sin soporte o plataforma desconocida)');
+    return false;
+  } catch (error) {
+    console.error('[Notif] ❌ Error enviando notificación local:', error);
+    return false;
+  }
+};
+
+// ─────────────────────────────────────────────
 // 🔔 EXPO PUSH: Registro y envío
 // ─────────────────────────────────────────────
 
 /**
  * Configura los canales de Android.
- * ✅ Se llama ANTES de obtener el Expo Push Token.
+ * ✅ Se llama ANTES de obtener el Expo Push Token y en el arranque.
  */
-const setupAndroidChannels = async () => {
+export const setupAndroidChannels = async () => {
   if (Platform.OS !== 'android') return;
   await Promise.all([
+    Notifications.setNotificationChannelAsync('default', {
+      name: 'Alertas Generales',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#FF6B35',
+      sound: true,
+    }),
     Notifications.setNotificationChannelAsync('rider-orders', {
       name: 'Pedidos de Repartidor',
       importance: Notifications.AndroidImportance.MAX,
@@ -125,68 +182,117 @@ const setupAndroidChannels = async () => {
 };
 
 export const registerForPushNotifications = async () => {
-  if (Platform.OS === 'web') {
-    console.log('[Notif] Web: usando Web Notifications API.');
-    return null;
-  }
-
   try {
-    // 1. Configurar canales Android PRIMERO
-    await setupAndroidChannels();
+    const isWeb = Platform.OS === 'web';
 
-    // 2. Pedir permisos
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
+    if (!isWeb) {
+      await setupAndroidChannels();
     }
 
-    if (finalStatus !== 'granted') {
-      console.warn('[Notif] ❌ Permiso de notificaciones denegado.');
-      Alert.alert('Aviso', 'Permiso de notificaciones denegado. No recibirás alertas de nuevos pedidos.');
+    if (isWeb) {
+      if (typeof Notification === 'undefined') return null;
+      if (Notification.permission === 'denied') return null;
+      if (Notification.permission !== 'granted') {
+        const perm = await Notification.requestPermission();
+        if (perm !== 'granted') return null;
+      }
+    } else {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== 'granted') {
+        Alert.alert('Aviso', 'Permiso de notificaciones denegado. No recibirás alertas de nuevos pedidos.');
+        return null;
+      }
+    }
+
+    if (isWeb) {
+      const token = await registerExpoPushTokenWeb();
+      if (token) return token;
       return null;
     }
 
-    // 3. Obtener token — hardcodeado como fallback seguro
     const projectId =
       Constants?.expoConfig?.extra?.eas?.projectId ??
       Constants?.easConfig?.projectId ??
       'f2b86deb-3577-44c9-8400-4ec78784f8f9';
 
     const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-    console.log('[Notif] ✅ Expo Push Token:', token);
     return token;
   } catch (error) {
-    console.error('[Notif] ❌ Error obteniendo Expo Push Token:', error.message);
-    // No mostrar Alert aquí para no bloquear la UI — el fallo es no crítico
+    console.error('[Notif] Error obteniendo Expo Push Token:', error.message);
     return null;
   }
 };
 
-/**
- * Guarda el PushToken del repartidor en Google Sheets.
- * ✅ Incluye Content-Type correcto para que GAS lo acepte.
- */
-export const saveRiderPushToken = async (riderId, pushToken) => {
-  if (!pushToken || !riderId) return;
+export const requestPermissions = async () => {
+  if (Platform.OS === 'web') {
+    if (typeof Notification === 'undefined') return false;
+    console.log('[Notif] requestPermissions web, estado actual:', Notification.permission);
+    if (Notification.permission === 'granted') return true;
+    if (Notification.permission === 'denied') return false;
+    const perm = await Notification.requestPermission();
+    console.log('[Notif] requestPermissions resultado:', perm);
+    return perm === 'granted';
+  }
   try {
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+    if (finalStatus !== 'granted') {
+      console.log('[Notif] Permisos denegados');
+      return false;
+    }
+    await setupAndroidChannels();
+    return true;
+  } catch (error) {
+    console.error('[Notif] Error solicitando permisos:', error);
+    return false;
+  }
+};
+
+export const requestWebPermission = async () => {
+  if (Platform.OS !== 'web') return true;
+  if (typeof window === 'undefined' || !('Notification' in window)) return false;
+  if (window.Notification.permission === 'granted') return true;
+  if (window.Notification.permission === 'denied') {
+    console.warn('[Notif Web] Usuario bloqueó notificaciones. Debe habilitarlas manualmente.');
+    return false;
+  }
+  const result = await window.Notification.requestPermission();
+  return result === 'granted';
+};
+
+export const savePushToken = async (userId, pushToken, sheet = 'Usuarios', idField = 'ID_User', userName) => {
+  if (!pushToken || !userId) return;
+  try {
+    const data = { [idField]: userId, PushToken: pushToken };
+    if (sheet === 'Usuarios' && userName) {
+      data.NombreUser = userName;
+    }
     const payload = {
       action: 'UPSERT',
-      sheet: 'Deliverys',
-      idField: 'ID_Delivery',
-      data: { 'ID_Delivery': riderId, 'PushToken': pushToken },
+      sheet,
+      idField,
+      data,
     };
+    console.log('[Notif] Enviando PushToken a GAS:', JSON.stringify(payload));
     const response = await fetch(CONFIG.GAS_API_URL, {
       method: 'POST',
       redirect: 'follow',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // ✅ CRÍTICO para GAS
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload),
     });
     const result = await response.json();
+    console.log('[Notif] Respuesta GAS:', JSON.stringify(result));
     if (result?.success || result?.status === 'success') {
-      console.log(`[Notif] ✅ PushToken guardado para rider ${riderId}`);
+      console.log(`[Notif] ✅ PushToken guardado para ${idField}=${userId} en ${sheet}`);
     } else {
       console.warn('[Notif] ⚠️ GAS no confirmó el guardado del PushToken:', result);
     }
@@ -195,39 +301,104 @@ export const saveRiderPushToken = async (riderId, pushToken) => {
   }
 };
 
+export const saveRiderPushToken = async (riderId, pushToken) => {
+  return savePushToken(riderId, pushToken, 'Deliverys', 'ID_Delivery');
+};
+
 /**
  * Envía una push notification al repartidor via Expo Push Service.
+ */
+/**
+ * Envía push al rider. Si el token tiene prefijo {FCM}, lo envía vía GAS (FCM HTTP API),
+ * de lo contrario usa Expo Push Service.
  */
 export const sendRiderPushNotification = async (pushToken, orderData) => {
   if (!pushToken) return false;
 
-  try {
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip, deflate',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        to: pushToken,
-        sound: 'default',
-        title: '🛵 ¡Nuevo Pedido Disponible!',
-        body: `${orderData.cliente || 'Cliente'} | $${orderData.total || 0}`,
-        data: { orderId: orderData.orderId, screen: 'RiderScreen', riderId: orderData.riderId },
-        priority: 'high',
-        channelId: 'rider-orders',
-        badge: 1,
-      }),
-    });
-    const result = await response.json();
-    const status = result?.data?.status;
-    if (status === 'ok') {
-      console.log(`[PushExpo] ✅ Enviado a ${pushToken.slice(-8)}`);
-      return true;
-    } else {
-      console.warn('[PushExpo] ⚠️ Respuesta inesperada:', JSON.stringify(result));
+  const notifTitle = orderData.customTitle || '🛵 ¡Nuevo Pedido Disponible!';
+  const notifBody = orderData.customBody || `${orderData.cliente || 'Cliente'} | $${orderData.total || 0}`;
+  const customData = orderData.customData || {};
+
+  // ── Token FCM raw → enrutar vía GAS ──
+  if (pushToken.startsWith('{FCM}')) {
+    try {
+      const body = {
+        action: 'SEND_FCM',
+        token: pushToken,
+        title: notifTitle,
+        body: notifBody,
+        data: { orderId: orderData.orderId, screen: 'RiderScreen', riderId: orderData.riderId, ...customData },
+      };
+      const res = await fetch(CONFIG.GAS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(body),
+      });
+      const result = await res.json();
+      if (result?.success) {
+        console.log(`[PushFCM] ✅ Enviado vía GAS a ${pushToken.slice(-8)}`);
+        return true;
+      }
+      console.warn('[PushFCM] ⚠️ GAS respondió:', JSON.stringify(result));
       return false;
+    } catch (e) {
+      console.error('[PushFCM] ❌ Error:', e.message);
+      return false;
+    }
+  }
+
+  // ── Token Expo Push → Expo Push Service ──
+  try {
+    if (Platform.OS === 'web') {
+      // 🚀 En Web usamos el Proxy de GAS para evadir CORS de Expo
+      const res = await fetch(CONFIG.GAS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'SEND_EXPO_PUSH',
+          token: pushToken,
+          title: notifTitle,
+          body: notifBody,
+          data: { orderId: orderData.orderId, screen: 'RiderScreen', riderId: orderData.riderId, ...customData }
+        }),
+      });
+      const result = await res.json();
+      if (result?.success) {
+        console.log(`[PushExpoProxy] ✅ Enviado vía GAS a ${pushToken.slice(-8)}`);
+        return true;
+      } else {
+        console.warn(`[PushExpoProxy] ⚠️ Error del proxy (Expo):`, result.errorMessage || result);
+        return false;
+      }
+    } else {
+      // En App nativa usamos llamada directa
+      const response = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: pushToken,
+          sound: 'default',
+          title: notifTitle,
+          body: notifBody,
+          data: { orderId: orderData.orderId, screen: 'RiderScreen', riderId: orderData.riderId, ...customData },
+          priority: 'high',
+          channelId: 'rider-orders',
+          badge: 1,
+        }),
+      });
+      const result = await response.json();
+      const status = result?.data?.status;
+      if (status === 'ok') {
+        console.log(`[PushExpo] ✅ Enviado a ${pushToken.slice(-8)}`);
+        return true;
+      } else {
+        console.warn('[PushExpo] ⚠️ Respuesta inesperada:', JSON.stringify(result));
+        return false;
+      }
     }
   } catch (e) {
     console.error('[PushExpo] ❌ Error:', e.message);
@@ -266,6 +437,42 @@ export const notifyRider = async (rider, orderData) => {
 };
 
 // ─────────────────────────────────────────────
+// 🔔 NOTIFICACIONES DE ESTADO
+// ─────────────────────────────────────────────
+export const notifyOrderStatus = async (orderId, status, message) => {
+  const STATUS_MESSAGES = {
+    pending: '📋 Pedido Recibido', preparing: '🍳 Tu pedido está siendo preparado',
+    ready: '✅ ¡Tu pedido está listo!', on_the_way: '🛵 Tu pedido está en camino',
+    delivered: '🎉 ¡Pedido entregado!', cancelled: '❌ Tu pedido ha sido cancelado',
+    cancelado_cliente: '❌ Tu pedido fue cancelado', proposal: '🔔 Buscando repartidor...',
+    accepted: '✅ ¡Repartidor aceptó tu pedido!',
+    pendiente: '📋 Pedido Recibido', preparando: '🍳 Tu pedido está siendo preparado',
+    listo: '✅ ¡Tu pedido está listo!', 'en camino': '🛵 Tu pedido está en camino',
+    entregado: '🎉 ¡Pedido entregado!', cancelado: '❌ Tu pedido ha sido cancelado',
+    propuesta: '🔔 Buscando repartidor...', aceptado: '✅ ¡Repartidor en camino!',
+  };
+  const DEFAULT_BODIES = {
+    pending: `Tu pedido #${orderId} fue recibido correctamente`,
+    preparing: `Tu pedido #${orderId} está siendo preparado con cariño`,
+    ready: `¡Tu pedido #${orderId} está listo para entregar!`,
+    on_the_way: `Tu pedido #${orderId} ya va en camino`,
+    delivered: `¡Tu pedido #${orderId} ha llegado! Disfrútalo`,
+    cancelled: `Tu pedido #${orderId} ha sido cancelado`,
+    cancelado_cliente: `Tu pedido #${orderId} fue cancelado por ti`,
+    proposal: `Buscando un repartidor para tu pedido #${orderId}`,
+    accepted: `¡Tu repartidor aceptó el pedido #${orderId}!`,
+  };
+  const key = (status || '').toLowerCase().trim();
+  const title = STATUS_MESSAGES[key] || STATUS_MESSAGES[status] || '🔔 DSicario';
+  const body = message || DEFAULT_BODIES[key] || DEFAULT_BODIES[status] || `Estado del pedido #${orderId}: ${status}`;
+  await sendLocalNotification(title, body, { orderId, status });
+};
+
+export const notifyOffer = async (productName, discount) => {
+  await sendLocalNotification('🔥 ¡Oferta Especial!', `${productName} tiene ${discount}% de descuento. ¡No te lo pierdas!`);
+};
+
+// ─────────────────────────────────────────────
 // 🎧 LISTENER de respuesta a notificación
 // ─────────────────────────────────────────────
 export const setupNotificationResponseListener = (onNotificationTapped) => {
@@ -274,6 +481,18 @@ export const setupNotificationResponseListener = (onNotificationTapped) => {
     if (onNotificationTapped) onNotificationTapped(data);
   });
   return () => subscription.remove();
+};
+
+export const addNotificationReceivedListener = (handler) => {
+  return Notifications.addNotificationReceivedListener(handler);
+};
+
+export const addNotificationResponseReceivedListener = (handler) => {
+  return Notifications.addNotificationResponseReceivedListener(handler);
+};
+
+export const clearAllNotifications = async () => {
+  await Notifications.cancelAllScheduledNotificationsAsync();
 };
 
 // ─────────────────────────────────────────────
@@ -285,37 +504,21 @@ export const setupKitchenChannel = async () => setupAndroidChannels();
 
 export const notifyOrderReady = async (order) => {
   try {
+    const title = '🔔 ¡Pedido Listo para Servir!';
+    const body = `👤 ${order.cliente || order.mesa_nombre || 'Mesa'} — Orden #${String(order.id || '').slice(-6)}`;
+
     if (Platform.OS !== 'web') {
       const { Vibration } = require('react-native');
       Vibration.vibrate([0, 400, 200, 400, 200, 400]);
     }
 
-    if (Platform.OS === 'web') {
-      // En web: usar Browser Notification API
-      if (typeof window !== 'undefined' && 'Notification' in window && window.Notification.permission === 'granted') {
-        new window.Notification('🔔 ¡Pedido Listo para Servir!', {
-          body: `👤 ${order.cliente || order.mesa_nombre || 'Mesa'} — Orden #${String(order.id || '').slice(-6)}`,
-          icon: '/favicon.png',
-        });
-      }
-      return;
-    }
-
-    // En nativo: notificación local
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: '🔔 ¡Pedido Listo para Servir!',
-        body: `👤 ${order.cliente || order.mesa_nombre || 'Mesa'} — Orden #${String(order.id || '').slice(-6)}`,
-        data: { orderId: order.id, type: 'KITCHEN_READY', screen: 'WaiterScreen' },
-        color: '#22c55e',
-        sound: true,
-        ...(Platform.OS === 'android' && { channelId: 'kitchen-ready' }),
-      },
-      trigger: null,
-    });
-
+    await sendLocalNotification(title, body, { orderId: order.id, type: 'KITCHEN_READY', screen: 'WaiterScreen' });
     console.log(`[KitchenNotif] ✅ Alerta enviada para orden: ${order.id}`);
   } catch (error) {
     console.warn('[KitchenNotif] Error (no crítico):', error?.message || error);
   }
 };
+
+// Asegurar que los canales de Android se configuren en cuanto la app importa este archivo.
+setupAndroidChannels().catch(console.warn);
+

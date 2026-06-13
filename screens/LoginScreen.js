@@ -23,6 +23,7 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
+import NotificationService from '../utils/notificationService';
 
 if (Platform.OS !== 'web') {
   GoogleSignin.configure({
@@ -67,6 +68,10 @@ const LoginScreen = () => {
        showAlert('Atención', 'Por favor ingresa tus credenciales');
        return;
     }
+    // Pedir permisos en el evento de clic para que el navegador no lo bloquee
+    if (Platform.OS === 'web') {
+      try { await NotificationService.requestPermissions(); } catch (e) {}
+    }
     try {
       await signIn(email, password);
     } catch (err) {
@@ -76,6 +81,7 @@ const LoginScreen = () => {
 
   const handleGoogleLogin = async () => {
     if (Platform.OS === 'web') {
+      try { await NotificationService.requestPermissions(); } catch (e) {}
       try {
         await signInWithGoogleWeb();
       } catch (error) {

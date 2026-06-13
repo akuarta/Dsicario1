@@ -197,7 +197,7 @@ const MainTabs = () => {
         }} 
       />
       <Tab.Screen name="Favoritos" component={FavoritesStack} options={{ tabBarButton: () => null }} />
-      <Tab.Screen name="Configuracion" component={ConfigStack} options={{ tabBarButton: () => null }} />
+      <Tab.Screen name="Configuracion" component={ConfigStack} options={{ tabBarButton: () => null, unmountOnBlur: true }} />
       <Tab.Screen name="DeliveryTracking" component={DeliveryTrackingScreen} options={{ tabBarButton: () => null }} />
       <Tab.Screen name="CarritoTab" component={CartStack} options={{ tabBarButton: () => null }} />
       

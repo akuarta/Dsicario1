@@ -21,6 +21,7 @@ import { getThemeColors, spacing, typography, borders, shadows } from '../theme/
 import GlassPanel from '../components/GlassPanel';
 import { fetchAllUsers, saveUser, deleteUser } from '../utils/api';
 import { useDataSync } from '../contexts/AppContext';
+import { sendLocalNotification, sendRiderPushNotification, sendWhatsAppNotification } from '../utils/notifications';
 
 const getRoleColor = (role) => {
   switch(role) {
@@ -52,6 +53,13 @@ const AdminStaffScreen = ({ navigation }) => {
   // Registered Users Picker State
   const [isPickerVisible, setIsPickerVisible] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
+
+  const [notifModalVisible, setNotifModalVisible] = useState(false);
+  const [notifTargetUser, setNotifTargetUser] = useState(null);
+  const [notifTargetAll, setNotifTargetAll] = useState(false);
+  const [notifTitle, setNotifTitle] = useState('');
+  const [notifBody, setNotifBody] = useState('');
+  const [isSendingNotif, setIsSendingNotif] = useState(false);
 
   const roles = ['Admin', 'Mesero', 'Cocina', 'Delivery', 'Cliente'];
 
@@ -421,6 +429,8 @@ const AdminStaffScreen = ({ navigation }) => {
     const isActiveUser = item.Activo !== undefined ? item.Activo : (item['activo?'] !== undefined ? item['activo?'] : (item.active !== undefined ? item.active : true));
     const displayName = item.NombreUser || item.nombreuser || item.username || 'Usuario';
     const displayEmail = item.EmailUser || item.emailuser || item.email || '';
+    const hasPushToken = !!(item.pushToken || item.PushToken);
+    const hasWhatsApp = !!(item.whatsapp && item.callmebotKey);
 
     return (
       <TouchableOpacity onPress={() => handleOpenModal(item)}>
@@ -435,10 +445,18 @@ const AdminStaffScreen = ({ navigation }) => {
           <View style={styles.userInfo}>
             <Text style={[styles.userName, { color: colors.text.primary }]}>{displayName}</Text>
             <Text style={styles.userEmail}>{displayEmail}</Text>
-            <View style={[styles.roleBadge, { backgroundColor: getRoleColor(userRole) }]}>
-              <Text style={styles.roleText}>{userRole}</Text>
+            <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+              <View style={[styles.roleBadge, { backgroundColor: getRoleColor(userRole) }]}>
+                <Text style={styles.roleText}>{userRole}</Text>
+              </View>
+              {hasPushToken && <FontAwesome5 name="mobile-alt" size={10} color="#22c55e" />}
+              {hasWhatsApp && <FontAwesome5 name="whatsapp" size={10} color="#25D366" />}
+              {!hasPushToken && !hasWhatsApp && <FontAwesome5 name="times-circle" size={10} color="#999" />}
             </View>
           </View>
+          <TouchableOpacity onPress={() => { setNotifTargetUser(item); setNotifTargetAll(false); setNotifTitle(''); setNotifBody(''); setNotifModalVisible(true); }} style={{ marginRight: 10 }}>
+            <FontAwesome5 name="bell" size={16} color={hasPushToken || hasWhatsApp ? colors.primary : '#999'} />
+          </TouchableOpacity>
           <FontAwesome5 name="chevron-right" size={12} color="#CCC" />
         </GlassPanel>
       </TouchableOpacity>
@@ -458,9 +476,14 @@ const AdminStaffScreen = ({ navigation }) => {
           <Text style={styles.headerTitle}>Gestión de Personal</Text>
           <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10 }}>Total: {users.length} usuarios</Text>
         </View>
-        <TouchableOpacity onPress={syncAllData}>
-          <FontAwesome5 name="sync" size={18} color="#FFF" />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 15 }}>
+          <TouchableOpacity onPress={() => { setNotifTargetAll(true); setNotifTargetUser(null); setNotifTitle(''); setNotifBody(''); setNotifModalVisible(true); }}>
+            <FontAwesome5 name="bell" size={18} color="#FFF" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={syncAllData}>
+            <FontAwesome5 name="sync" size={18} color="#FFF" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.searchContainer}>
@@ -666,6 +689,153 @@ const AdminStaffScreen = ({ navigation }) => {
                 <Text style={styles.emptyPickerText}>No se encontraron usuarios registrados.</Text>
               }
             />
+          </GlassPanel>
+        </View>
+      </Modal>
+
+      {/* Notification Modal */}
+      <Modal visible={notifModalVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <GlassPanel intensity={40} style={styles.modalContent}>
+            <Text style={[styles.modalTitle, { color: colors.text.primary }]}>
+              {notifTargetAll ? 'Notificar a Todo el Personal' : `Notificar a ${notifTargetUser?.NombreUser || notifTargetUser?.nombreuser || notifTargetUser?.username || 'Usuario'}`}
+            </Text>
+
+            {!notifTargetAll && notifTargetUser && (
+              <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'center', marginBottom: 15 }}>
+                <Text style={{ fontSize: 11, color: notifTargetUser.pushToken || notifTargetUser.PushToken ? '#22c55e' : '#999' }}>
+                  Push {notifTargetUser.pushToken || notifTargetUser.PushToken ? 'SI' : 'NO'}
+                </Text>
+                <Text style={{ fontSize: 11, color: notifTargetUser.whatsapp && notifTargetUser.callmebotKey ? '#25D366' : '#999' }}>
+                  WhatsApp {notifTargetUser.whatsapp && notifTargetUser.callmebotKey ? 'SI' : 'NO'}
+                </Text>
+              </View>
+            )}
+
+            <TextInput
+              style={[styles.input, { color: colors.text.primary, borderColor: colors.border }]}
+              placeholder="Título de la notificación"
+              placeholderTextColor="#999"
+              value={notifTitle}
+              onChangeText={setNotifTitle}
+            />
+
+            <TextInput
+              style={[styles.input, { color: colors.text.primary, borderColor: colors.border, minHeight: 80, textAlignVertical: 'top' }]}
+              placeholder="Mensaje de la notificación"
+              placeholderTextColor="#999"
+              value={notifBody}
+              onChangeText={setNotifBody}
+              multiline
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: colors.border }]}
+                onPress={() => { setNotifModalVisible(false); setNotifTargetAll(false); setNotifTargetUser(null); }}
+              >
+                <Text style={{ color: colors.text.primary }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: '#2A9D8F' }]}
+                onPress={async () => {
+                  const title = '🔔 Notificación de Prueba';
+                  const body = 'Esta es una notificación de prueba desde Gestión de Personal.';
+                  const target = notifTargetAll ? 'todos' : (notifTargetUser?.NombreUser || notifTargetUser?.nombreuser || notifTargetUser?.username || 'Usuario');
+                  console.log(`[AdminNotif] Test rápido para ${target}: "${title}"`);
+                  setIsSendingNotif(true);
+                  try {
+                    if (notifTargetAll) {
+                      let sent = 0;
+                      for (const user of filteredUsers) {
+                        const name = user.NombreUser || user.nombreuser || user.username || 'Usuario';
+                        const token = user.pushToken || user.PushToken;
+                        if (token) { await sendRiderPushNotification(token, { customTitle: title, customBody: body, cliente: name, orderId: 'test', total: 0, direccion: 'Test administrativo' }); sent++; }
+                        else if (user.whatsapp && user.callmebotKey) { await sendWhatsAppNotification(user.whatsapp, user.callmebotKey, { customBody: `*${title}*\n${body}`, orderId: 'test', cliente: name, total: 0, direccion: 'Test administrativo' }); sent++; }
+                      }
+                      showAlert('Test rápido', `Notificación enviada a ${sent} empleados`);
+                    } else if (notifTargetUser) {
+                      const name = notifTargetUser.NombreUser || notifTargetUser.nombreuser || notifTargetUser.username || 'Usuario';
+                      const token = notifTargetUser.pushToken || notifTargetUser.PushToken;
+                      if (token) { await sendRiderPushNotification(token, { customTitle: title, customBody: body, cliente: name, orderId: 'test', total: 0, direccion: 'Test administrativo' }); showAlert('Test rápido', `Notificación enviada a ${name}`); }
+                      else if (notifTargetUser.whatsapp && notifTargetUser.callmebotKey) { await sendWhatsAppNotification(notifTargetUser.whatsapp, notifTargetUser.callmebotKey, { customBody: `*${title}*\n${body}`, orderId: 'test', cliente: name, total: 0, direccion: 'Test administrativo' }); showAlert('Test rápido', `Notificación enviada a ${name}`); }
+                      else { showAlert('Sin canal', `${name} no tiene PushToken ni WhatsApp. Debe abrir la app para generar su token.`); }
+                    }
+                    setNotifModalVisible(false);
+                  } catch (e) {
+                    console.error('[AdminNotif] Error test rápido:', e);
+                    showAlert('Error', 'Falló el test: ' + (e?.message || e));
+                  } finally {
+                    setIsSendingNotif(false);
+                  }
+                }}
+              >
+                <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 12 }}>Test rápido</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: colors.primary }]}
+                onPress={async () => {
+                  if (!notifTitle.trim() || !notifBody.trim()) {
+                    showAlert('Error', 'Título y mensaje son obligatorios');
+                    return;
+                  }
+                  setIsSendingNotif(true);
+                  try {
+                    if (notifTargetAll) {
+                      const targets = filteredUsers;
+                      let sentCount = 0;
+                      let channelsUsed = [];
+                      for (const user of targets) {
+                        const targetName = user.NombreUser || user.nombreuser || user.username || 'Usuario';
+                        const token = user.pushToken || user.PushToken;
+                        if (token) {
+                          await sendRiderPushNotification(token, { customTitle: notifTitle, customBody: notifBody, cliente: targetName, orderId: 'test', total: 0, direccion: 'Mensaje administrativo' });
+                          channelsUsed.push('Push');
+                          sentCount++;
+                        } else if (user.whatsapp && user.callmebotKey) {
+                          await sendWhatsAppNotification(user.whatsapp, user.callmebotKey, { customBody: `*${notifTitle}*\n${notifBody}`, orderId: 'test', cliente: targetName, total: 0, direccion: 'Mensaje administrativo' });
+                          channelsUsed.push('WhatsApp');
+                          sentCount++;
+                        }
+                      }
+                      const noChannel = filteredUsers.filter(u => !(u.pushToken || u.PushToken) && !(u.whatsapp && u.callmebotKey)).length;
+                      const channel = [...new Set(channelsUsed)].join(' + ') || 'ninguno';
+                      console.log(`[AdminNotif] Enviado a ${sentCount} usuarios vía ${channel}. Sin canal: ${noChannel}`);
+                      showAlert('Éxito', `Notificación enviada a ${sentCount} empleados (vía ${channel})${noChannel ? `\n${noChannel} sin canal configurado` : ''}`);
+                    } else if (notifTargetUser) {
+                      const targetName = notifTargetUser.NombreUser || notifTargetUser.nombreuser || notifTargetUser.username || 'Usuario';
+                      let channelsUsed = [];
+                      const token = notifTargetUser.pushToken || notifTargetUser.PushToken;
+                      if (token) {
+                        await sendRiderPushNotification(token, { customTitle: notifTitle, customBody: notifBody, cliente: targetName, orderId: 'test', total: 0, direccion: 'Mensaje administrativo' });
+                        channelsUsed.push('Push');
+                      } else if (notifTargetUser.whatsapp && notifTargetUser.callmebotKey) {
+                        await sendWhatsAppNotification(notifTargetUser.whatsapp, notifTargetUser.callmebotKey, { customBody: `*${notifTitle}*\n${notifBody}`, orderId: 'test', cliente: targetName, total: 0, direccion: 'Mensaje administrativo' });
+                        channelsUsed.push('WhatsApp');
+                      }
+                      const channel = channelsUsed.join(' + ') || 'ninguno';
+                      console.log(`[AdminNotif] Enviado a ${targetName} vía ${channel}: "${notifTitle} - ${notifBody}"`);
+                      if (channelsUsed.length > 0) {
+                        showAlert('Éxito', `Notificación enviada a ${targetName} (vía ${channel})`);
+                      } else {
+                        showAlert('Sin canal', `${targetName} no tiene PushToken ni WhatsApp. Debe abrir la app para generar su token.`);
+                      }
+                    }
+                    setNotifModalVisible(false);
+                    setNotifTargetAll(false);
+                    setNotifTargetUser(null);
+                  } catch (e) {
+                    console.error('[AdminNotif] Error:', e);
+                    showAlert('Error', 'No se pudo enviar la notificación: ' + (e?.message || e));
+                  } finally {
+                    setIsSendingNotif(false);
+                  }
+                }}
+                disabled={isSendingNotif}
+              >
+                {isSendingNotif ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Enviar</Text>}
+              </TouchableOpacity>
+            </View>
           </GlassPanel>
         </View>
       </Modal>

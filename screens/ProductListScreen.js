@@ -157,7 +157,15 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
   }, [refetchProducts]);
 
   const handleProductPress = useCallback((product) => {
-    if (isEditorMode) {
+    if (!product) return;
+    
+    // Si estamos en modo sugerencias y es una sugerencia, navegar al detalle
+    if (selectedFilter === 'suggestions' && product.isSuggestion) {
+      navigation.navigate('ProductDetail', { product });
+      return;
+    }
+
+    if (isEditorMode && isAdmin) {
       navigation.navigate('ProductEditor', { product });
     } else {
       navigation.navigate('ProductDetail', { 
@@ -1142,7 +1150,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       </View>
 
       {/* ➕ Botón Flotante Adaptativo */}
-      {(isEditorMode || selectedFilter === 'suggestions') && (
+      {((isEditorMode && isAdmin) || selectedFilter === 'suggestions') && (
         <TouchableOpacity 
           style={[styles.fabAdd, selectedFilter === 'suggestions' && { backgroundColor: colors.primary }]}
           onPress={() => {

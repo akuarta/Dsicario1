@@ -1,10 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert, AppState } from 'react-native';
+import { Alert, AppState, Platform } from 'react-native';
 import NotificationService from '../utils/notificationService';
 import {
   notifyOrderReady,
+  registerForPushNotifications,
+  savePushToken,
 } from '../utils/notifications';
+import { onFCMForegroundMessage, getFCMToken } from '../utils/fcm';
 import { 
   fetchProducts, 
   fetchSuggestedProducts, 
@@ -25,7 +28,17 @@ import { useAuth } from './AuthContext';
 export const ProductsContext = createContext();
 
 // Context para carrito
-export const CartContext = createContext();
+export const CartContext = createContext({
+  cart: [], addToCart: () => {}, removeFromCart: () => {}, clearCart: () => {},
+  getTotalCost: () => 0, getTotalItems: () => 0,
+  updateCartItemQuantity: () => {}, updateCartItemNote: () => {},
+  businessInfo: null, updateBusinessInfo: () => {}, refreshBusiness: () => {},
+  waiterActiveSession: null, setWaiterActiveSession: () => {},
+  activeStaffMode: null, setActiveStaffMode: () => {},
+  isWaiterMode: false, isSubmitting: false,
+  getCartSummary: () => ({ items: [], totalItems: 0, totalCost: 0, isEmpty: true }),
+  isInCart: () => false, getProductQuantity: () => 0,
+});
 
 // 🌐 CONTEXTO DE SINCRONIZACIÓN GLOBAL
 export const DataSyncContext = createContext();
@@ -416,7 +429,7 @@ export const CartProvider = ({ children }) => {
 
 // --- DATA SYNC PROVIDER ---
 export const DataSyncProvider = ({ children }) => {
-  const { email, role, userId } = useUser();
+  const { email, role, userId, username } = useUser();
   const [users, setUsers] = useState([]);
   const prevKitchenOrdersRef = useRef([]);
   const [kitchenOrders, setKitchenOrders] = useState([]);
@@ -532,8 +545,9 @@ export const DataSyncProvider = ({ children }) => {
   };
 
   useEffect(() => { 
-    // Solicitar permisos de notificación al cargar
     NotificationService.requestPermissions().catch(console.warn);
+
+    // El registro de tokens se movió a su propio useEffect dependiente de userId
 
     mountedRef.current = true;
     syncAllData();
@@ -553,12 +567,69 @@ export const DataSyncProvider = ({ children }) => {
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
 
+    let unsubFCM = null;
+    onFCMForegroundMessage((payload) => {
+      const { title, body } = payload.notification || {};
+      if (title) NotificationService.sendLocalNotification(title, body || '');
+    }).then((u) => { unsubFCM = u; });
+
     return () => {
       mountedRef.current = false;
       clearInterval(interval);
       subscription.remove();
+      if (typeof unsubFCM === 'function') unsubFCM();
     };
   }, []);
+
+
+  // ── Auto-guardado del Token Push al iniciar sesión ──
+  useEffect(() => {
+    const isNative = Platform.OS !== 'web';
+    const hasValidUserId = userId && userId !== 'N/A' && userId.trim() !== '';
+
+    if (!hasValidUserId) return; // Esperar hasta tener un userId real
+
+    (async () => {
+      let savedToken = null;
+
+      // En nativo (Expo), usamos registerForPushNotifications
+      try {
+        const token = await registerForPushNotifications();
+        console.log('[PushReg] Token Expo obtenido:', token || 'null');
+        if (token) savedToken = token;
+        // 🔍 DEBUG TEMPORAL: mostrar alerta en el dispositivo
+        if (isNative) {
+          Alert.alert('🔑 Token Registro', token ? `Token OK:\n${token.substring(0, 40)}...` : '❌ Token null — revisa permisos o projectId');
+        }
+      } catch (e) {
+        console.warn('[PushReg] Error obteniendo token Expo:', e);
+        if (isNative) Alert.alert('❌ Error Token', e?.message || String(e));
+      }
+
+      // En web también intentamos FCM
+      if (!savedToken && !isNative) {
+        try {
+          const fcmToken = await getFCMToken();
+          if (typeof window !== 'undefined') window.__FCM_TOKEN__ = fcmToken || null;
+          console.log('[PushReg] Token FCM obtenido:', fcmToken || 'null');
+          if (fcmToken) savedToken = '{FCM}' + fcmToken;
+        } catch (e) {
+          console.warn('[PushReg] Error FCM token:', e);
+        }
+      }
+
+      if (savedToken) {
+        const targetSheet = role?.toLowerCase() === 'delivery' ? 'Deliverys' : 'Usuarios';
+        const idField = role?.toLowerCase() === 'delivery' ? 'ID_Delivery' : 'ID_User';
+        await savePushToken(userId, savedToken, targetSheet, idField, username);
+        console.log(`[PushReg] ✅ Token guardado automáticamente para ${username}`);
+        if (isNative) Alert.alert('✅ Token Guardado', `Token guardado en ${targetSheet} para ${username}`);
+      } else if (!savedToken && !isNative) {
+        console.warn('[PushReg] ⚠️ No se obtuvo ningún token.');
+      }
+    })();
+  }, [userId, role, username]);
+
 
   const value = React.useMemo(() => ({ 
     users, setUsers, 

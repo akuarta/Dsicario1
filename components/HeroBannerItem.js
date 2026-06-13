@@ -16,7 +16,9 @@ const HeroBannerItem = memo(({ product, onPress }) => {
   const { addToCart } = useCart();
   const { role, isClientMode } = useUser(); // 🛡️ Seguridad
 
-  const canPurchase = isClientMode || role === 'Cliente' || role === 'Admin';
+  const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
+  const activeEditorMode = isEditorMode && isAdmin;
+  const canPurchase = isClientMode || role === 'Cliente' || role === 'Admin' || role === 'Owner';
 
   if (!product) return null;
 
@@ -77,7 +79,7 @@ const HeroBannerItem = memo(({ product, onPress }) => {
               </View>
               
               <View style={{ flexDirection: 'row', gap: 8 }}>
-                {isEditorMode ? (
+                {activeEditorMode ? (
                   <TouchableOpacity 
                     onPress={() => onPress?.(product)}
                     style={[styles.actionButton, { backgroundColor: colors.info, flexDirection: 'row', gap: 5 }]}

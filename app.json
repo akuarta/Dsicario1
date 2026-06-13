@@ -7,7 +7,11 @@
       "bundler": "metro",
       "favicon": "./assets/favicon.png"
     },
-
+    "notification": {
+      "vapidPublicKey": "BPvkF9pSNQ4AMYQFycckdxp_YqXP7qwKpkMkve76UEw78WlU7dCFgGJEPi4MtgelEbD4Md7xUANmGPdtzOiEJDE",
+      "serviceWorkerPath": "/firebase-messaging-sw.js"
+    },
+    "jsEngine": "hermes",
     "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
@@ -55,7 +59,8 @@
         "expo-notifications",
         {
           "icon": "./assets/logo.png",
-          "color": "#E31837"
+          "color": "#E31837",
+          "defaultChannel": "default"
         }
       ]
     ],

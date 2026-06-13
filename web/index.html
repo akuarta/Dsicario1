@@ -125,6 +125,21 @@
     <!-- ── Root de React ── -->
     <div id="root"></div>
 
+    <!-- Firebase Cloud Messaging (compat SDK via CDN para web push) -->
+    <script src="https://www.gstatic.com/firebasejs/12.1.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.1.0/firebase-messaging-compat.js"></script>
+    <script>
+      firebase.initializeApp({
+        apiKey: "AIzaSyC-vXDqKvSotlNqS7ovqOSl5bXyL-HQnyw",
+        authDomain: "dsicario-cd723.firebaseapp.com",
+        projectId: "dsicario-cd723",
+        storageBucket: "dsicario-cd723.firebasestorage.app",
+        messagingSenderId: "758740272138",
+        appId: "1:758740272138:web:fd1cace942a589f01d8bf3",
+        measurementId: "G-1F5XJQFVJ7"
+      });
+    </script>
+
     <script>
       // Ocultar splash cuando React monta el primer componente
       // Se llama desde App.js o después de que el bundle está listo

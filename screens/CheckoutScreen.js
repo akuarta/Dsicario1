@@ -124,10 +124,15 @@ const CheckoutScreen = ({ navigation, route }) => {
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   // Calculations
-  const totalDiscount = (cart || []).reduce((sum, item) => sum + (parseFloat(item.descuento || 0) * item.quantity), 0);
+  const totalDiscount = (cart || []).reduce((sum, item) => {
+    const price = parseFloat(item.precio) || 0;
+    const qty = parseFloat(item.quantity) || 0;
+    const discPct = parseFloat(item.descuento) || 0;
+    return sum + (discPct > 0 ? (price * discPct / 100) * qty : 0);
+  }, 0);
   const subtotal = totalCost;
-  const itbis = totalCost * 0.18;
-  const propina = (deliveryType === 'local' && includePropina) ? totalCost * 0.10 : 0;
+  const itbis = subtotal * 0.18;
+  const propina = (deliveryType === 'local' && includePropina) ? subtotal * 0.10 : 0;
   const costoExpressDelNegocio = businessInfo?.expressFee || 50;
   
   // Cálculo dinámico de envío basado en ruta real
@@ -142,7 +147,7 @@ const CheckoutScreen = ({ navigation, route }) => {
   };
 
   const costoEnvioCalculado = getDynamicDeliveryFee();
-  const finalTotal = (totalCost - totalDiscount) + itbis + propina + costoEnvioCalculado;
+  const finalTotal = subtotal + itbis + propina + costoEnvioCalculado;
   
   const getFormattedAddress = () => {
     if (deliveryType !== 'delivery') return 'Local';
@@ -359,7 +364,7 @@ const CheckoutScreen = ({ navigation, route }) => {
           stopWaiting();
           setRiderConfirmed(true);
           showAlert('¡Rider aceptó! 🛵', `${selectedRiderRef.current?.nombre} está disponible. Ahora puedes confirmar tu pedido.`); // encoding fix
-        } else if (estado === 'rejected' || estado === 'rechazado') {
+        } else if (estado === 'rejected' || estado === 'rechazado' || estado === 'cancelled') {
           stopWaiting();
           setSelectedRider(null);
           setRiderModalVisible(false);

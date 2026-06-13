@@ -39,8 +39,10 @@ const ProductItem = memo(({
   const { role, isClientMode } = useUser(); // 🛡️ Seguridad
 
   const isClosed = businessInfo?.closed === true;
-
   const isSuggestion = product.isSuggestion;
+
+  const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
+  const activeEditorMode = isEditorMode && isAdmin;
 
   const handleVote = async (type) => {
     try {
@@ -325,10 +327,10 @@ const ProductItem = memo(({
   }), [colors, darkMode]);
 
   const handlePress = () => {
-    if (product.agotado && !isEditorMode) return;
+    if (product.agotado && !activeEditorMode) return;
     
     // 🤵 Bloqueo para meseros sin sesión
-    if (isWaiterMode && !waiterActiveSession?.cliente && !isEditorMode) {
+    if (isWaiterMode && !waiterActiveSession?.cliente && !activeEditorMode) {
       return; // No hacer nada, el banner ya indica que debe elegir mesa
     }
 
@@ -402,7 +404,7 @@ const ProductItem = memo(({
         </Text>
       </LinearGradient>
       {!isSuggestion && (
-        isEditorMode ? (
+        activeEditorMode ? (
           <>
             {/* 🚫 Botón Agotado/Disponible */}
             <TouchableOpacity 
@@ -524,9 +526,9 @@ const ProductItem = memo(({
     return (
       <TouchableOpacity
         style={[styles.compactCard, product.agotado && styles.outOfStockContainer, style]}
-        activeOpacity={(product.agotado && !isEditorMode) ? 1 : 0.8}
+        activeOpacity={(product.agotado && !activeEditorMode) ? 1 : 0.8}
         onPress={handlePress}
-        disabled={product.agotado && !isEditorMode}
+        disabled={product.agotado && !activeEditorMode}
       >
         <View style={styles.compactImageContainer}>
           {renderSharedImageContent()}
@@ -539,9 +541,9 @@ const ProductItem = memo(({
   return (
     <TouchableOpacity
       style={[styles.gridCard, product.agotado && styles.outOfStockContainer, style]}
-        activeOpacity={(product.agotado && !isEditorMode) ? 1 : 0.8}
+        activeOpacity={(product.agotado && !activeEditorMode) ? 1 : 0.8}
         onPress={handlePress}
-        disabled={product.agotado && !isEditorMode}
+        disabled={product.agotado && !activeEditorMode}
     >
       <View style={styles.gridImageContainer}>
         {renderSharedImageContent()}

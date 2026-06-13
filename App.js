@@ -1,6 +1,9 @@
 import React from 'react';
 import { Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+// ✅ Importar logger al inicio para monkey-patch console.log
+// antes de cualquier otro módulo, para capturar todos los logs.
+import './utils/logger';
 // ✅ Importar notificaciones al inicio para registrar setNotificationHandler
 // antes de que cualquier pantalla o contexto monte.
 import './utils/notifications';

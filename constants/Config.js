@@ -4,7 +4,7 @@
 
 export const CONFIG = {
   // Google Apps Script Master URL
-  GAS_API_URL: 'https://script.google.com/macros/s/AKfycbxA9bONvXZZ033rkXK5_fgpsgDYTdjZngfMaexIxMQaHBZ3zpxCvsoIUUxMSB-o00fo/exec',
+  GAS_API_URL: 'https://script.google.com/macros/s/AKfycbx8yI1Z6Emxn7Qjpz8uTatBx0bW2nsVQnRwmIxv4_YoCpYuxyfTA1Zuyw9bdgjHHFDl/exec',
   
   // App settings
   APP_NAME: 'DSicarioApp',

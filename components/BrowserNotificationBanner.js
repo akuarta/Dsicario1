@@ -92,10 +92,11 @@ export const BrowserNotificationBanner = () => {
   };
 
   const handleRequestPermission = async () => {
+    console.log('[BannerNotif] Solicitando permiso de notificaciones...');
     try {
       const granted = await NotificationService.requestWebPermission();
       if (granted) {
-        // Enviar una notificación local de bienvenida inmediata para confirmar
+        console.log('[BannerNotif] Permiso concedido, enviando notificación de bienvenida');
         await NotificationService.sendLocalNotification(
           '🔔 ¡Notificaciones Activas!',
           'Excelente, ahora recibirás alertas de tus pedidos en tiempo real en este navegador.'
@@ -103,6 +104,7 @@ export const BrowserNotificationBanner = () => {
         // Ocultar banner
         handleDismiss();
       } else {
+        console.log('[BannerNotif] ⚠️ Alert mostrado: Aviso - Permiso denegado');
         showAlert(
           'Aviso',
           'Las notificaciones no fueron habilitadas. Puedes activarlas haciendo clic en el candado de la barra de direcciones del navegador.'
@@ -110,7 +112,7 @@ export const BrowserNotificationBanner = () => {
         handleDismiss();
       }
     } catch (error) {
-      console.error('[BannerNotif] Error solicitando permisos:', error);
+      console.log('[BannerNotif] ❌ Error en solicitud de permisos:', error.message);
       handleDismiss();
     }
   };
