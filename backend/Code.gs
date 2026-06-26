@@ -477,100 +477,191 @@ function sendFcmV1_(token, title, body, dataPayload) {
 }
 
 /**
- * Notifica al rider (vía FCM v1) y opcionalmente WhatsApp cuando cambia el estado de un pedido.
+ * Envía una notificación Expo Push desde GAS (sin restricciones CORS).
+ * Soporta tokens múltiples separados por coma.
+ */
+function sendExpoPushToUser_(rawTokens, title, body, dataPayload) {
+  if (!rawTokens) return false;
+  var tokenList = String(rawTokens).split(',').map(function(t) { return t.trim(); }).filter(Boolean);
+  if (tokenList.length === 0) return false;
+
+  var payload = tokenList.map(function(token) {
+    return {
+      to: token,
+      sound: 'default',
+      title: title,
+      body: body,
+      data: dataPayload || {},
+      priority: 'high',
+      channelId: 'default',
+      badge: 1,
+    };
+  });
+
+  try {
+    var options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+    var response = UrlFetchApp.fetch('https://exp.host/--/api/v2/push/send', options);
+    var result = JSON.parse(response.getContentText());
+    var allOk = result && result.data && result.data.every(function(r) { return r.status === 'ok'; });
+    if (!allOk) console.warn('[GAS_ExpoPush] Respuesta parcial/error:', JSON.stringify(result));
+    return allOk;
+  } catch (e) {
+    console.error('[GAS_ExpoPush] Error: ' + e.message);
+    return false;
+  }
+}
+
+/**
+ * Notifica al rider Y al cliente cuando cambia el estado de un pedido.
  * Se ejecuta desde el handler UPSERT/UPDATE si detecta cambio de estado.
  */
 function notifyOrderStatusChange_(ss, orderData, oldEstado, sheetName) {
-  const riderId = orderData.ID_Rider || orderData.id_rider || orderData.riderId || '';
-  if (!riderId) return;
-
   const newEstado = (orderData.estado || '').toLowerCase().trim();
-  const estadosNotificables = ['accepted', 'aceptado', 'on_the_way', 'en camino', 'ready', 'listo', 'delivered', 'entregado', 'cancelled', 'cancelado'];
+  const estadosNotificables = ['accepted', 'aceptado', 'on_the_way', 'en camino', 'ready', 'listo', 'delivered', 'entregado', 'cancelled', 'cancelado', 'pending', 'pendiente', 'preparing', 'preparando'];
   if (!estadosNotificables.includes(newEstado)) return;
 
-  // Verificar si hay cuenta de servicio configurada
+  const orderId = String(orderData.ID_Pedido || orderData.id || '');
   var sa = _getServiceAccount_();
-  if (!sa) { console.log('[notifyOrderStatus] FCM_SERVICE_ACCOUNT no configurada, saltando FCM'); }
 
-  const deliverysSheet = ss.getSheetByName('Deliverys');
-  if (!deliverysSheet) return;
+  // ─────────────────────────────────
+  // 1. NOTIFICAR AL RIDER
+  // ─────────────────────────────────
+  const riderId = orderData.ID_Rider || orderData.id_rider || orderData.riderId || '';
+  if (riderId) {
+    const deliverysSheet = ss.getSheetByName('Deliverys');
+    if (deliverysSheet) {
+      const dHeaders = deliverysSheet.getRange(1, 1, 1, deliverysSheet.getLastColumn()).getValues()[0];
+      const dLower = dHeaders.map(function(h) { return String(h).toLowerCase().trim(); });
+      const dIdCol = dLower.indexOf('id_delivery');
+      const dPushCol = dLower.indexOf('pushtoken');
+      const dWpCol = dLower.indexOf('whatsapp');
+      const dKeyCol = dLower.indexOf('callmebotkey');
 
-  const dHeaders = deliverysSheet.getRange(1, 1, 1, deliverysSheet.getLastColumn()).getValues()[0];
-  const dLower = dHeaders.map(function(h) { return String(h).toLowerCase().trim(); });
-  const dIdCol = dLower.indexOf('id_delivery');
-  const dPushCol = dLower.indexOf('pushtoken');
-  const dWpCol = dLower.indexOf('whatsapp');
-  const dKeyCol = dLower.indexOf('callmebotkey');
-  if (dIdCol === -1 || dPushCol === -1) return;
+      var riderData = null;
+      var lastRow = deliverysSheet.getLastRow();
+      if (lastRow >= 2 && dIdCol !== -1) {
+        var vals = deliverysSheet.getRange(2, 1, lastRow - 1, deliverysSheet.getLastColumn()).getValues();
+        for (var i = 0; i < vals.length; i++) {
+          if (String(vals[i][dIdCol]).trim().toLowerCase() === String(riderId).trim().toLowerCase()) {
+            riderData = vals[i];
+            break;
+          }
+        }
+      }
 
-  var riderData = null;
-  var lastRow = deliverysSheet.getLastRow();
-  if (lastRow >= 2) {
-    var vals = deliverysSheet.getRange(2, 1, lastRow - 1, deliverysSheet.getLastColumn()).getValues();
-    var strId = String(riderId).trim().toLowerCase();
-    for (var i = 0; i < vals.length; i++) {
-      if (String(vals[i][dIdCol]).trim().toLowerCase() === strId) {
-        riderData = vals[i];
+      if (riderData) {
+        var riderToken = dPushCol !== -1 ? String(riderData[dPushCol] || '') : '';
+        var whatsapp = dWpCol !== -1 ? String(riderData[dWpCol] || '') : '';
+        var callmebotKey = dKeyCol !== -1 ? String(riderData[dKeyCol] || '') : '';
+
+        var riderTitulos = {
+          accepted: '✅ Pedido Aceptado', aceptado: '✅ Pedido Aceptado',
+          on_the_way: '🛵 Pedido en Camino', 'en camino': '🛵 Pedido en Camino',
+          ready: '🍽️ Pedido Listo', listo: '🍽️ Pedido Listo',
+          delivered: '🎉 Pedido Entregado', entregado: '🎉 Pedido Entregado',
+          cancelled: '❌ Pedido Cancelado', cancelado: '❌ Pedido Cancelado',
+        };
+        var riderTitulo = riderTitulos[newEstado] || '🔔 Estado del Pedido';
+        var riderCuerpo = 'Pedido #' + orderId.slice(-6) + ': ' + (orderData.cliente || orderData.Nombre || 'Cliente');
+
+        if (riderToken && sa) {
+          var rawToken = riderToken.replace(/^\{FCM\}/, '');
+          try {
+            var fcmResult = sendFcmV1_(rawToken, riderTitulo, riderCuerpo, { orderId: orderId, screen: 'RiderScreen' });
+            if (fcmResult.success) console.log('[GAS_FCM] ✅ Rider notificado: ' + riderId);
+            else console.warn('[GAS_FCM] ⚠️ Error rider: ' + JSON.stringify(fcmResult.response));
+          } catch (e) { console.error('[GAS_FCM] Error: ' + e.message); }
+        } else if (riderToken) {
+          sendExpoPushToUser_(riderToken, riderTitulo, riderCuerpo, { orderId: orderId, screen: 'RiderScreen' });
+        }
+
+        var estadosWhatsApp = ['accepted', 'aceptado', 'cancelled', 'cancelado'];
+        if (estadosWhatsApp.includes(newEstado) && whatsapp && callmebotKey) {
+          var waBody = encodeURIComponent(riderTitulo + '\n\n📦 Pedido: #' + orderId.slice(-6) + '\n👤 Cliente: ' + (orderData.cliente || 'Desconocido') + '\n💰 Total: $' + (orderData.total || 0));
+          try {
+            UrlFetchApp.fetch('https://api.callmebot.com/whatsapp.php?phone=' + encodeURIComponent(whatsapp) + '&text=' + waBody + '&apikey=' + encodeURIComponent(callmebotKey));
+            console.log('[GAS_WA] WhatsApp enviado a rider ' + riderId);
+          } catch (e) { console.error('[GAS_WA] Error: ' + e.message); }
+        }
+      }
+    }
+  }
+
+  // ─────────────────────────────────
+  // 2. NOTIFICAR AL CLIENTE
+  // ─────────────────────────────────
+  const clientId = orderData.ID_User || orderData.id_user || orderData.userId || '';
+  // Solo notificar al cliente en estados que le importan a él
+  const estadosCliente = ['pending', 'pendiente', 'preparing', 'preparando', 'ready', 'listo', 'on_the_way', 'en camino', 'delivered', 'entregado', 'cancelled', 'cancelado', 'accepted', 'aceptado'];
+  if (!clientId || !estadosCliente.includes(newEstado)) return;
+
+  const usuariosSheet = ss.getSheetByName('Usuarios');
+  if (!usuariosSheet) return;
+
+  const uHeaders = usuariosSheet.getRange(1, 1, 1, usuariosSheet.getLastColumn()).getValues()[0];
+  const uLower = uHeaders.map(function(h) { return String(h).toLowerCase().trim(); });
+  const uIdCol = uLower.indexOf('id_user');
+  const uPushCol = uLower.indexOf('pushtoken');
+  if (uIdCol === -1 || uPushCol === -1) return;
+
+  var clientData = null;
+  var uLastRow = usuariosSheet.getLastRow();
+  if (uLastRow >= 2) {
+    var uVals = usuariosSheet.getRange(2, 1, uLastRow - 1, usuariosSheet.getLastColumn()).getValues();
+    for (var j = 0; j < uVals.length; j++) {
+      if (String(uVals[j][uIdCol]).trim().toLowerCase() === String(clientId).trim().toLowerCase()) {
+        clientData = uVals[j];
         break;
       }
     }
   }
-  if (!riderData) return;
+  if (!clientData) return;
 
-  var pushToken = dPushCol !== -1 ? String(riderData[dPushCol] || '') : '';
-  var whatsapp = dWpCol !== -1 ? String(riderData[dWpCol] || '') : '';
-  var callmebotKey = dKeyCol !== -1 ? String(riderData[dKeyCol] || '') : '';
+  var clientToken = String(clientData[uPushCol] || '').trim();
+  if (!clientToken) {
+    console.log('[GAS_Client] Usuario ' + clientId + ' no tiene PushToken, se omite.');
+    return;
+  }
 
-  var titulos = {
-    accepted: '✅ Pedido Aceptado',
-    aceptado: '✅ Pedido Aceptado',
-    on_the_way: '🛵 Pedido en Camino',
-    'en camino': '🛵 Pedido en Camino',
-    ready: '🍽️ Pedido Listo',
-    listo: '🍽️ Pedido Listo',
-    delivered: '🎉 Pedido Entregado',
-    entregado: '🎉 Pedido Entregado',
-    cancelled: '❌ Pedido Cancelado',
-    cancelado: '❌ Pedido Cancelado',
+  var clientTitulos = {
+    pending: '📋 ¡Pedido Recibido!', pendiente: '📋 ¡Pedido Recibido!',
+    preparing: '🍳 Preparando tu pedido', preparando: '🍳 Preparando tu pedido',
+    ready: '✅ ¡Tu pedido está listo!', listo: '✅ ¡Tu pedido está listo!',
+    on_the_way: '🛵 Tu pedido va en camino', 'en camino': '🛵 Tu pedido va en camino',
+    delivered: '🎉 ¡Pedido entregado!', entregado: '🎉 ¡Pedido entregado!',
+    cancelled: '❌ Tu pedido fue cancelado', cancelado: '❌ Tu pedido fue cancelado',
+    accepted: '✅ ¡Repartidor aceptó!', aceptado: '✅ ¡Repartidor aceptó!',
   };
-  var titulo = titulos[newEstado] || '🔔 Estado del Pedido';
-  var cuerpo = 'Pedido #' + (orderData.ID_Pedido || orderData.id || '').toString().slice(-6) + ': ' + (orderData.cliente || orderData.Nombre || 'Cliente');
+  var clientCuerpos = {
+    pending: 'Tu pedido #' + orderId.slice(-6) + ' fue recibido correctamente.',
+    pendiente: 'Tu pedido #' + orderId.slice(-6) + ' fue recibido correctamente.',
+    preparing: 'Estamos preparando tu pedido #' + orderId.slice(-6) + ' con cariño.',
+    preparando: 'Estamos preparando tu pedido #' + orderId.slice(-6) + ' con cariño.',
+    ready: '¡Tu pedido #' + orderId.slice(-6) + ' está listo para entregar!',
+    listo: '¡Tu pedido #' + orderId.slice(-6) + ' está listo para entregar!',
+    on_the_way: 'Tu pedido #' + orderId.slice(-6) + ' ya va en camino hacia ti.',
+    'en camino': 'Tu pedido #' + orderId.slice(-6) + ' ya va en camino hacia ti.',
+    delivered: '¡Tu pedido #' + orderId.slice(-6) + ' fue entregado! Disfrútalo. 😊',
+    entregado: '¡Tu pedido #' + orderId.slice(-6) + ' fue entregado! Disfrútalo. 😊',
+    cancelled: 'Tu pedido #' + orderId.slice(-6) + ' ha sido cancelado.',
+    cancelado: 'Tu pedido #' + orderId.slice(-6) + ' ha sido cancelado.',
+    accepted: 'Un repartidor aceptó tu pedido #' + orderId.slice(-6) + '.',
+    aceptado: 'Un repartidor aceptó tu pedido #' + orderId.slice(-6) + '.',
+  };
 
-  // Enviar FCM v1
-  if (pushToken && sa) {
-    var rawToken = pushToken.replace(/^\{FCM\}/, '');
-    try {
-      var fcmResult = sendFcmV1_(rawToken, titulo, cuerpo, {
-        orderId: String(orderData.ID_Pedido || orderData.id || ''),
-        screen: 'RiderScreen',
-      });
-      if (fcmResult.success) {
-        console.log('[GAS_FCM] ✅ Notificación v1 enviada a rider ' + riderId);
-      } else {
-        console.warn('[GAS_FCM] ⚠️ Falló envío v1 a rider ' + riderId + ': ' + JSON.stringify(fcmResult.response));
-      }
-    } catch (e) {
-      console.error('[GAS_FCM] Error: ' + e.message);
-    }
-  }
+  var cTitulo = clientTitulos[newEstado] || '🔔 DSicario';
+  var cCuerpo = clientCuerpos[newEstado] || 'El estado de tu pedido #' + orderId.slice(-6) + ' cambió a: ' + newEstado;
 
-  // WhatsApp vía CallMeBot (solo estados críticos)
-  var estadosWhatsApp = ['accepted', 'aceptado', 'cancelled', 'cancelado'];
-  if (estadosWhatsApp.includes(newEstado) && whatsapp && callmebotKey) {
-    var waBody = encodeURIComponent(
-      titulo + '\n\n' +
-      '📦 Pedido: #' + String(orderData.ID_Pedido || orderData.id || '').slice(-6) + '\n' +
-      '👤 Cliente: ' + (orderData.cliente || orderData.Nombre || 'Desconocido') + '\n' +
-      '💰 Total: $' + (orderData.total || 0) + '\n' +
-      '📍 Dirección: ' + (orderData.direccion || orderData.Direccion || 'N/A')
-    );
-    try {
-      UrlFetchApp.fetch('https://api.callmebot.com/whatsapp.php?phone=' + encodeURIComponent(whatsapp) + '&text=' + waBody + '&apikey=' + encodeURIComponent(callmebotKey));
-      console.log('[GAS_WA] WhatsApp enviado a rider ' + riderId);
-    } catch (e) {
-      console.error('[GAS_WA] Error: ' + e.message);
-    }
-  }
+  var sent = sendExpoPushToUser_(clientToken, cTitulo, cCuerpo, {
+    orderId: orderId, status: newEstado, screen: 'OrdersScreen'
+  });
+  if (sent) console.log('[GAS_Client] ✅ Cliente ' + clientId + ' notificado: ' + cTitulo);
+  else console.warn('[GAS_Client] ⚠️ No se pudo notificar al cliente ' + clientId);
 }
 
 function getSafeLastRow(s) {

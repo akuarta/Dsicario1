@@ -77,8 +77,8 @@ export const CustomHeader = ({
       color: colors.text.primary,
     },
     logo: {
-      width: 120,
-      height: 35,
+      width: 100,
+      height: 28,
     },
   }), [colors, insets.top]);
 
@@ -117,9 +117,7 @@ export const CustomHeader = ({
           {logoUrl ? (
             <Image source={{ uri: logoUrl }} style={styles.logo} resizeMode="contain" />
           ) : (
-            <Text style={styles.title} numberOfLines={1}>
-              {headerTitle}
-            </Text>
+            <Image source={darkMode ? require('../assets/header_dark.png') : require('../assets/header.png')} style={styles.logo} resizeMode="contain" />
           )}
         </View>
 

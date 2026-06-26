@@ -4,7 +4,7 @@
 
 export const CONFIG = {
   // Google Apps Script Master URL
-  GAS_API_URL: 'https://script.google.com/macros/s/AKfycbx8yI1Z6Emxn7Qjpz8uTatBx0bW2nsVQnRwmIxv4_YoCpYuxyfTA1Zuyw9bdgjHHFDl/exec',
+  GAS_API_URL: 'https://script.google.com/macros/s/AKfycbx-cg8ZS43MT27H3Rx9wUzvj3EBMlPu3dvNLdNicwf-MwG0USA4NNq-wp2sXiMghQW8/exec',
   
   // App settings
   APP_NAME: 'DSicarioApp',
@@ -26,8 +26,8 @@ export const CONFIG = {
 
   // UBICACIÓN DEL LOCAL (Punto de partida de todos los deliveries)
   STORE_LOCATION: {
-    latitude: 18.486052,
-    longitude: -69.931215,
-    address: 'Calle diagonal 1ra. no. 29, Santo Tomas De Aquino, DN'
+    latitude: 18.516585651702265,
+    longitude: -69.89132026210427,
+    address: 'Calle Diagonal 1ª 29, Santo Domingo Este 11905'
   }
 };

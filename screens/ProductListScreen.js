@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -11,11 +11,11 @@ import {
   Dimensions,
   Platform,
   StatusBar,
-  Switch,
   Alert,
   Modal,
   TextInput,
-  ActivityIndicator
+  ActivityIndicator,
+  Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -33,6 +33,8 @@ import { showAlert } from '../utils/showAlert';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { useDataSync } from '../contexts/AppContext';
 import { useGlobalStyles } from '../styles/globalStyles';
+import { useAuth } from '../contexts/AuthContext';
+import { useFavorites } from '../contexts/FavoritesContext';
 import FloatingCartButton from '../components/FloatingCartButton';
 import { useUser } from '../contexts/UserContext';
 import { 
@@ -52,6 +54,8 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
   const { darkMode } = useThemeMode();
   const insets = useSafeAreaInsets();
   const { role, isClientMode } = useUser();
+  const { isAuthenticated } = useAuth();
+  const { toggleFavorite } = useFavorites();
   const { syncAllData } = useDataSync();
   const globalStyles = useGlobalStyles();
   
@@ -382,24 +386,22 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       fontSize: 12,
     },
     homeLogoSection: {
-      backgroundColor: colors.primary,
       alignItems: 'center',
-      paddingVertical: spacing.xs,
+      paddingTop: 0,
+      paddingBottom: 0,
     },
     homeLogoBadge: {
-      width: 60,
-      height: 60,
-      borderRadius: 30,
-      backgroundColor: '#FFFFFF',
+      width: 350,
+      height: 110,
+      borderRadius: 8,
+      backgroundColor: 'transparent',
       justifyContent: 'center',
       alignItems: 'center',
-      borderWidth: 2,
-      borderColor: 'rgba(255,255,255,0.3)',
-      ...shadows.small,
+      overflow: 'hidden',
     },
     homeLogo: {
-      width: 45,
-      height: 45,
+      width: 350,
+      height: 110,
     },
     chipsWrapper: {
       backgroundColor: colors.surface,
@@ -412,7 +414,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
     },
     listContainer: {
       paddingHorizontal: spacing.sm,
-      paddingBottom: spacing.xxl + 20,
+      paddingBottom: 120,
       maxWidth: 1200,
       width: '100%',
       alignSelf: 'center',
@@ -660,13 +662,13 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
           <View style={styles.homeLogoSection}>
              <View style={styles.homeLogoBadge}>
                 <Image 
-                  source={require('../assets/logo.png')} 
+                  source={darkMode ? require('../assets/header_dark.png') : require('../assets/header.png')} 
                   style={styles.homeLogo} 
                   resizeMode="contain" 
                 />
              </View>
           </View>
-          <View style={{ marginTop: 5 }}>
+          <View style={{ marginTop: 5, zIndex: 1 }}>
             <SearchBar
               value={searchTerm}
               onChangeText={setSearchTerm}
@@ -757,21 +759,11 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
 
         {/* 🛠️ Banner de Modo Editor para Administradores (Vista Inicio) */}
         {isAdmin && (
-          <View 
-            style={[styles.editorToggleBar, { backgroundColor: isEditorMode ? colors.success : colors.surface, marginTop: 10 }]}
-          >
-            <FontAwesome5 name="edit" size={14} color={isEditorMode ? "#FFF" : colors.primary} />
-            <Text style={[styles.editorToggleText, { color: isEditorMode ? "#FFF" : colors.text.primary }]}>
-              {"MODO EDITOR: "}
-              <Text style={{ fontWeight: '900' }}>{isEditorMode ? 'ACTIVO' : 'INACTIVO'}</Text>
-            </Text>
-            <Switch 
-              value={isEditorMode} 
-              onValueChange={setIsEditorMode}
-              trackColor={{ false: '#767577', true: colors.success + '80' }}
-              thumbColor={isEditorMode ? '#FFF' : '#f4f3f4'}
-            />
-          </View>
+          <EditorModeToggleBtn
+            isEditorMode={isEditorMode}
+            onToggle={setIsEditorMode}
+            colors={colors}
+          />
         )}
 
         {/* 👨‍💼 Banner de Modo Personal Activo (Vista Inicio) */}
@@ -785,7 +777,10 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
           </View>
         )}
 
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: spacing.lg }}>
+        <ScrollView 
+          style={{ flex: 1 }} 
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: 120 }}
+        >
           {nuevosIngresos.length > 0 && (
             <View style={[styles.sectionContainer, { marginTop: spacing.md, paddingLeft: 0 }]}>
               <View style={[styles.sectionHeader, { paddingLeft: spacing.md }]}>
@@ -878,21 +873,11 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
 
       {/* 🛠️ Banner de Modo Editor para Administradores */}
       {isAdmin && (
-        <View 
-          style={[styles.editorToggleBar, { backgroundColor: isEditorMode ? colors.success : colors.surface }]}
-        >
-          <FontAwesome5 name="edit" size={14} color={isEditorMode ? "#FFF" : colors.primary} />
-          <Text style={[styles.editorToggleText, { color: isEditorMode ? "#FFF" : colors.text.primary }]}>
-            {"MODO EDITOR: "}
-            <Text style={{ fontWeight: '900' }}>{isEditorMode ? 'ACTIVO' : 'INACTIVO'}</Text>
-          </Text>
-          <Switch 
-            value={isEditorMode} 
-            onValueChange={setIsEditorMode}
-            trackColor={{ false: '#767577', true: colors.success + '80' }}
-            thumbColor={isEditorMode ? '#FFF' : '#f4f3f4'}
-          />
-        </View>
+        <EditorModeToggleBtn
+          isEditorMode={isEditorMode}
+          onToggle={setIsEditorMode}
+          colors={colors}
+        />
       )}
 
       {/* 🤵 BLOQUEO TOTAL PARA MESEROS SIN SESIÓN (Como View absoluto para no tapar toda la App) */}
@@ -1196,4 +1181,173 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
 };
 
 export default ProductListScreen;
+
+// ─────────────────────────────────────────────────────────────────
+// 🛠️ EditorModeToggleBtn — Estilo InDrive (botón grande + transición)
+// ─────────────────────────────────────────────────────────────────
+const EditorModeToggleBtn = ({ isEditorMode, onToggle, colors }) => {
+  const [transitioning, setTransitioning] = useState(false);
+  const [pendingValue, setPendingValue] = useState(null);
+
+  // Animaciones
+  const overlayOpacity = useRef(new Animated.Value(0)).current;
+  const cardScale = useRef(new Animated.Value(0.85)).current;
+  const cardOpacity = useRef(new Animated.Value(0)).current;
+  const spinAnim = useRef(new Animated.Value(0)).current;
+  const spinLoop = useRef(null);
+
+  const handlePress = () => {
+    const nextValue = !isEditorMode;
+    setPendingValue(nextValue);
+    setTransitioning(true);
+
+    // Iniciar animación de entrada
+    Animated.parallel([
+      Animated.timing(overlayOpacity, { toValue: 1, duration: 280, useNativeDriver: Platform.OS !== 'web' }),
+      Animated.spring(cardScale, { toValue: 1, friction: 6, tension: 90, useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(cardOpacity, { toValue: 1, duration: 300, useNativeDriver: Platform.OS !== 'web' }),
+    ]).start();
+
+    // Rotación continua del ícono
+    spinLoop.current = Animated.loop(
+      Animated.timing(spinAnim, { toValue: 1, duration: 900, useNativeDriver: Platform.OS !== 'web' })
+    );
+    spinLoop.current.start();
+
+    // Aplicar cambio + salida del modal
+    setTimeout(() => {
+      onToggle(nextValue);
+      if (spinLoop.current) spinLoop.current.stop();
+      spinAnim.setValue(0);
+
+      Animated.parallel([
+        Animated.timing(overlayOpacity, { toValue: 0, duration: 300, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(cardOpacity, { toValue: 0, duration: 250, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(cardScale, { toValue: 0.85, duration: 280, useNativeDriver: Platform.OS !== 'web' }),
+      ]).start(() => {
+        setTransitioning(false);
+        setPendingValue(null);
+      });
+    }, 1100);
+  };
+
+  const spin = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const activating = pendingValue === true;
+
+  return (
+    <>
+      {/* ── Botón estilo InDrive ── */}
+      <TouchableOpacity
+        onPress={handlePress}
+        activeOpacity={0.88}
+        style={{
+          marginHorizontal: 16,
+          marginTop: 10,
+          marginBottom: 4,
+          borderRadius: 18,
+          overflow: 'hidden',
+        }}
+      >
+        <LinearGradient
+          colors={isEditorMode
+            ? ['#1A8A4A', '#22C55E']     // Verde activo
+            : ['#1C1C1E', '#2C2C2E']     // Oscuro inactivo
+          }
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 20,
+            paddingVertical: 14,
+          }}
+        >
+          {/* Ícono izquierdo */}
+          <View style={{
+            width: 42, height: 42, borderRadius: 13,
+            backgroundColor: 'rgba(255,255,255,0.15)',
+            alignItems: 'center', justifyContent: 'center',
+            marginRight: 14,
+          }}>
+            <FontAwesome5
+              name={isEditorMode ? 'pencil-alt' : 'eye'}
+              size={18}
+              color="#FFF"
+            />
+          </View>
+
+          {/* Texto central */}
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 }}>
+              {isEditorMode ? 'Modo Editor ACTIVO' : 'Modo Vista Cliente'}
+            </Text>
+            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12, marginTop: 2 }}>
+              {isEditorMode ? 'Toca para volver a vista cliente' : 'Toca para activar edición'}
+            </Text>
+          </View>
+
+          {/* Badge de estado */}
+          <View style={{
+            paddingHorizontal: 12, paddingVertical: 6,
+            borderRadius: 20,
+            backgroundColor: isEditorMode ? 'rgba(255,255,255,0.2)' : 'rgba(229,57,53,0.7)',
+          }}>
+            <Text style={{ color: '#FFF', fontSize: 11, fontWeight: '700' }}>
+              {isEditorMode ? '✏️ ON' : 'OFF'}
+            </Text>
+          </View>
+        </LinearGradient>
+      </TouchableOpacity>
+
+      {/* ── Modal de transición pantalla completa (estilo InDrive) ── */}
+      <Modal visible={transitioning} transparent animationType="none" statusBarTranslucent>
+        <Animated.View style={{
+          flex: 1,
+          backgroundColor: activating ? 'rgba(10, 10, 10, 0.96)' : 'rgba(15, 15, 15, 0.95)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          opacity: overlayOpacity,
+        }}>
+          <Animated.View style={{
+            alignItems: 'center',
+            transform: [{ scale: cardScale }],
+            opacity: cardOpacity,
+          }}>
+            {/* Círculo grande animado */}
+            <Animated.View style={{
+              width: 130, height: 130, borderRadius: 65,
+              backgroundColor: activating ? '#22C55E18' : '#E3182218',
+              borderWidth: 2,
+              borderColor: activating ? '#22C55E55' : '#E3182255',
+              alignItems: 'center', justifyContent: 'center',
+              marginBottom: 32,
+              transform: [{ rotate: spin }],
+            }}>
+              <FontAwesome5
+                name={activating ? 'pencil-alt' : 'eye'}
+                size={52}
+                color={activating ? '#22C55E' : '#E31822'}
+              />
+            </Animated.View>
+
+            {/* Título */}
+            <Text style={{ color: '#FFF', fontSize: 26, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center', marginBottom: 8 }}>
+              {activating ? 'Activando' : 'Desactivando'}
+            </Text>
+            <Text style={{
+              fontSize: 20, fontWeight: '700',
+              color: activating ? '#22C55E' : '#E31822',
+              marginBottom: 16,
+            }}>
+              Modo Editor
+            </Text>
+            <Text style={{ color: '#555', fontSize: 14, textAlign: 'center', maxWidth: 260 }}>
+              {activating ? 'Preparando tu espacio de trabajo...' : 'Volviendo a la vista de cliente...'}
+            </Text>
+          </Animated.View>
+        </Animated.View>
+      </Modal>
+    </>
+  );
+};
 

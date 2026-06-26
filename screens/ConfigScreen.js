@@ -20,7 +20,7 @@ import { useThemeMode } from '../contexts/ThemeContext';
 import { useCart } from '../contexts/AppContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import { TextInput, Modal, ActivityIndicator } from 'react-native';
-import { saveUser, saveBusinessInfo, savePaymentMethod, saveTransferDetail, deleteTransferDetail } from '../utils/api';
+import { saveUser } from '../utils/api';
 import Constants from 'expo-constants';
 import UpdateService from '../utils/UpdateService';
 import NotificationService from '../utils/notificationService';
@@ -58,8 +58,7 @@ const ConfigScreen = () => {
     return true;
   };
   const [notifications, setNotifications] = useState(getInitialNotifState);
-  const { exchangeRates, updateExchangeRates, businessInfo, updateBusinessInfo } = useCart();
-  const [isSaving, setIsSaving] = useState(false);
+  const { businessInfo } = useCart();
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
 
   const handleSyncProfile = async () => {
@@ -110,33 +109,6 @@ const ConfigScreen = () => {
       showAlert('Error', 'No se pudo verificar la actualización.');
     } finally {
       setIsCheckingUpdates(false);
-    }
-  };
-
-  const toggleBusinessStatus = async () => {
-    const newStatus = !businessInfo?.closed;
-    setIsSaving(true);
-    try {
-      const payload = {
-        ...businessInfo,
-        closed: newStatus
-      };
-      const result = await saveBusinessInfo(payload);
-      if (result && result.success) {
-        updateBusinessInfo(payload);
-        showAlert(
-          newStatus ? '🌙 Modo Pre-orden' : '☀️ Negocio Abierto',
-          newStatus 
-            ? 'El local ahora está cerrado. Los clientes solo pueden realizar pre-órdenes.' 
-            : 'El local está abierto y operando normalmente.'
-        );
-      } else {
-        throw new Error('Error al actualizar');
-      }
-    } catch (error) {
-      showAlert('Error', 'No se pudo cambiar el estado del negocio.');
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -216,88 +188,6 @@ const ConfigScreen = () => {
     </TouchableOpacity>
   );
 
-  const FCMKeyConfigItem = () => {
-    const [modalVisible, setModalVisible] = useState(false);
-    const [keyValue, setKeyValue] = useState('');
-    const [configurado, setConfigurado] = useState(null);
-    const [loading, setLoading] = useState(false);
-
-    useEffect(() => {
-      (async () => {
-        try {
-          const res = await fetch(CONFIG.GAS_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'GET_PROPERTY', key: 'FCM_SERVICE_ACCOUNT' }),
-          });
-          const data = await res.json();
-          setConfigurado(data?.value ? '✅' : '❌ Sin configurar');
-        } catch { setConfigurado('⚠️ Sin conexión'); }
-      })();
-    }, []);
-
-    const handleSave = async () => {
-      setLoading(true);
-      try {
-        // Validate that it's valid JSON
-        JSON.parse(keyValue);
-        await fetch(CONFIG.GAS_API_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'SET_PROPERTY', key: 'FCM_SERVICE_ACCOUNT', value: keyValue }),
-        });
-        setConfigurado('✅');
-        setModalVisible(false);
-        setKeyValue('');
-      } catch (e) {
-        showAlert('Error', e.message.includes('JSON') ? 'El JSON no es válido. Copia el archivo completo.' : 'No se pudo guardar: ' + e.message);
-      } finally { setLoading(false); }
-    };
-
-    return (
-      <>
-        <TouchableOpacity style={styles.menuItem} onPress={() => setModalVisible(true)}>
-          <View style={[styles.iconContainer, { backgroundColor: colors.primary + '15' }]}>
-            <FontAwesome5 name="key" size={14} color={colors.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.menuText, { fontSize: 13 }]}>Firebase Service Account</Text>
-            <Text style={{ fontSize: 10, color: colors.text.secondary, marginTop: 2 }}>
-              {configurado || 'Verificando...'}
-            </Text>
-          </View>
-        </TouchableOpacity>
-        <Modal visible={modalVisible} transparent animationType="fade">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Firebase Service Account</Text>
-              <Text style={{ fontSize: 12, color: colors.text.secondary, marginBottom: 12 }}>
-                Pega aquí el JSON completo de la cuenta de servicio (Firebase Console → Project Settings → Service Accounts → Generate new private key).
-              </Text>
-              <TextInput
-                style={[styles.rateInput, { minHeight: 160, textAlignVertical: 'top' }]}
-                placeholder='{\n  "type": "service_account",\n  "project_id": "dsicario-...",\n  ...\n}'
-                placeholderTextColor={colors.text.secondary}
-                value={keyValue}
-                onChangeText={setKeyValue}
-                multiline
-                autoCapitalize="none"
-              />
-              <View style={styles.modalBtnRow}>
-                <TouchableOpacity style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => { setModalVisible(false); setKeyValue(''); }}>
-                  <Text style={{ color: colors.text.primary }}>Cancelar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSave]} onPress={handleSave} disabled={loading || !keyValue}>
-                  <Text style={{ color: '#fff' }}>{loading ? 'Guardando...' : 'Guardar'}</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      </>
-    );
-  };
-
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
@@ -329,65 +219,14 @@ const ConfigScreen = () => {
             title={isUserSyncing ? "Sincronizando..." : "Sincronizar Perfil"} 
             onPress={handleSyncProfile} 
           />
-          <SettingItem icon="history" title="Historial de Pedidos" onPress={() => navigation.navigate('PurchaseHistory')} />
-          <SettingItem icon="heart" title="Mis Favoritos" onPress={() => navigation.navigate('Favorites')} />
+          <SettingItem icon="history" title="Historial de Pedidos" onPress={() => navigation.navigate('Historial')} />
+          <SettingItem icon="heart" title="Mis Favoritos" onPress={() => navigation.navigate('Favoritos')} />
         </View>
 
-          {isAdmin && (
+        {isAdmin && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>⚙️ ADMINISTRACIÓN</Text>
-            <SettingItem icon="users-cog" title="Gestión de Personal" onPress={() => navigation.navigate('AdminStaff')} />
-            <SettingItem icon="motorcycle" title="Administrar Repartidores" onPress={() => navigation.navigate('AdminDeliveryScreen')} />
-            <SettingItem icon="shipping-fast" title="Costos de Envío" onPress={() => navigation.navigate('ConfigDeliveryRates')} />
-            <SettingItem icon="money-bill-wave" title="Tasas de Cambio" onPress={() => navigation.navigate('ConfigExchangeRates')} />
-            <SettingItem icon="credit-card" title="Métodos de Pago" onPress={() => navigation.navigate('ConfigPaymentMethods')} />
-            <FCMKeyConfigItem />
-          </View>
-        )}
-
-        {/* SECCIÓN DE STAFF: ABRIR/CERRAR NEGOCIO */}
-        {role && role.toLowerCase() !== 'cliente' && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🏬 GESTIÓN DE NEGOCIO</Text>
-            <SettingItem 
-              icon="user-shield" 
-              title="Modo Gestión Empleado" 
-              onPress={() => navigation.navigate('StaffModeSettings')} 
-            />
-            <SettingItem 
-              icon="store" 
-              title={businessInfo?.closed ? "Estado: CERRADO" : "Estado: ABIERTO"} 
-              isSwitch 
-              value={!businessInfo?.closed} 
-              onPress={async (newValue) => {
-                setIsSaving(true);
-                try {
-                  // Aseguramos que el nombre coincida exactamente con el de la DB para el UPSERT
-                  const updatedInfo = { 
-                    ...businessInfo, 
-                    closed: !newValue // Si newValue es true (abierto), closed es false.
-                  };
-                  
-                  const res = await saveBusinessInfo(updatedInfo);
-                  if (res && res.success) {
-                    updateBusinessInfo(updatedInfo);
-                    showAlert(
-                      !updatedInfo.closed ? '☀️ Negocio Abierto' : '🌙 Modo Pre-orden',
-                      !updatedInfo.closed 
-                        ? 'El local está abierto y operando normalmente.' 
-                        : 'El local ahora está cerrado. Los clientes solo pueden realizar pre-órdenes.'
-                    );
-                  } else {
-                    throw new Error(res?.message || 'Error en servidor');
-                  }
-                } catch (e) {
-                  console.error('Error toggling status:', e);
-                  showAlert('Error', 'No se pudo actualizar el estado en la nube.');
-                } finally {
-                  setIsSaving(false);
-                }
-              }} 
-            />
+            <SettingItem icon="tools" title="Panel de Gestión" onPress={() => navigation.navigate('GestionTab')} />
           </View>
         )}
 
@@ -410,73 +249,8 @@ const ConfigScreen = () => {
           <SettingItem 
             icon="bell" 
             title="Notificaciones" 
-            isSwitch 
-            value={notifications} 
-            onPress={async () => {
-              if (Platform.OS === 'web') {
-                  if (!notifications) {
-                  console.log('[ConfigNotif] Activando notificaciones web...');
-                  const granted = await NotificationService.requestWebPermission();
-                  if (granted) {
-                    console.log('[ConfigNotif] Permiso concedido, enviando notificación de bienvenida');
-                    setNotifications(true);
-                    await NotificationService.sendLocalNotification(
-                      '🔔 ¡Alertas Activadas!',
-                      'Ahora recibirás notificaciones de tus pedidos en este navegador.'
-                    );
-                    console.log('[ConfigNotif] ✅ Alert mostrado: Éxito - Notificaciones habilitadas');
-                    showAlert('Éxito', '¡Notificaciones del navegador habilitadas! Recibirás alertas en tiempo real.');
-                  } else {
-                    console.log('[ConfigNotif] ⚠️ Alert mostrado: Aviso - Permiso denegado');
-                    showAlert(
-                      'Aviso',
-                      'No se pudieron habilitar las notificaciones. Para activarlas manualmente, haz clic en el candado de la barra de direcciones del navegador y cambia el permiso de notificaciones.'
-                    );
-                  }
-                } else {
-                  console.log('[ConfigNotif] Desactivando notificaciones web');
-                  setNotifications(false);
-                  console.log('[ConfigNotif] ℹ️ Alert mostrado: Notificaciones Desactivadas');
-                  showAlert(
-                    'Notificaciones Desactivadas',
-                    'Las alertas locales han sido silenciadas en esta sesión. Para revocar el permiso permanentemente, ve a la configuración de tu navegador.'
-                  );
-                }
-              } else {
-                // Nativo: toggle simple
-                setNotifications(!notifications);
-              }
-            }} 
+            onPress={() => navigation.navigate('Notifications')} 
           />
-          {/* Botón de prueba de notificación */}
-          <TouchableOpacity
-            style={[styles.menuItem, { justifyContent: 'space-between' }]}
-            onPress={async () => {
-              console.log('[ConfigNotif] Botón Probar Notificación presionado');
-              try {
-                const sent = await NotificationService.sendLocalNotification(
-                  '🔔 Notificación de Prueba',
-                  '¡Funciona! Las notificaciones están activas y llegando correctamente.'
-                );
-                if (!sent && Platform.OS === 'web') {
-                  console.log('[ConfigNotif] ⚠️ Alert mostrado: Sin permiso');
-                  showAlert(
-                    'Sin permiso',
-                    'Activa las notificaciones con el switch de arriba primero.'
-                  );
-                }
-              } catch (e) {
-                console.log('[ConfigNotif] ❌ Alert mostrado: Error -', e.message);
-                showAlert('Error', 'No se pudo enviar la notificación de prueba.');
-              }
-            }}
-          >
-            <View style={styles.iconContainer}>
-              <FontAwesome5 name="paper-plane" size={16} color={colors.primary} />
-            </View>
-            <Text style={styles.menuText}>Probar Notificación</Text>
-            <FontAwesome5 name="chevron-right" size={12} color={colors.text.secondary} />
-          </TouchableOpacity>
 
           {/* Token FCM debug */}
           <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface + '80', paddingVertical: 8 }]} onPress={async () => {

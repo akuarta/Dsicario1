@@ -297,6 +297,9 @@ export const mapOrderData = (order, itemsMap = {}) => {
     NombreUser: getRobustProp(order, 'Cliente') || getRobustProp(order, 'NombreUser') || 'Desconocido',
     email: String(getRobustProp(order, 'Email') || getRobustProp(order, 'Usuario') || '').toLowerCase().trim(),
     id_user: getRobustProp(order, 'ID_Usuario') || getRobustProp(order, 'id_user') || '',
+    // Staff que atendió el pedido
+    id_cocinero: getRobustProp(order, 'ID_Cocinero') || getRobustProp(order, 'id_cocinero') || '',
+    id_mesero: getRobustProp(order, 'ID_Mesero') || getRobustProp(order, 'id_mesero') || '',
     total: parseFloat(getRobustProp(order, 'Total')) || 0,
     Total: parseFloat(getRobustProp(order, 'Total')) || 0,
     // ✅ UNIFICADO: Estado y estado usan el mismo valor normalizado en inglés
@@ -586,8 +589,8 @@ export const fetchBusinessInfo = async () => {
         closed:  ['true', 'si', 'sí', '1', 'yes', 'true'].includes(String(getRobustProp(b, 'Cerrado?') || getRobustProp(b, 'cerrado?') || '').toLowerCase().trim()) || getRobustProp(b, 'Cerrado?') === true,
         // Nuevos campos de configuración
         currencies: (getRobustProp(b, 'Monedas') || 'DOP, USD, EUR, COP, MXN').split(',').map(s => s.trim()),
-        deliveryBaseFee: parseFloat(getRobustProp(b, 'CostoEnvioBase')) || 100,
-        expressFee: parseFloat(getRobustProp(b, 'CostoEnvioExpress')) || 50,
+        deliveryCostPerKm: parseFloat(getRobustProp(b, 'CostoEnvioBase')) || 50,
+        expressPerKm: parseFloat(getRobustProp(b, 'CostoEnvioExpress')) || 30,
         deliveryMaxRadius: parseFloat(getRobustProp(b, 'RadioEntregaMax')) || 15, // km
         location: (getRobustProp(b, 'LatitudLocal') && getRobustProp(b, 'LongitudLocal')) ? {
           latitude: parseFloat(String(getRobustProp(b, 'LatitudLocal')).replace("'", "")),
@@ -622,8 +625,8 @@ export const fetchBusinessInfo = async () => {
       appLink: null,
       closed: false,
       currencies: ['DOP', 'USD', 'EUR', 'COP', 'MXN'],
-      deliveryBaseFee: 100,
-      expressFee: 50,
+      deliveryCostPerKm: 50,
+      expressPerKm: 30,
       paymentMethods: ['Efectivo', 'Tarjeta'],
       paymentNotes: {},
       generalPaymentNote: ''
@@ -652,8 +655,8 @@ export const saveBusinessInfo = async (info) => {
         'LatitudLocal': info.location?.latitude ? `'${info.location.latitude}` : '',
         'LongitudLocal': info.location?.longitude ? `'${info.location.longitude}` : '',
         'Cerrado?': info.closed ? 'TRUE' : 'FALSE',
-        'CostoEnvioBase': info.deliveryBaseFee,
-        'CostoEnvioExpress': info.expressFee,
+        'CostoEnvioBase': info.deliveryCostPerKm,
+        'CostoEnvioExpress': info.expressPerKm,
         'Monedas': (info.currencies || []).join(', '),
         'MetodosPago': [...new Set((info.paymentMethods || []).map(m => m.toLowerCase().includes('transf') ? 'Transferencia' : m))].join(', '),
         'NotasMetodosPago': JSON.stringify(info.paymentNotes || {}),
@@ -726,7 +729,7 @@ export const deleteTransferDetail = async (transferId) => {
 /**
  * Update order status inside Google Sheets (allows extra fields like ID_Rider)
  */
-export const updateOrderStatus = async (orderId, newStatus, extraData = {}) => {
+export const updateOrderStatus = async (orderId, newStatus, extraData = {}, silent = false) => {
   try {
     const idStr = String(orderId).split('.')[0].trim(); // Unificar ID (quitar .0 si existe)
     const excelStatus = STATUS_MAP.toExcel(newStatus);
@@ -769,6 +772,25 @@ export const updateOrderStatus = async (orderId, newStatus, extraData = {}) => {
     const response = await gasPost(payload);
     console.log('[UPDATE] Respuesta GAS:', JSON.stringify(response));
 
+    // 📢 Crear notificación local
+    try {
+      const { addNotification } = require('./notifications');
+      const statusLabels = {
+        pending: 'Pendiente',
+        preparing: 'En preparación',
+        ready: 'Listo',
+        delivered: 'Entregado',
+        cancelled: 'Cancelado',
+        'cancelado_cliente': 'Cancelado por cliente',
+      };
+      await addNotification({
+        title: `Pedido #${idStr}`,
+        message: `Estado: ${statusLabels[newStatus] || newStatus}`,
+        type: newStatus === 'preparing' ? 'kitchen' : newStatus === 'delivered' ? 'delivery' : 'order',
+        data: { orderId: idStr, status: newStatus },
+      });
+    } catch (e) {}
+
     // También actualizar detalle para consistencia en segundo plano
     gasPost({
         action: "UPDATE",
@@ -801,6 +823,39 @@ export const updateOrderStatus = async (orderId, newStatus, extraData = {}) => {
           blacklistUser(order.email).catch(err => console.error('❌ [BLACKLIST] Fallo:', err));
         }
       });
+    }
+
+    // 🚀 [NOTIFICACION CLIENTE] Enviar alerta local al cliente del cambio de estado
+    if (!silent) {
+      try {
+        const orders = await fetchOrders();
+        const order = orders.find(o => String(o.id).split('.')[0].trim() === idStr);
+        if (order) {
+          const { notifyOrderStatus } = require('./notifications');
+          notifyOrderStatus(idStr, newStatus).catch(err => console.warn('[NOTIF CLIENTE] Fallo en background:', err));
+        }
+      } catch (e) {
+        console.warn('[NOTIF CLIENTE] Error preparando notificación:', e);
+      }
+    }
+
+    // 🚀 [BROADCAST REPARTIDORES] Avisar a todos los repartidores si es un delivery libre
+    if (newStatus === 'ready' || newStatus === 'listo' || newStatus === 'pending') {
+      try {
+        const orders = await fetchOrders();
+        const order = orders.find(o => String(o.id).split('.')[0].trim() === idStr);
+        if (order) {
+           const isDelivery = String(order.tipo || order.Tipo || '').toLowerCase() === 'delivery';
+           const hasRider = order.ID_Rider && String(order.ID_Rider).toLowerCase() !== 'n/a' && String(order.ID_Rider).toLowerCase() !== 'pendiente' && String(order.ID_Rider).trim() !== '';
+           
+           if (isDelivery && !hasRider) {
+             const { broadcastToAllRiders } = require('./notifications');
+             broadcastToAllRiders(order).catch(e => console.warn('[BROADCAST] Error:', e));
+           }
+        }
+      } catch (e) {
+        console.warn('[BROADCAST] Catch exterior:', e);
+      }
     }
 
     return response;
@@ -2520,7 +2575,7 @@ export const fetchOrderDetails = async (orderId) => {
         status: 'on_the_way',
         estimatedTime: '15-20 min',
         rider: { name: 'Juan Pérez', phone: '+1234567890', location: { lat: 18.5001, lng: -69.9880 } },
-        restaurantLocation: { lat: 18.4861, lng: -69.9312 },
+        restaurantLocation: { lat: CONFIG.STORE_LOCATION.latitude, lng: CONFIG.STORE_LOCATION.longitude },
         items: []
       };
     }
@@ -2538,6 +2593,32 @@ export const fetchOrderDetails = async (orderId) => {
     const excelStatus = getRobustProp(order, 'Estado') || 'Pendiente';
     const finalStatus = STATUS_MAP.fromExcel(excelStatus);
 
+    // Intentar extraer coordenadas de diferentes fuentes
+    let clientLocation = null;
+    const rawLat = getRobustProp(order, 'Latitud');
+    const rawLng = getRobustProp(order, 'Longitud');
+    if (rawLat && rawLng) {
+      clientLocation = { latitude: Number(rawLat), longitude: Number(rawLng) };
+    }
+    if (!clientLocation) {
+      const direccionRaw = getRobustProp(order, 'Direccion') || getRobustProp(order, 'direccion') || getRobustProp(order, 'Dirección') || getRobustProp(order, 'Ubicacion') || getRobustProp(order, 'Ubicación') || '';
+      const coordsMatch = direccionRaw.match(/^(-?\d+\.?\d*),\s*(-?\d+\.?\d*)/);
+      if (coordsMatch) {
+        clientLocation = { latitude: Number(coordsMatch[1]), longitude: Number(coordsMatch[2]) };
+      }
+    }
+    if (!clientLocation) {
+      const direccionText = getRobustProp(order, 'Direccion') || getRobustProp(order, 'direccion') || '';
+      const cleanText = direccionText.replace(/^\d+\.?\d*,\s*-?\d+\.?\d*\s*\|\s*/, '').trim();
+      if (cleanText) {
+        try {
+          clientLocation = await geocodeAddress(cleanText);
+        } catch (e) {
+          console.warn('[fetchOrderDetails] Geocoding failed:', e.message);
+        }
+      }
+    }
+
     return {
         id: orderId,
         status: finalStatus,
@@ -2546,9 +2627,10 @@ export const fetchOrderDetails = async (orderId) => {
         total: parseFloat(getRobustProp(order, 'Total')) || 0,
         estimatedTime: '20-30 min',
         direccion: getRobustProp(order, 'Direccion') || getRobustProp(order, 'direccion') || getRobustProp(order, 'Dirección') || getRobustProp(order, 'Ubicacion') || getRobustProp(order, 'Ubicación') || '',
+        location: clientLocation,
         hora: getRobustProp(order, 'Entrada'),
         rider: { name: 'Asignando...', phone: '', location: { lat: 18.5001, lng: -69.9880 } },
-        restaurantLocation: { lat: 18.4861, lng: -69.9312 }, // Coordenadas fijas o base del negocio
+        restaurantLocation: { lat: CONFIG.STORE_LOCATION.latitude, lng: CONFIG.STORE_LOCATION.longitude },
         items: itemsDetectados.length > 0 ? itemsDetectados.map(it => ({
             nombre: it.nombre || it.name || it.product || 'Producto',
             cantidad: it.cantidad || it.quantity || 1,
@@ -2756,6 +2838,51 @@ export const toggleProductStock = async (productId, currentAgotado) => {
 };
 
 
+const formatDistance = (meters) => {
+  if (meters < 1000) return Math.round(meters) + ' m';
+  return (meters / 1000).toFixed(1) + ' km';
+};
+
+export const geocodeAddress = async (address) => {
+  const apiKey = CONFIG.GOOGLE_MAPS_API_KEY;
+  if (!apiKey || !address || !address.trim()) return null;
+
+  const cleanAddr = address.replace(/^\d+\.?\d*,\s*-?\d+\.?\d*\s*\|\s*/, '').trim();
+  if (!cleanAddr) return null;
+
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(cleanAddr)}&components=country:do&key=${apiKey}`;
+
+  try {
+    if (Platform.OS !== 'web') {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.status === 'OK' && data.results?.[0]) {
+        return {
+          latitude: data.results[0].geometry.location.lat,
+          longitude: data.results[0].geometry.location.lng
+        };
+      }
+    } else {
+      const proxyUrl = CONFIG.GAS_API_URL;
+      const res = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ action: 'GEOCODE', data: { address: cleanAddr, key: apiKey } })
+      });
+      const data = await res.json();
+      if (data.results?.[0]) {
+        return {
+          latitude: data.results[0].geometry.location.lat,
+          longitude: data.results[0].geometry.location.lng
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('[geocodeAddress] Error:', e.message);
+  }
+  return null;
+};
+
 export const getRouteDetails = async (origin, destination) => {
   const apiKey = CONFIG.GOOGLE_MAPS_API_KEY;
   if (!apiKey) {
@@ -2770,33 +2897,8 @@ export const getRouteDetails = async (origin, destination) => {
 
   const originStr = `${origin.latitude},${origin.longitude}`;
   const destStr = `${destination.latitude},${destination.longitude}`;
-
-  // 🛡️ Detección de distancia cero: si ambos puntos están a menos de 100m,
-  // retornar 0 directamente sin gastar cuota de la API
-  const toRad = (val) => (val * Math.PI) / 180;
-  const R = 6371000; // metros
-  const dLat = toRad(destination.latitude - origin.latitude);
-  const dLon = toRad(destination.longitude - origin.longitude);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(origin.latitude)) * Math.cos(toRad(destination.latitude)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const straightLineMeters = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  if (straightLineMeters < 100) {
-    console.log(`[getRouteDetails] Origen y destino a ${straightLineMeters.toFixed(0)}m → retornando 0 km`);
-    return {
-      distance: '0 m',
-      distanceValue: 0,
-      duration: '1 min',
-      durationValue: 60,
-      polyline: '',
-      bounds: null,
-      steps: []
-    };
-  }
   
-  const googleUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${originStr}&destination=${destStr}&key=${apiKey}`;
+  const googleUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${originStr}&destination=${destStr}&mode=driving&key=${apiKey}`;
 
   try {
     let data;
@@ -2861,7 +2963,7 @@ export const getRouteDetails = async (origin, destination) => {
       const route = routes[0];
       const leg = route.legs[0];
       return {
-        distance: leg.distance?.text || '---',
+        distance: leg.distance?.value ? formatDistance(leg.distance.value) : '---',
         distanceValue: leg.distance?.value || 0,
         duration: leg.duration?.text || '---',
         durationValue: leg.duration?.value || 0,
@@ -2878,6 +2980,74 @@ export const getRouteDetails = async (origin, destination) => {
     console.error('Error fatal en getRouteDetails:', error);
     return null;
   }
+};
+
+export const getOptimizedMultiStopRoute = async (origin, destinations) => {
+  const apiKey = CONFIG.GOOGLE_MAPS_API_KEY;
+  if (!apiKey || destinations.length === 0) return null;
+
+  const originStr = `${origin.latitude},${origin.longitude}`;
+  
+  // Destination is the last one in the array
+  const lastDest = destinations[destinations.length - 1];
+  const destStr = `${lastDest.latitude},${lastDest.longitude}`;
+  
+  let waypointsQuery = '';
+  if (destinations.length > 1) {
+    const waypoints = destinations.slice(0, -1).map(d => `${d.latitude},${d.longitude}`).join('|');
+    waypointsQuery = `&waypoints=optimize:true|${waypoints}`;
+  }
+
+  const googleUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${originStr}&destination=${destStr}${waypointsQuery}&key=${apiKey}&mode=driving`;
+  
+  try {
+    let data;
+    if (Platform.OS !== 'web') {
+      const response = await fetch(googleUrl);
+      if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+      data = await response.json();
+    } else {
+      const proxyUrl = CONFIG.GAS_API_URL;
+      try {
+        const fallbackUrl = `${proxyUrl}${proxyUrl.includes('?') ? '&' : '?'}action=GET_ROUTE&origin=${originStr}&destination=${destStr}&waypoints=${encodeURIComponent(waypointsQuery)}&key=${apiKey}`;
+        const res2 = await fetch(fallbackUrl);
+        data = await res2.json();
+      } catch (e) {
+        const res3 = await fetch(googleUrl);
+        data = await res3.json();
+      }
+    }
+
+    const { routes, status, error_message } = data;
+    if (status !== 'OK') {
+      console.error('Google Maps API Error:', status, error_message);
+      return null;
+    }
+
+    if (routes && routes.length > 0) {
+      const route = routes[0];
+      
+      let totalDistance = 0;
+      let totalDuration = 0;
+      route.legs.forEach(leg => {
+        totalDistance += leg.distance?.value || 0;
+        totalDuration += leg.duration?.value || 0;
+      });
+      
+      return {
+        distance: formatDistance(totalDistance),
+        distanceValue: totalDistance,
+        duration: Math.round(totalDuration / 60) + ' min',
+        durationValue: totalDuration,
+        polyline: route.overview_polyline?.points || '',
+        waypointOrder: route.waypoint_order || [],
+        legs: route.legs || []
+      };
+    }
+  } catch (error) {
+    console.error('Error fatal en getOptimizedMultiStopRoute:', error);
+  }
+  return null;
 };
 
 export const decodePolyline = (t) => {

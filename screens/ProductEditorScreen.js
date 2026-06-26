@@ -24,12 +24,16 @@ import { getThemeColors, spacing, typography, borders, shadows } from '../theme/
 import GlassPanel from '../components/GlassPanel';
 import { useProducts } from '../contexts/AppContext';
 import { useUser } from '../contexts/UserContext';
+import AccessDeniedScreen from '../components/AccessDeniedScreen';
 
 const ProductEditorScreen = ({ navigation, route }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const { refetchProducts, updateProductLocally } = useProducts();
-  const { user } = useUser();
+  const { user, role } = useUser();
+  const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
+
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
   const { product, isSuggestionFlow } = route.params || {};
   const isEditing = !!product && !isSuggestionFlow;
 
@@ -915,7 +919,7 @@ const ProductEditorScreen = ({ navigation, route }) => {
               {/* Buscador de Almacén */}
               <Text style={{ fontWeight: 'bold', color: colors.primary, marginBottom: 10 }}>Añadir del Almacén</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, padding: 10, borderRadius: 8, marginBottom: 10 }}>
-                <FontAwesome5 name="search" size={14} color={colors.text.secondary} style={{ marginRight: 10 }} />
+                <FontAwesome5 name="search" size={14} color={colors.primary} style={{ marginRight: 10 }} />
                 <TextInput
                   placeholder="Buscar insumo..."
                   placeholderTextColor={colors.text.secondary}

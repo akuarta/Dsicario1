@@ -1,103 +1,91 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { View, Text } from 'react-native';
+import React, { forwardRef, useState } from 'react';
+import { View, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { CONFIG } from '../constants/Config';
 
-const MapEvents = ({ initialRegion, onRegionChangeComplete, isProgrammaticMove, MapComponents }) => {
-  const { useMapEvents } = MapComponents;
-  const lastEmittedCenter = useRef({ lat: initialRegion?.latitude || 18.48, lng: initialRegion?.longitude || -69.93 });
-  
-  const map = useMapEvents({
-    moveend(e) {
-      if (isProgrammaticMove.current) {
-        isProgrammaticMove.current = false;
-        return;
-      }
-      const center = e.target.getCenter();
-      
-      if (
-        Math.abs(center.lat - lastEmittedCenter.current.lat) > 0.00005 || 
-        Math.abs(center.lng - lastEmittedCenter.current.lng) > 0.00005
-      ) {
-        lastEmittedCenter.current = { lat: center.lat, lng: center.lng };
-        if (onRegionChangeComplete) {
-          onRegionChangeComplete({
-            latitude: center.lat,
-            longitude: center.lng,
-          });
-        }
-      }
-    }
-  });
-  return null;
-};
+const AppMap = forwardRef(({
+  darkMode,
+  style,
+  initialRegion,
+  origin,
+  destination,
+  routeData,
+  children,
+  ...props
+}, ref) => {
+  const originKey = origin ? `${origin.latitude},${origin.longitude}` : '';
+  const destKey = destination ? `${destination.latitude},${destination.longitude}` : '';
 
-const ChangeView = ({ center, isProgrammaticMove, MapComponents }) => {
-  const map = MapComponents.useMap();
-  useEffect(() => {
-    // Fix Leaflet zero-size bug in modals
-    const timer = setTimeout(() => {
-      map.invalidateSize();
-    }, 400);
+  console.log('[AppMap.web] render', { originKey, destKey, hasRouteData: !!routeData });
 
-    if (center && center[0] && center[1]) {
-      const currentCenter = map.getCenter();
-      if (Math.abs(currentCenter.lat - center[0]) > 0.00001 || Math.abs(currentCenter.lng - center[1]) > 0.00001) {
-        isProgrammaticMove.current = true;
-        map.setView(center, map.getZoom(), { animate: false });
-      }
-    }
-    return () => clearTimeout(timer);
-  }, [center[0], center[1], map]);
-  return null;
-};
+  let mapUrl;
+  if (origin && destination) {
+    mapUrl = `https://www.google.com/maps/embed/v1/directions?key=${CONFIG.GOOGLE_MAPS_API_KEY}&origin=${originKey}&destination=${destKey}&mode=driving`;
+  } else {
+    const lat = initialRegion?.latitude || CONFIG.STORE_LOCATION.latitude;
+    const lng = initialRegion?.longitude || CONFIG.STORE_LOCATION.longitude;
+    mapUrl = `https://www.google.com/maps/embed/v1/view?key=${CONFIG.GOOGLE_MAPS_API_KEY}&center=${lat},${lng}&zoom=16&maptype=roadmap`;
+  }
 
-export default function AppMap({ style, initialRegion, onRegionChangeComplete }) {
-  const [MapComponents, setMapComponents] = useState(null);
-  const isProgrammaticMove = useRef(false);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-      document.head.appendChild(link);
-
-      const RL = require('react-leaflet');
-      setMapComponents(RL);
-
-      return () => {
-        try { document.head.removeChild(link); } catch (e) {}
-      };
-    }
-  }, []);
-
-  if (!MapComponents) return <View style={style} ><Text>Cargando mapa web...</Text></View>;
-
-  const { MapContainer, TileLayer } = MapComponents;
+  const handlePrecision = () => {
+    window.open(`https://www.google.com/maps/dir/?api=1&origin=${originKey}&destination=${destKey}&travelmode=driving`, '_blank');
+  };
 
   return (
-    <View style={style}>
-      <MapContainer 
-        center={[initialRegion?.latitude || 18.48, initialRegion?.longitude || -69.93]} 
-        zoom={15} 
-        style={{ width: '100%', height: '100%' }}
-        zoomControl={false}
-      >
-        <TileLayer 
-          url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}" 
-          attribution="Google Maps"
-        />
-        <MapEvents 
-          initialRegion={initialRegion} 
-          onRegionChangeComplete={onRegionChangeComplete} 
-          isProgrammaticMove={isProgrammaticMove} 
-          MapComponents={MapComponents} 
-        />
-        <ChangeView 
-          center={[initialRegion?.latitude || 18.48, initialRegion?.longitude || -69.93]} 
-          isProgrammaticMove={isProgrammaticMove} 
-          MapComponents={MapComponents} 
-        />
-      </MapContainer>
+    <View ref={ref} style={[styles.container, style]}>
+      <iframe
+        key={`${originKey}-${destKey}`}
+        style={styles.iframe}
+        loading="lazy"
+        allowFullScreen
+        src={mapUrl}
+      />
+
+      <View style={styles.controls}>
+        <TouchableOpacity
+          style={[styles.controlBtn, { backgroundColor: darkMode ? '#2C2C2E' : '#FFFFFF' }]}
+          onPress={handlePrecision}
+        >
+          <MaterialIcons name="my-location" size={22} color="#007AFF" />
+        </TouchableOpacity>
+      </View>
+
+      {routeData?.duration && (
+        <View style={[styles.etaBadge, { backgroundColor: darkMode ? '#1C1C1E' : '#FFFFFF' }]}>
+          <Text style={[styles.etaText, { color: darkMode ? '#FFF' : '#1A1A1A' }]}>
+            {routeData.duration}
+          </Text>
+          {routeData?.distance && (
+            <>
+              <View style={[styles.etaDot, { backgroundColor: '#007AFF' }]} />
+              <Text style={[styles.etaText, { color: '#007AFF' }]}>{routeData.distance}</Text>
+            </>
+          )}
+        </View>
+      )}
+
+      {children}
     </View>
   );
-}
+});
+
+const styles = StyleSheet.create({
+  container: { position: 'relative', overflow: 'hidden', borderRadius: 24, width: '100%', height: '100%' },
+  iframe: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none', borderRadius: 24 },
+  controls: { position: 'absolute', right: 14, bottom: 14, gap: 10, zIndex: 10 },
+  controlBtn: {
+    width: 44, height: 44, borderRadius: 22,
+    justifyContent: 'center', alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.18, shadowRadius: 4,
+  },
+  etaBadge: {
+    position: 'absolute', bottom: 14, alignSelf: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 16, paddingVertical: 9, borderRadius: 50,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8,
+  },
+  etaText: { fontSize: 13, fontWeight: '700', letterSpacing: 0.2 },
+  etaDot: { width: 4, height: 4, borderRadius: 2 },
+});
+
+export default AppMap;

@@ -18,7 +18,18 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { updateOrderStatus, getRouteDetails } from '../utils/api';
-import { getDistance } from '../utils/mathUtils';
+import { subscribeToRiderLocation } from '../utils/locationService';
+import { getDistance, getDistanceMeters } from '../utils/mathUtils';
+
+// Importar expo-location solo en native
+let Location = null;
+if (Platform.OS !== 'web') {
+  try {
+    Location = require('expo-location');
+  } catch (e) {
+    console.warn('expo-location not available:', e);
+  }
+}
 
 import { FontAwesome5 } from '@expo/vector-icons';
 import GlassPanel from '../components/GlassPanel';
@@ -30,6 +41,7 @@ import { CONFIG } from '../constants/Config';
 import { useOrder } from '../contexts/OrderContext';
 import { useUser } from '../contexts/UserContext';
 import { getThemeColors, shadows, glass } from '../theme/theme';
+import AccessDeniedScreen from '../components/AccessDeniedScreen';
 
 const { height, width } = Dimensions.get('window');
 
@@ -37,29 +49,56 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const { isAutoSyncEnabled } = useDataSync();
-  const { role, username } = useUser();
+  const { role, username, userId, email } = useUser();
 
   const isStaff = useMemo(() => {
     const currentRole = role || '';
-    return ['admin', 'staff', 'waiter', 'owner'].includes(currentRole.toLowerCase());
+    return ['admin', 'staff', 'waiter', 'owner', 'delivery', 'repartidor'].includes(currentRole.toLowerCase());
   }, [role]);
   
   const orderId = route.params?.orderId || "DS-" + Math.random().toString(36).substr(2, 6).toUpperCase();
   const { orderDetails, loading, loadOrderDetails, refreshOrder } = useOrder();
   
+  const isAuthorized = useMemo(() => {
+    if (loading || !orderDetails) return true; // Wait for loading
+    if (isStaff) return true;
+    
+    // Check ownership
+    const orderEmail = (orderDetails.email || orderDetails.Email || '').toLowerCase().trim();
+    const myEmail = (email || '').toLowerCase().trim();
+    if (orderEmail && myEmail && orderEmail === myEmail) return true;
+    
+    if (orderDetails.userId && userId && String(orderDetails.userId) === String(userId)) return true;
+    
+    return false;
+  }, [loading, orderDetails, isStaff, email, userId]);
+
   const [routeData, setRouteData] = useState(null);
   const [fetchingRoute, setFetchingRoute] = useState(false);
+  const [deviceLocation, setDeviceLocation] = useState(null);
+
+  if (!loading && !isAuthorized) {
+    return <AccessDeniedScreen navigation={navigation} message={`No tienes permiso para ver o rastrear el pedido ${orderId}.`} />;
+  }
 
   // Ubicaciones
   const storeLocation = CONFIG.STORE_LOCATION;
   
+  const tipoEntrega = (orderDetails?.tipo || 'Domicilio').toLowerCase();
+  const isDelivery = tipoEntrega === 'domicilio' || tipoEntrega === 'delivery' || tipoEntrega === 'envio' || tipoEntrega === 'envío';
+
   const clientLocation = useMemo(() => {
+    // Para pedidos pickup/local, usar la ubicación del dispositivo si está disponible
+    if (!isDelivery && deviceLocation) {
+      console.log('[DeliveryTracking] Using device location for pickup:', deviceLocation);
+      return deviceLocation;
+    }
+    
     let loc = orderDetails?.location || { 
-      latitude: route.params?.lat || 18.486, 
-      longitude: route.params?.lng || -69.931 
+      latitude: route.params?.lat || CONFIG.STORE_LOCATION.latitude, 
+      longitude: route.params?.lng || CONFIG.STORE_LOCATION.longitude 
     };
 
-    // Si viene como string "lat,lng", parsearlo
     if (typeof loc === 'string') {
       try {
         const [lat, lng] = loc.split(',').map(n => parseFloat(n.trim()));
@@ -69,27 +108,53 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
       }
     }
     
-    // Asegurar que lat y lng sean números
-    return {
-      latitude: Number(loc.latitude) || 18.486,
-      longitude: Number(loc.longitude) || -69.931
+    const result = {
+      latitude: Number(loc.latitude) || CONFIG.STORE_LOCATION.latitude,
+      longitude: Number(loc.longitude) || CONFIG.STORE_LOCATION.longitude
     };
-  }, [orderDetails, route.params]);
-
-  const tipoEntrega = (orderDetails?.tipo || 'Domicilio').toLowerCase();
-
-  const isDelivery = tipoEntrega === 'domicilio' || tipoEntrega === 'delivery' || tipoEntrega === 'envio' || tipoEntrega === 'envío';
+    
+    console.log('[DeliveryTracking] clientLocation:', {
+      fromOrder: !!orderDetails?.location,
+      fromParams: !!(route.params?.lat && route.params?.lng),
+      fromDevice: !isDelivery && !!deviceLocation,
+      result
+    });
+    
+    return result;
+  }, [orderDetails, route.params, isDelivery, deviceLocation]);
 
   // Cargar ruta real de Google
   useEffect(() => {
+    if (!orderDetails) return;
+    
     const fetchRealRoute = async () => {
-      if (!clientLocation || !storeLocation) return;
+      // Para pickup/local, SOLO usar ubicación del dispositivo (GPS)
+      // orderDetails.location es la dirección del cliente (casa), no sirve para recogida
+      if (!isDelivery && !deviceLocation) {
+        console.log('[DeliveryTracking] Pickup sin GPS aún, esperando...');
+        return;
+      }
       
+      const currentClientLocation = (!isDelivery && deviceLocation) ? deviceLocation : clientLocation;
+      
+      if (!currentClientLocation || !storeLocation) return;
+      
+      // Para delivery: store → client. Para pickup: client → store
+      const origin = isDelivery ? storeLocation : currentClientLocation;
+      const destination = isDelivery ? currentClientLocation : storeLocation;
+      
+      const originDistMeters = getDistanceMeters(origin.latitude, origin.longitude, destination.latitude, destination.longitude);
+      
+      // Si origen y destino son casi iguales, no fetcheear
+      if (originDistMeters < 10) {
+        console.log('[DeliveryTracking] Origin and destination too close:', Math.round(originDistMeters) + ' m');
+        return;
+      }
+      
+      console.log('[DeliveryTracking] Fetching route:', { origin, destination, isDelivery, originDist: Math.round(originDistMeters) + ' m', hasDeviceLocation: !!deviceLocation });
       setFetchingRoute(true);
-      const origin = isDelivery ? storeLocation : clientLocation;
-      const destination = isDelivery ? clientLocation : storeLocation;
-      
       const data = await getRouteDetails(origin, destination);
+      console.log('[DeliveryTracking] Route data:', data ? { distance: data.distance, duration: data.duration, hasPolyline: !!data.polyline } : 'null');
       if (data) {
         setRouteData(data);
       }
@@ -97,10 +162,66 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     };
 
     fetchRealRoute();
-  }, [clientLocation, isDelivery]);
+  }, [orderDetails, clientLocation, isDelivery, deviceLocation]);
 
-  const distance = useMemo(() => 
-    routeData?.distance || getDistance(storeLocation.latitude, storeLocation.longitude, clientLocation.latitude, clientLocation.longitude) + " km",
+  // Obtener ubicación del dispositivo para pedidos pickup/local
+  useEffect(() => {
+    const getDeviceLocation = async () => {
+      if (isDelivery) return;
+      
+      if (Platform.OS === 'web') {
+        if (!navigator.geolocation) {
+          console.log('[DeliveryTracking] Geolocation not available on web');
+          return;
+        }
+        
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            if (position.coords.accuracy > 1000) {
+              console.warn('[DeliveryTracking] GPS accuracy too low:', position.coords.accuracy, 'm — skipping device location');
+              return;
+            }
+            setDeviceLocation({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            });
+            console.log('[DeliveryTracking] Web device location:', position.coords);
+          },
+          (error) => {
+            console.error('[DeliveryTracking] Web geolocation error:', error);
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+        return;
+      }
+
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          console.log('[DeliveryTracking] Permiso de ubicación denegado');
+          return;
+        }
+        
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        
+        setDeviceLocation({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
+        
+        console.log('[DeliveryTracking] Device location:', location.coords);
+      } catch (error) {
+        console.error('[DeliveryTracking] Error getting device location:', error);
+      }
+    };
+    
+    getDeviceLocation();
+  }, [isDelivery]);
+
+  const distance = useMemo(() =>
+    routeData?.distance || getDistance(storeLocation.latitude, storeLocation.longitude, clientLocation.latitude, clientLocation.longitude),
     [clientLocation, routeData]
   );
   
@@ -112,14 +233,15 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
   const [isScannerVisible, setIsScannerVisible] = useState(false);
   const [isProcessingQR, setIsProcessingQR] = useState(false);
   const [scanned, setScanned] = useState(false);
-  const [showMapForLocal, setShowMapForLocal] = useState(false);
+  const [riderLocation, setRiderLocation] = useState(null);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     floatingHeader: {
       position: 'absolute',
-      top: Platform.OS === 'ios' ? 40 : 10,
+      top: Platform.OS === 'ios' ? 50 : 40,
       left: 0,
       right: 0,
       zIndex: 10,
@@ -151,7 +273,7 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     },
     etaSection: {
       position: 'absolute',
-      top: 100,
+      top: 110,
       alignSelf: 'center',
       zIndex: 5,
     },
@@ -302,13 +424,13 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     loadOrderDetails(orderId);
     Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.1, duration: 1000, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1.1, duration: 1000, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: Platform.OS !== 'web' }),
       ])
     ).start();
     Animated.parallel([
-      Animated.spring(slideAnim, { toValue: 0, tension: 20, friction: 7, useNativeDriver: true }),
-      Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true })
+      Animated.spring(slideAnim, { toValue: 0, tension: 20, friction: 7, useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: Platform.OS !== 'web' })
     ]).start();
     let interval = null;
     if (isAutoSyncEnabled) {
@@ -387,13 +509,24 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
 
   const currentStepIndex = getStatusIndex(orderDetails?.estado);
 
-  if (loading && !orderDetails) {
+  if (loading || !orderDetails) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
         <Text style={{ marginTop: 20, color: colors.text.secondary }}>Cargando ruta mágica...</Text>
       </View>
     );
+  }
+
+  // Verificar propiedad: clientes solo pueden ver sus propios pedidos
+  if (!isStaff) {
+    const orderUserId = orderDetails.id_user || orderDetails.ID_Usuario || '';
+    const currentUserId = userId || email || '';
+    const isOwner = orderUserId && currentUserId &&
+      (String(orderUserId).toLowerCase() === String(currentUserId).toLowerCase());
+    if (!isOwner) {
+      return <AccessDeniedScreen navigation={navigation} message="No tienes permiso para ver los detalles de este pedido." />;
+    }
   }
 
 
@@ -415,13 +548,12 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
         </TouchableOpacity>
       </View>
 
-      {isDelivery || showMapForLocal ? (
-        <View style={styles.mapWrapper}>
+      <View style={styles.mapWrapper}>
           <DeliveryMap 
             darkMode={darkMode} 
             colors={colors} 
-            origin={isDelivery ? CONFIG.STORE_LOCATION : clientLocation}
-            destination={isDelivery ? clientLocation : CONFIG.STORE_LOCATION} 
+            origin={isDelivery ? CONFIG.STORE_LOCATION : (deviceLocation || CONFIG.STORE_LOCATION)}
+            destination={isDelivery ? clientLocation : CONFIG.STORE_LOCATION}
             routeData={routeData}
             isPickup={!isDelivery}
             pulseAnim={pulseAnim} 
@@ -430,7 +562,9 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
           <Animated.View style={[styles.etaSection, { opacity: fadeAnim, transform: [{ scale: fadeAnim }, { translateY: pulseAnim.interpolate({ inputRange: [1, 1.1], outputRange: [0, -5] }) }] }]}>
             <GlassPanel intensity={40} style={styles.etaContainer}>
               <View style={{ alignItems: 'center' }}>
-                <Text style={[styles.etaLabel, { color: colors.primary, fontWeight: '900' }]}>{isDelivery ? 'LLEGADA ESTIMADA' : 'RECOGIDA ESTIMADA'}</Text>
+                <Text style={[styles.etaLabel, { color: colors.primary, fontWeight: '900' }]}>
+                  {isDelivery ? 'LLEGADA ESTIMADA' : !isDelivery ? 'RECOGIDA ESTIMADA' : 'UBICACIÓN DEL LOCAL'}
+                </Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
                   <FontAwesome5 name="clock" size={20} color={colors.primary} style={{ marginRight: 10 }} />
                   <Text style={[styles.etaTime, { fontSize: 28 }]}>{routeData?.duration || orderDetails?.eta || '20 min'}</Text>
@@ -443,48 +577,7 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
               </View>
             </GlassPanel>
           </Animated.View>
-          {showMapForLocal && !isDelivery && (
-            <TouchableOpacity 
-              style={{ position: 'absolute', top: Platform.OS === 'ios' ? 50 : 20, right: 20, backgroundColor: colors.surface, padding: 12, borderRadius: 20, zIndex: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 3, elevation: 5 }}
-              onPress={() => setShowMapForLocal(false)}
-            >
-              <FontAwesome5 name="times" size={18} color={colors.text.primary} />
-            </TouchableOpacity>
-          )}
         </View>
-      ) : (
-        <View style={[styles.mapWrapper, { justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }]}>
-          <View style={{ width: 120, height: 120, borderRadius: 60, backgroundColor: colors.primary + '20', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
-            <FontAwesome5 name="store-alt" size={50} color={colors.primary} />
-          </View>
-          <Text style={{ fontSize: 26, fontWeight: '900', color: colors.text.primary }}>Recogida en Local</Text>
-          <Text style={{ marginTop: 10, fontSize: 15, color: colors.text.secondary, textAlign: 'center', paddingHorizontal: 40, marginBottom: 30 }}>
-            Tu pedido se preparará en nuestro establecimiento. Acércate al mostrador cuando esté listo.
-          </Text>
-
-          <Text style={{ fontSize: 16, fontWeight: 'bold', color: colors.text.primary, marginBottom: 15 }}>
-            ¿Sabes llegar al local?
-          </Text>
-          <View style={{ flexDirection: 'row', gap: 15 }}>
-            <TouchableOpacity 
-              style={{ paddingVertical: 12, paddingHorizontal: 40, borderRadius: 25, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary }}
-              onPress={() => {
-                // Ya no hace falta mostrar mapa si sabe llegar
-                // Se queda en esta misma vista
-                showAlert("¡Genial!", "Te esperamos en nuestro local para entregarte tu pedido.");
-              }}
-            >
-              <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 16 }}>Sí</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={{ paddingVertical: 12, paddingHorizontal: 30, borderRadius: 25, backgroundColor: colors.primary }}
-              onPress={() => setShowMapForLocal(true)}
-            >
-              <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 16 }}>No, ver mapa</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
 
       <Animated.View style={[styles.infoSheet, { transform: [{ translateY: slideAnim }] }]}>
         <View style={styles.dragHandle} />
@@ -577,9 +670,100 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
             </TouchableOpacity>
           )}
 
-          <TouchableOpacity style={styles.detailsBtn} onPress={() => navigation.navigate('Config')}><Text style={styles.detailsBtnText}>Detalles de la Factura</Text><FontAwesome5 name="chevron-right" size={12} color={colors.text.light} /></TouchableOpacity>
+          <TouchableOpacity style={styles.detailsBtn} onPress={() => setShowInvoiceModal(true)}><Text style={styles.detailsBtnText}>Detalles de la Factura</Text><FontAwesome5 name="chevron-right" size={12} color={colors.text.light} /></TouchableOpacity>
         </ScrollView>
       </Animated.View>
+
+      {/* 🧾 MODAL DE DETALLE DE FACTURA */}
+      <Modal visible={showInvoiceModal} transparent animationType="slide" onRequestClose={() => setShowInvoiceModal(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ 
+            backgroundColor: colors.surface, 
+            borderTopLeftRadius: 24, 
+            borderTopRightRadius: 24, 
+            maxHeight: '85%',
+            paddingTop: 20,
+          }}>
+            {/* Header */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 15 }}>
+              <Text style={{ fontSize: 20, fontWeight: 'bold', color: colors.text.primary }}>Resumen del Pedido</Text>
+              <TouchableOpacity onPress={() => setShowInvoiceModal(false)} style={{ padding: 8 }}>
+                <FontAwesome5 name="times" size={20} color={colors.text.secondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ paddingHorizontal: 20, paddingBottom: 30 }}>
+              {/* ID y Estado */}
+              <View style={{ backgroundColor: colors.background, borderRadius: 12, padding: 15, marginBottom: 15 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 14, color: colors.text.secondary }}>Pedido</Text>
+                  <Text style={{ fontSize: 16, fontWeight: 'bold', color: colors.primary }}>#{orderDetails?.id || orderId}</Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                  <Text style={{ fontSize: 14, color: colors.text.secondary }}>Estado</Text>
+                  <View style={{ backgroundColor: colors.primary + '20', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                    <Text style={{ fontSize: 12, fontWeight: 'bold', color: colors.primary }}>{orderDetails?.estado || 'En proceso'}</Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                  <Text style={{ fontSize: 14, color: colors.text.secondary }}>Hora</Text>
+                  <Text style={{ fontSize: 14, color: colors.text.primary }}>{orderDetails?.hora || 'N/A'}</Text>
+                </View>
+              </View>
+
+              {/* Cliente */}
+              <View style={{ backgroundColor: colors.background, borderRadius: 12, padding: 15, marginBottom: 15 }}>
+                <Text style={{ fontSize: 14, color: colors.text.secondary, marginBottom: 8 }}>Cliente</Text>
+                <Text style={{ fontSize: 16, fontWeight: 'bold', color: colors.text.primary }}>{orderDetails?.cliente || 'Invitado'}</Text>
+                <Text style={{ fontSize: 13, color: colors.text.secondary, marginTop: 4 }}>
+                  {String(orderDetails?.direccion || '').split('|').pop().trim() || 'Sin dirección'}
+                </Text>
+              </View>
+
+              {/* Tipo de Entrega */}
+              <View style={{ backgroundColor: colors.background, borderRadius: 12, padding: 15, marginBottom: 15 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 14, color: colors.text.secondary }}>Tipo de Entrega</Text>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text.primary }}>
+                    {orderDetails?.tipo === 'delivery' || orderDetails?.tipo === 'domicilio' ? '🏠 Domicilio' : 
+                     orderDetails?.tipo === 'pickup' ? '🏪 Recogida' : '🍽️ En Local'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Items */}
+              {orderDetails?.items && orderDetails.items.length > 0 && (
+                <View style={{ backgroundColor: colors.background, borderRadius: 12, padding: 15, marginBottom: 15 }}>
+                  <Text style={{ fontSize: 14, color: colors.text.secondary, marginBottom: 12 }}>Productos</Text>
+                  {orderDetails.items.map((item, index) => (
+                    <View key={index} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: index < orderDetails.items.length - 1 ? 1 : 0, borderBottomColor: colors.border }}>
+                      <View style={{ flex: 1, marginRight: 10 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text.primary }}>
+                          {item.nombre || item.name || 'Producto'}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: colors.text.secondary }}>
+                          Cant: {item.cantidad || item.quantity || 1}
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 14, fontWeight: 'bold', color: colors.text.primary }}>
+                        RD$ {((item.precio || item.price || 0) * (item.cantidad || item.quantity || 1)).toFixed(2)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* Total */}
+              <View style={{ backgroundColor: colors.primary + '10', borderRadius: 12, padding: 15, marginBottom: 20, borderWidth: 1, borderColor: colors.primary + '30' }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 18, fontWeight: 'bold', color: colors.text.primary }}>Total</Text>
+                  <Text style={{ fontSize: 22, fontWeight: '900', color: colors.primary }}>RD$ {(orderDetails?.total || 0).toFixed(2)}</Text>
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* 📸 MODAL DE ESCÁNER QR MODULARIZADO */}
       <ScannerModal 

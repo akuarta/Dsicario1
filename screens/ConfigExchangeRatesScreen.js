@@ -14,12 +14,18 @@ import { useThemeMode } from '../contexts/ThemeContext';
 import { useCart } from '../contexts/AppContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import { showAlert } from '../utils/showAlert';
+import { useUser } from '../contexts/UserContext';
+import AccessDeniedScreen from '../components/AccessDeniedScreen';
 
 const ConfigExchangeRatesScreen = () => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const navigation = useNavigation();
   const { exchangeRates, updateExchangeRates } = useCart();
+  const { role } = useUser();
+  const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
+
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
   
   const [tempRates, setTempRates] = useState({});
 

@@ -219,11 +219,11 @@ const StaffModeScreen = () => {
         style={styles.header}
       >
         <View style={styles.headerRow}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('InicioTab')} style={styles.backBtn}>
             <FontAwesome5 name="chevron-left" size={16} color="#FFF" />
           </TouchableOpacity>
           <View>
-            <Text style={styles.headerTitle}>Panel de Gestión</Text>
+            <Text style={styles.headerTitle}>Modo Empleado</Text>
             <Text style={styles.headerSub}>{username} • {role}</Text>
           </View>
         </View>
@@ -231,28 +231,38 @@ const StaffModeScreen = () => {
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* MODO CLIENTE TOGGLE */}
-        <LinearGradient
-          colors={isClientMode ? [colors.primary + '15', colors.primary + '05'] : [colors.surface, colors.surface]}
-          style={styles.clientBanner}
+        <TouchableOpacity
+          activeOpacity={0.88}
+          onPress={() => setIsClientMode(!isClientMode)}
         >
-          <View style={[styles.iconBox, { backgroundColor: isClientMode ? colors.primary : colors.border }]}>
-            <MaterialCommunityIcons name="account-eye" size={24} color="#FFF" />
-          </View>
-          <View style={styles.modeText}>
-            <Text style={[styles.modeTitle, isClientMode && { color: colors.primary }]}>
-              {isClientMode ? 'Modo Cliente Activo' : 'Perfil de Trabajo'}
-            </Text>
-            <Text style={styles.modeDesc}>
-              {isClientMode ? 'Estás viendo la app como un usuario' : 'Las herramientas de personal están activas'}
-            </Text>
-          </View>
-          <Switch
-            value={isClientMode}
-            onValueChange={setIsClientMode}
-            trackColor={{ false: colors.border, true: colors.primary + '80' }}
-            thumbColor={isClientMode ? colors.primary : '#f4f3f4'}
-          />
-        </LinearGradient>
+          <LinearGradient
+            colors={isClientMode ? [colors.primary + '15', colors.primary + '05'] : [colors.surface, colors.surface]}
+            style={styles.clientBanner}
+          >
+            <View style={[styles.iconBox, { backgroundColor: isClientMode ? colors.primary : '#475569' }]}>
+              <MaterialCommunityIcons name={isClientMode ? "account-eye" : "shield-account"} size={26} color="#FFF" />
+            </View>
+            <View style={styles.modeText}>
+              <Text style={[styles.modeTitle, isClientMode && { color: colors.primary }]}>
+                {isClientMode ? 'Modo Cliente Activo' : 'Perfil de Trabajo'}
+              </Text>
+              <Text style={styles.modeDesc}>
+                {isClientMode ? 'Estás viendo la app como un usuario' : 'Las herramientas de personal están activas'}
+              </Text>
+            </View>
+            {/* Badge de acción tipo InDrive */}
+            <View style={{
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderRadius: 12,
+              backgroundColor: isClientMode ? '#1E293B' : colors.primary,
+            }}>
+              <Text style={{ color: '#FFF', fontSize: 11, fontWeight: '800', letterSpacing: 0.5 }}>
+                {isClientMode ? 'TRABAJAR' : 'VER APP'}
+              </Text>
+            </View>
+          </LinearGradient>
+        </TouchableOpacity>
 
         {!isClientMode && (
           <>
@@ -293,57 +303,6 @@ const StaffModeScreen = () => {
                 </View>
               </TouchableOpacity>
             ))}
-
-            {isAdmin && (
-              <>
-                <Text style={[styles.sectionLabel, { marginTop: spacing.lg }]}>Administración del Sistema</Text>
-                
-                {/* Gestión de Usuarios */}
-                <TouchableOpacity 
-                  style={[styles.adminShortcut, { borderLeftColor: '#16A085' }]}
-                  onPress={() => navigation.navigate('AdminUsers')}
-                >
-                  <View style={[styles.shortcutIcon, { backgroundColor: '#16A085' + '15' }]}>
-                    <FontAwesome5 name="users" size={18} color="#16A085" />
-                  </View>
-                  <View style={styles.modeText}>
-                    <Text style={styles.modeTitle}>Gestión de Usuarios</Text>
-                    <Text style={styles.modeDesc}>Cuentas, perfiles y datos de clientes</Text>
-                  </View>
-                  <FontAwesome5 name="chevron-right" size={14} color={colors.text.light} />
-                </TouchableOpacity>
-
-                {/* Gestión de Staff */}
-                <TouchableOpacity 
-                  style={[styles.adminShortcut, { borderLeftColor: '#8E44AD' }]}
-                  onPress={() => navigation.navigate('AdminStaff')}
-                >
-                  <View style={[styles.shortcutIcon, { backgroundColor: '#8E44AD' + '15' }]}>
-                    <FontAwesome5 name="user-shield" size={18} color="#8E44AD" />
-                  </View>
-                  <View style={styles.modeText}>
-                    <Text style={styles.modeTitle}>Roles y Permisos</Text>
-                    <Text style={styles.modeDesc}>Configura quién accede a qué módulos</Text>
-                  </View>
-                  <FontAwesome5 name="chevron-right" size={14} color={colors.text.light} />
-                </TouchableOpacity>
-
-                {/* Gestión de Repartidores */}
-                <TouchableOpacity 
-                  style={[styles.adminShortcut, { borderLeftColor: '#2980B9' }]}
-                  onPress={() => navigation.navigate('AdminDeliveryScreen')}
-                >
-                  <View style={[styles.shortcutIcon, { backgroundColor: '#2980B9' + '15' }]}>
-                    <FontAwesome5 name="motorcycle" size={18} color="#2980B9" />
-                  </View>
-                  <View style={styles.modeText}>
-                    <Text style={styles.modeTitle}>Gestión de Repartidores</Text>
-                    <Text style={styles.modeDesc}>Comisiones, deudas y asignación</Text>
-                  </View>
-                  <FontAwesome5 name="chevron-right" size={14} color={colors.text.light} />
-                </TouchableOpacity>
-              </>
-            )}
           </>
         )}
 

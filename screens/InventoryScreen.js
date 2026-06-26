@@ -29,6 +29,8 @@ import {
   formatPrice
 } from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
+import { useUser } from '../contexts/UserContext';
+import AccessDeniedScreen from '../components/AccessDeniedScreen';
 
 const EMPAQUE_OPTIONS = ['Caja', 'Saco', 'Bolsa', 'Paquete', 'Galón', 'Cubeta', 'Bandeja', 'Fardo', 'Otro...'];
 const MEDIDA_OPTIONS = ['und', 'kg', 'gr', 'oz', 'lb', 'ml', 'L', 'Otro...'];
@@ -38,6 +40,10 @@ const InventoryScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const { user } = useAuth();
+  const { role } = useUser();
+  const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
+
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
   
   const [inventory, setInventory] = useState([]);
   const [filteredInventory, setFilteredInventory] = useState([]);
@@ -399,7 +405,7 @@ const InventoryScreen = ({ navigation }) => {
 
         <View style={styles.searchContainer}>
           <GlassPanel style={styles.searchBar}>
-            <FontAwesome5 name="search" size={16} color={colors.textSecondary} style={{ marginRight: 10 }} />
+            <FontAwesome5 name="search" size={16} color={colors.primary} style={{ marginRight: 10 }} />
             <TextInput
               style={[styles.searchInput, { color: colors.text }]}
               placeholder="Buscar materia prima..."

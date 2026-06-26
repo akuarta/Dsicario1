@@ -1,213 +1,77 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { 
   View, 
   Text, 
-  TouchableOpacity, 
+  TouchableOpacity,
   StyleSheet, 
   ScrollView,
-  Alert,
   Modal,
   ActivityIndicator,
-  Platform,
-  StatusBar,
   TextInput,
   Switch,
   Image,
-  Animated,
-  Easing
+  Animated
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { showAlert } from '../utils/showAlert';
+import { CommonActions } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { useCart, useDataSync } from '../contexts/AppContext';
+import { useCart } from '../contexts/AppContext';
 import { CustomHeader } from '../components/CustomHeader';
-import { generatePDFBase64 } from '../utils/pdfGenerator';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
-import { generateInvoice } from '../utils/invoiceService';
-import { useUser } from '../contexts/UserContext';
 import * as ImagePicker from 'expo-image-picker';
-import { 
-  fetchDeliveries, 
-  saveOrder, 
-  formatPrice, 
-  saveTransferRecord,
-  uploadVoucherImage,
-  updateOrderStatus, 
-  fetchOrderStatus, 
-  updateOrderFinalDetails 
-} from '../utils/api';
-import { notifyRider } from '../utils/notifications';
-import { NotificationService } from '../utils/notificationService';
-import { CommonActions } from '@react-navigation/native';
+import { formatPrice } from '../utils/api';
 import GlassPanel from '../components/GlassPanel';
 import LocationPickerModal from '../components/LocationPickerModal';
-import { CONFIG } from '../constants/Config';
-import { getRouteDetails } from '../utils/api';
-import { getDistance } from '../utils/mathUtils';
+import { useCheckout } from './useCheckout';
 
 const CheckoutScreen = ({ navigation, route }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
-  const params = route.params || {};
-  const cart = params.cart || [];
-  const totalCost = params.totalCost || 0;
-  const paymentTypeProps = params.paymentTypeProps || 'Efectivo';
-  const orderNoteProps = params.orderNoteProps || '';
-  const orderNumber = params.orderId || params.orderNumber || `ORD-${Date.now()}`;
+  const { businessInfo } = useCart();
 
-  const { clearCart, businessInfo, exchangeRates, waiterActiveSession } = useCart();
-  const { user, username, email, userId } = useUser();
-  const { syncAllData } = useDataSync();
-  
-  const availablePaymentMethods = businessInfo?.paymentMethods || ['Efectivo', 'Tarjeta'];
-
-  const [clientName, setClientName] = useState('');
-  const [clientPhone, setClientPhone] = useState('');
-  
-  const [riders, setRiders] = useState([]);
-  const [selectedRider, setSelectedRider] = useState(null);
-  const [riderModalVisible, setRiderModalVisible] = useState(false);
-  const [isWaitingRider, setIsWaitingRider] = useState(false);
-  const [countdown, setCountdown] = useState(15);
-  const [currentOrderId, setCurrentOrderId] = useState(orderNumber);
-  const [paymentType, setPaymentType] = useState('Efectivo');
-  const [voucherImage, setVoucherImage] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [riderConfirmed, setRiderConfirmed] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-  const [orderCompleted, setOrderCompleted] = useState(false);
-  const [isConfirming, setIsConfirming] = useState(false);
-  const [deliveryType, setDeliveryType] = useState('local');
-  const [amountReceived, setAmountReceived] = useState('');
-  const [includePropina, setIncludePropina] = useState(true);
-  
-  // Convert old 'cash'/'card' formats to new Spanish formats if present
-  const initialPaymentType = paymentTypeProps === 'cash' ? 'Efectivo' : 
-                             paymentTypeProps === 'card' ? 'Tarjeta' : 
-                             (paymentTypeProps || availablePaymentMethods[0] || 'Efectivo');
-                             
-  const [paymentReference, setPaymentReference] = useState('');
-  const [selectedBankIdx, setSelectedBankIdx] = useState(0);
-  const [orderNote, setOrderNote] = useState(orderNoteProps);
-  const [deliveryAddress, setDeliveryAddress] = useState('');
-  const [isMapVisible, setIsMapVisible] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState(null);
-  const [routeData, setRouteData] = useState(null);
-  const [costoEnvioBase, setCostoEnvioBase] = useState('100');
-  const [isExpressEnvio, setIsExpressEnvio] = useState(false);
-  const [currency, setCurrency] = useState('DOP');
-
-  const availableCurrencies = businessInfo?.currencies || ['DOP', 'USD', 'EUR', 'COP', 'MXN'];
-
-  // ── Cancel-by-text feature ──────────────────────────────────────────────
-  const [cancelInput, setCancelInput] = useState('');
-  const [isCancellingOrder, setIsCancellingOrder] = useState(false);
-  const [orderCancelledByClient, setOrderCancelledByClient] = useState(false);
-  const orderCreatedAtRef = useRef(null);
-  // ────────────────────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    setCostoEnvioBase((businessInfo?.deliveryBaseFee || 100).toString());
-  }, [businessInfo?.deliveryBaseFee]);
-
-  const cycleCurrency = () => {
-    const idx = availableCurrencies.indexOf(currency);
-    setCurrency(availableCurrencies[(idx + 1) % availableCurrencies.length] || 'DOP');
-  };
-  const deadlineTimerRef = useRef(null);
-  const tickTimerRef = useRef(null);
-  const pollTimerRef = useRef(null);
-  const selectedRiderRef = useRef(null);
-  const currentOrderIdRef = useRef(currentOrderId);
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-
-  // Calculations
-  const totalDiscount = (cart || []).reduce((sum, item) => {
-    const price = parseFloat(item.precio) || 0;
-    const qty = parseFloat(item.quantity) || 0;
-    const discPct = parseFloat(item.descuento) || 0;
-    return sum + (discPct > 0 ? (price * discPct / 100) * qty : 0);
-  }, 0);
-  const subtotal = totalCost;
-  const itbis = subtotal * 0.18;
-  const propina = (deliveryType === 'local' && includePropina) ? subtotal * 0.10 : 0;
-  const costoExpressDelNegocio = businessInfo?.expressFee || 50;
-  
-  // Cálculo dinámico de envío basado en ruta real
-  const getDynamicDeliveryFee = () => {
-    if (deliveryType !== 'delivery') return 0;
-    const base = parseFloat(costoEnvioBase) || 0;
-    const express = isExpressEnvio ? costoExpressDelNegocio : 0;
-    
-    // Si tenemos datos de ruta, podríamos cobrar por km extra si quisiéramos
-    // Por ahora usamos la base, pero el usuario ya tiene la distancia real
-    return base + express;
-  };
-
-  const costoEnvioCalculado = getDynamicDeliveryFee();
-  const finalTotal = subtotal + itbis + propina + costoEnvioCalculado;
-  
-  const getFormattedAddress = () => {
-    if (deliveryType !== 'delivery') return 'Local';
-    if (selectedLocation && selectedLocation.latitude) {
-      return `${selectedLocation.latitude},${selectedLocation.longitude} | ${deliveryAddress}`;
-    }
-    return deliveryAddress;
-  };
-  
-  const currentRate = (currency === 'DOP' || currency === 'RD$') ? 1 : (exchangeRates?.[currency] || 1);
-  const numericAmountReceived = parseFloat(amountReceived) || 0;
-  const convertedAmountReceived = numericAmountReceived * currentRate;
-
-  const isCashPayment = paymentType.toLowerCase().includes('efectivo') || paymentType === 'cash';
-  const devuelta = isCashPayment ? Math.max(0, convertedAmountReceived - finalTotal) : 0;
-  // Para meseros, el pago se puede procesar después (pide primero, paga después)
-  const isAmountInsufficient = !waiterActiveSession && isCashPayment && convertedAmountReceived < finalTotal;
-
-  const handleLocationSelected = async (locationData) => {
-    setSelectedLocation({ latitude: locationData.latitude, longitude: locationData.longitude });
-    setDeliveryAddress(locationData.address);
-    
-    // Obtener ruta real
-    const originLocation = businessInfo?.location || CONFIG.STORE_LOCATION;
-    if (originLocation) {
-      const originSource = businessInfo?.location ? "Ubicación guardada del negocio" : "Ubicación por defecto (Config.js)";
-      console.log(`\n=== LOG DE CÁLCULO DE DISTANCIA ===`);
-      console.log(`1. ORIGEN (${originSource}): Lat ${originLocation.latitude}, Lng ${originLocation.longitude}`);
-      console.log(`2. DESTINO (Cliente): Lat ${locationData.latitude}, Lng ${locationData.longitude}`);
-      
-      const route = await getRouteDetails(originLocation, {
-        latitude: locationData.latitude,
-        longitude: locationData.longitude
-      });
-      
-      if (route) {
-        setRouteData(route);
-        console.log(`3. RESULTADO GOOGLE MAPS: Distancia = ${route.distance}, Tiempo = ${route.duration}`);
-        console.log(`===================================\n`);
-        
-        // Alerta de debug para que el usuario lo vea en pantalla
-        showAlert(
-          'Log del Cálculo 🔍',
-          `Origen: ${originSource}\n` +
-          `A Destino: Tu selección en el mapa\n` +
-          `Resultado: ${route.distance}`
-        );
-        
-        // Validar radio máximo (si existe)
-        const maxRadius = businessInfo?.deliveryMaxRadius || 15;
-        const distanceKm = route.distanceValue / 1000;
-        if (distanceKm > maxRadius) {
-          showAlert(
-            'Fuera de Rango 📍',
-            `Lo sentimos, esta ubicación está a ${distanceKm.toFixed(1)} km, lo cual excede nuestro radio máximo de entrega (${maxRadius} km).`
-          );
-        }
-      }
-    }
-  };
+  const {
+    cart, totalCost, exchangeRates, waiterActiveSession,
+    user, username, email, userId, syncAllData,
+    availablePaymentMethods, availableCurrencies,
+    clientName, setClientName,
+    clientPhone, setClientPhone,
+    riders, selectedRider, setSelectedRider,
+    riderModalVisible, setRiderModalVisible,
+    isWaitingRider, isRefreshingRiders,
+    countdown, currentOrderId,
+    paymentType, setPaymentType,
+    voucherImage, setVoucherImage,
+    isUploading,
+    riderConfirmed, setRiderConfirmed,
+    isProcessing, isGeneratingPDF,
+    orderCompleted,
+    deliveryType, setDeliveryType,
+    amountReceived, setAmountReceived,
+    includePropina, setIncludePropina,
+    paymentReference, setPaymentReference,
+    selectedBankIdx, setSelectedBankIdx,
+    orderNote, setOrderNote,
+    deliveryAddress, setDeliveryAddress,
+    isMapVisible, setIsMapVisible,
+    selectedLocation,
+    routeData,
+    isExpressEnvio, setIsExpressEnvio,
+    currency,
+    cancelInput, setCancelInput,
+    isCancellingOrder, orderCancelledByClient,
+    selectedRiderRef, currentOrderIdRef, pulseAnim, orderCreatedAtRef,
+    totalDiscount, subtotal, itbis, propina,
+    costoExpressDelNegocio, costPerKm,
+    costoEnvioCalculado, finalTotal,
+    currentRate, numericAmountReceived,
+    isCashPayment, devuelta, isAmountInsufficient,
+    handleLocationSelected, executePayment,
+    handleClientCancelOrder, handleGenerateInvoice,
+    cycleCurrency, getFormattedAddress,
+    clearAllTimers, stopWaiting, sendRiderProposal, handleCancelWaitingRider,
+  } = useCheckout({ navigation, route });
 
   const getPaymentIcon = (method) => {
     const m = method.toLowerCase();
@@ -252,7 +116,22 @@ const CheckoutScreen = ({ navigation, route }) => {
     changeLabel: { fontSize: typography.sizes.sm, color: colors.text.secondary, marginBottom: 5 },
     changeValue: { fontSize: typography.sizes.xxl, fontWeight: typography.weights.bold, color: colors.success },
     switchContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.sm, marginVertical: spacing.xs },
-    footer: { padding: spacing.md, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border },
+    footer: { 
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      padding: spacing.md, 
+      backgroundColor: colors.surface, 
+      borderTopWidth: 1, 
+      borderTopColor: colors.border,
+      elevation: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -5 },
+      shadowOpacity: 0.2,
+      shadowRadius: 10,
+      zIndex: 100,
+    },
     confirmButton: { backgroundColor: colors.success, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.md, borderRadius: borders.radius.lg, ...shadows.medium },
     confirmButtonText: { fontSize: typography.sizes.lg, fontWeight: typography.weights.bold, color: '#FFF', marginLeft: spacing.sm },
     successContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, backgroundColor: colors.background },
@@ -276,383 +155,6 @@ const CheckoutScreen = ({ navigation, route }) => {
     cancelBtn: { backgroundColor: colors.error + '15', padding: 18, borderRadius: 20, width: '100%', borderWidth: 1, borderColor: colors.error, marginTop: 10 },
     pulseCircle: { position: 'absolute', width: 140, height: 140, borderRadius: 70, backgroundColor: colors.primary + '20' }
   }), [colors, darkMode]);
-
-  const [isRefreshingRiders, setIsRefreshingRiders] = useState(false);
-
-  useEffect(() => {
-    const loadRiders = async () => {
-      setIsRefreshingRiders(true);
-      try {
-        const data = await fetchDeliveries();
-        const now = new Date();
-        const filtered = data.filter(r => {
-          const lastSeen = r.ultima_conexion ? new Date(r.ultima_conexion) : null;
-          const onlineCol = r.online; 
-          
-          let isRecentlyOnline;
-          if (onlineCol === true) {
-            isRecentlyOnline = true;
-          } else if (onlineCol === false) {
-            isRecentlyOnline = false;
-          } else {
-            isRecentlyOnline = lastSeen ? (now - lastSeen) < 1800000 : false;
-          }
-          
-          const available = r.activo && r.disponible && isRecentlyOnline;
-          return available;
-        });
-        setRiders(filtered);
-      } catch (e) {
-        console.error('Error cargando repartidores:', e);
-      } finally {
-        setIsRefreshingRiders(false);
-      }
-    };
-    
-    if (riderModalVisible || riders.length === 0) {
-      loadRiders();
-    }
-  }, [riderModalVisible]);
-
-  const clearAllTimers = useCallback(() => {
-    if (deadlineTimerRef.current) clearTimeout(deadlineTimerRef.current);
-    if (tickTimerRef.current) clearInterval(tickTimerRef.current);
-    if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-    deadlineTimerRef.current = null;
-    tickTimerRef.current = null;
-    pollTimerRef.current = null;
-  }, []);
-
-  const stopWaiting = useCallback(() => {
-    clearAllTimers();
-    pulseAnim.setValue(1); 
-    setIsWaitingRider(false);
-    setCountdown(25);
-  }, [clearAllTimers]);
-
-  const startWaitingCycle = useCallback((orderId, rider) => {
-    clearAllTimers(); 
-    currentOrderIdRef.current = orderId;
-    selectedRiderRef.current = rider;
-    setCountdown(25);
-    setIsWaitingRider(true);
-    
-    pulseAnim.setValue(1);
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.2, duration: 800, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 800, easing: Easing.in(Easing.ease), useNativeDriver: true })
-      ])
-    ).start();
-
-    tickTimerRef.current = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) {
-          clearInterval(tickTimerRef.current);
-          tickTimerRef.current = null;
-        }
-        return prev > 0 ? prev - 1 : 0;
-      });
-    }, 1000);
-
-    pollTimerRef.current = setInterval(async () => {
-      try {
-        const estadoRaw = await fetchOrderStatus(currentOrderIdRef.current);
-        const estado = (estadoRaw || '').toLowerCase();
-        
-        if (estado === 'accepted' || estado === 'ready' || estado === 'on_the_way') {
-          stopWaiting();
-          setRiderConfirmed(true);
-          showAlert('¡Rider aceptó! 🛵', `${selectedRiderRef.current?.nombre} está disponible. Ahora puedes confirmar tu pedido.`); // encoding fix
-        } else if (estado === 'rejected' || estado === 'rechazado' || estado === 'cancelled') {
-          stopWaiting();
-          setSelectedRider(null);
-          setRiderModalVisible(false);
-          showAlert('Rechazado ❌', 'El repartidor no puede tomar el pedido.');
-        }
-      } catch (e) { console.warn('[Poll]', e.message); }
-    }, 2000);
-
-    deadlineTimerRef.current = setTimeout(() => {
-      const riderName = selectedRiderRef.current?.nombre || 'El repartidor';
-      const oid = currentOrderIdRef.current;
-      stopWaiting();
-      setSelectedRider(null);
-      setRiderModalVisible(false);
-      showAlert('⏳ Sin respuesta', `${riderName} no respondió a tiempo.`);
-      updateOrderStatus(oid, 'pending', { ID_Rider: '' }).catch(() => {});
-    }, 25000);
-  }, [stopWaiting]);
-
-  const sendRiderProposal = useCallback(async (rider) => {
-    try {
-      if (deliveryType === 'delivery' && (!deliveryAddress || !deliveryAddress.trim())) {
-        setRiderModalVisible(false);
-        setTimeout(() => {
-          showAlert('📍 Falta dirección', 'Para pedir un delivery, primero debes escribir la dirección de destino.');
-        }, 300);
-        return;
-      }
-
-      const isBusinessClosed = businessInfo?.closed === true;
-      const oid = `ORD-${Date.now().toString(36).toUpperCase()}`;
-      
-      setSelectedRider(rider);
-
-      // ✅ FIX: Guardar el pedido PRIMERO para obtener el ID real antes de iniciar el polling
-      const orderData = {
-        ID_Pedido: oid,
-        userId: userId || '',
-        Cliente: username || 'Cliente App',
-        Email: email || '',
-        Pedido_Items: JSON.stringify(cart.map(item => ({ 
-          nombre: isBusinessClosed ? `[PRE] ${item.nombre}` : item.nombre, 
-          cantidad: item.quantity, 
-          precio: item.precio,
-          isPreOrder: isBusinessClosed
-        }))),
-        items: cart,
-        Total: finalTotal,
-        Envio: costoEnvioCalculado,
-        Estado: isBusinessClosed ? 'Pre-orden' : (rider ? 'Propuesta' : 'Pendiente'),
-        Entrada: new Date().toLocaleTimeString(),
-        Fecha: new Date().toLocaleDateString(),
-        Tipo: isBusinessClosed ? 'Pre-orden' : (deliveryType === 'delivery' ? 'Domicilio' : 'Local'),
-        'Delivery?': deliveryType === 'delivery', // ✅ Campo booleano para el Excel
-        ID_Rider: rider?.id_delivery || '',
-        Notas: (isBusinessClosed ? '[PRE-ORDEN] ' : '') + orderNote,
-        Direccion: getFormattedAddress(),
-        Metodo: paymentType,
-        Usuario: email || 'App User',
-        total: finalTotal,
-        Ref_Pago: voucherImage ? 'Voucher adjunto' : ''
-      };
-
-      const saveRes = await saveOrder(orderData);
-      const finalOrderId = saveRes.internalId || oid;
-      
-      setCurrentOrderId(finalOrderId);
-
-      if (rider && !isBusinessClosed) {
-        // ✅ FIX: Ahora iniciamos el ciclo con el ID real desde el principio
-        setRiderModalVisible(false);
-        startWaitingCycle(finalOrderId, rider);
-        notifyRider(rider, { 
-          orderId: finalOrderId, 
-          cliente: username, 
-          total: finalTotal.toFixed(2), 
-          direccion: getFormattedAddress(), 
-          riderId: rider.id_delivery 
-        });
-        currentOrderIdRef.current = finalOrderId;
-      } else {
-        setRiderConfirmed(true);
-        setRiderModalVisible(false);
-      }
-    } catch (e) {
-      console.error('[NEGOTIATION] Error en sendRiderProposal:', e);
-      showAlert('Error', 'No se pudo procesar la propuesta.');
-      setIsWaitingRider(false);
-    }
-  }, [cart, email, username, finalTotal, costoEnvioCalculado, deliveryAddress, deliveryType, paymentType, startWaitingCycle, orderNote, voucherImage]);
-
-  const executePayment = async () => {
-    // ✅ Web: pedir permiso ANTES de todo (gesto real del usuario → browser lo acepta)
-    // Hacemos await para que el permiso esté concedido cuando llegue handleFinalSuccess
-    await NotificationService.requestWebPermission().catch(() => {});
-    try {
-      setIsProcessing(true);
-
-      if (riderConfirmed && currentOrderId) {
-        if (paymentType.toLowerCase().includes('transf')) {
-          if (!voucherImage && (!paymentReference || !paymentReference.trim())) {
-            showAlert('Comprobante Requerido', 'Para pagar con transferencia debes subir una foto del comprobante o escribir el número de referencia.');
-            setIsProcessing(false);
-            return;
-          }
-
-          let firebaseImageUrl = '';
-          if (voucherImage && voucherImage.base64) {
-            firebaseImageUrl = await uploadVoucherImage(voucherImage.base64, currentOrderId);
-          }
-
-          const selectedBank = businessInfo?.transferDetails?.[0] || {};
-          await saveTransferRecord({
-            orderId: currentOrderId,
-            banco: selectedBank.Banco || 'Varios',
-            cuenta: selectedBank.No_Cuenta || selectedBank.Cuenta || '',
-            titular: selectedBank.Titular || '',
-            total: finalTotal,
-            voucherImage: firebaseImageUrl || ''
-          });
-        }
-
-        const isCash = paymentType.toLowerCase().includes('efectivo') || paymentType === 'cash';
-        const finalPaymentData = {
-          metodo: paymentType,
-          Pagado: isCash ? numericAmountReceived : 0,
-          Devuelta: isCash ? devuelta : 0,
-          Ref_Pago: paymentReference || (voucherImage ? 'Voucher adjunto' : ''),
-          Estado: 'pending'
-        };
-
-        await updateOrderFinalDetails(currentOrderId, finalPaymentData);
-        handleFinalSuccess(currentOrderId);
-        return;
-      }
-
-      if (deliveryType === 'delivery' && !deliveryAddress.trim()) {
-        showAlert('Falta dirección', 'Por favor ingresa la dirección de entrega.');
-        setIsProcessing(false);
-        return;
-      }
-
-      if (paymentType.toLowerCase().includes('transf')) {
-        if (!voucherImage && (!paymentReference || !paymentReference.trim())) {
-          showAlert('Comprobante Requerido', 'Para pagar con transferencia debes subir una foto del comprobante o escribir el número de referencia.');
-          setIsProcessing(false);
-          return;
-        }
-      }
-
-      const oid = `ORD-${Date.now().toString(36).toUpperCase()}`;
-      setCurrentOrderId(oid);
-
-      const orderData = {
-        ID_Pedido: oid,
-        orderId: oid,
-        userId: userId || '',
-        Cliente: waiterActiveSession ? (clientName || 'Cliente Invitado') : (username || 'Cliente App'),
-        Email: waiterActiveSession ? clientPhone : (email || ''),
-        items: cart,
-        Total: finalTotal,
-        total: finalTotal,
-        Envio: costoEnvioCalculado,
-        Estado: deliveryType === 'delivery' && selectedRider ? 'Propuesta' : 'Pendiente',
-        Entrada: new Date().toLocaleTimeString(),
-        Fecha: new Date().toLocaleDateString(),
-        Tipo: deliveryType === 'delivery' ? 'Domicilio' : 'Local',
-        'Delivery?': deliveryType === 'delivery', // ✅ Campo booleano para el Excel
-        ID_Rider: selectedRider?.id_delivery || '',
-        direccion: getFormattedAddress(),
-        metodo: paymentType,
-        Pagado: (paymentType.toLowerCase().includes('efectivo') || paymentType === 'cash') ? numericAmountReceived : 0,
-        Devuelta: (paymentType.toLowerCase().includes('efectivo') || paymentType === 'cash') ? devuelta : 0,
-        Ref_Pago: voucherImage ? 'Voucher adjunto' : ''
-      };
-
-      const saveRes = await saveOrder(orderData);
-      
-      if (saveRes.success) {
-        if (paymentType.toLowerCase().includes('transf')) {
-          let firebaseImageUrl = '';
-          if (voucherImage && voucherImage.base64) {
-            // No bloqueamos el UI con el loading si ya pasó el saveRes, 
-            // pero nos aseguramos de subirlo antes del saveTransferRecord
-            firebaseImageUrl = await uploadVoucherImage(voucherImage.base64, saveRes.internalId);
-          }
-
-          const selectedBank = businessInfo?.transferDetails?.[selectedBankIdx] || businessInfo?.transferDetails?.[0] || {};
-          await saveTransferRecord({
-            orderId: saveRes.internalId,
-            banco: selectedBank.Banco || 'Varios',
-            cuenta: selectedBank.No_Cuenta || selectedBank.Cuenta || '',
-            titular: selectedBank.Titular || '',
-            total: finalTotal,
-            voucherImage: firebaseImageUrl || ''
-          });
-        }
-
-        if (deliveryType === 'delivery' && selectedRider) {
-          const finalOrderId = saveRes.internalId || oid;
-          setCurrentOrderId(finalOrderId);
-          notifyRider(selectedRider, { 
-            orderId: finalOrderId, 
-            cliente: username, 
-            total: finalTotal.toFixed(2), 
-            direccion: getFormattedAddress(), 
-            riderId: selectedRider.id_delivery 
-          });
-          startWaitingCycle(finalOrderId, selectedRider);
-        } else {
-          const finalId = saveRes.internalId || oid;
-          if (saveRes.internalId) setCurrentOrderId(saveRes.internalId);
-          handleFinalSuccess(finalId);
-        }
-      }
-    } catch (e) {
-      console.error('Error executePayment:', e);
-      showAlert('Error', 'No se pudo procesar el pedido. Reintenta.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleFinalSuccess = (orderId) => {
-    const finalId = orderId || currentOrderId;
-    console.log('[CHECKOUT] Final Success para pedido:', finalId);
-    
-    setOrderCompleted(true);
-    orderCreatedAtRef.current = Date.now();
-    clearCart();
-    syncAllData();
-    setIsProcessing(false);
-    
-    // Si por alguna razón el ID no está en el estado, lo forzamos para la UI
-    if (orderId && orderId !== currentOrderId) {
-      setCurrentOrderId(orderId);
-    }
-
-    // 🔔 Bug #3 fix: notificar al cliente que su pedido fue recibido
-    NotificationService.sendLocalNotification(
-      '📋 ¡Pedido Recibido!',
-      `Tu pedido #${finalId} fue registrado correctamente. Te avisaremos cuando esté listo.`
-    ).catch(err => console.error('[Notif] Error al enviar local:', err));
-  };
-
-  const handleClientCancelOrder = async () => {
-    if (cancelInput.trim().toLowerCase() !== 'cancelar') return;
-    const CANCEL_WINDOW_MS = 5 * 60 * 1000; // 5 minutos
-    if (orderCreatedAtRef.current && Date.now() - orderCreatedAtRef.current > CANCEL_WINDOW_MS) {
-      showAlert('⏰ Tiempo agotado', 'Solo puedes cancelar tu pedido dentro de los primeros 5 minutos.');
-      return;
-    }
-    try {
-      setIsCancellingOrder(true);
-      await updateOrderStatus(currentOrderId, 'cancelled', {});
-      setOrderCancelledByClient(true);
-      NotificationService.sendLocalNotification(
-        '❌ Pedido Cancelado',
-        `Tu pedido #${currentOrderId} fue cancelado correctamente.`
-      ).catch(() => {});
-    } catch (e) {
-      showAlert('Error', 'No se pudo cancelar el pedido. Contáctanos directamente.');
-    } finally {
-      setIsCancellingOrder(false);
-    }
-  };
-
-  const handleGenerateInvoice = async (tipo) => {
-    setIsGeneratingPDF(true);
-    try {
-      const orderData = {
-        tipo, idorden: currentOrderId, fecha: new Date().toLocaleDateString(), hora: new Date().toLocaleTimeString(),
-        NombreLocal: businessInfo?.name || 'D\'Sicario', DireccionLocal: businessInfo?.address || 'República Dominicana',
-        EmailLocal: businessInfo?.email || 'hairoman28@gmail.com', TelefonoLocal: businessInfo?.phone || '809-000-0000',
-        logo: businessInfo?.logo, Cliente: username || 'Invitado', EmailUser: email || 'n/a', metodo: paymentType,
-        items: cart.map(item => ({ 'Detalle': item.nombre, 'Cant': item.quantity, 'Precio': item.precio, 'Total': (item.precio * item.quantity).toFixed(2) })),
-        Subtotal: subtotal.toFixed(2), ITBIS: itbis.toFixed(2), Descuento: totalDiscount.toFixed(2), Propina: propina.toFixed(2), CostoEnvio: costoEnvioCalculado.toFixed(2), Total: finalTotal.toFixed(2),
-        MonedaPago: currency, Pagado: isCashPayment ? numericAmountReceived.toFixed(2) : "0.00", Devuelta: devuelta.toFixed(2)
-      };
-
-      if (tipo === 'ticket') await generatePDFBase64(orderData);
-      else await generateInvoice(orderData, tipo);
-    } catch (error) {
-      showAlert('Error', 'No se pudo generar el comprobante.');
-    } finally {
-      setIsGeneratingPDF(false);
-    }
-  };
 
   if (isProcessing) {
     return (
@@ -703,15 +205,12 @@ const CheckoutScreen = ({ navigation, route }) => {
           <TouchableOpacity
             style={{ marginTop: 20 }}
             onPress={async () => {
-              clearCart();
-              await syncAllData();
               navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'InicioTab' }] }));
             }}
           >
             <Text style={{ color: colors.text.secondary, fontWeight: 'bold' }}>Volver al Inicio</Text>
           </TouchableOpacity>
 
-          {/* ── Panel de Cancelación por texto ── */}
           {!orderCancelledByClient ? (
             <View style={{
               marginTop: 28,
@@ -786,11 +285,10 @@ const CheckoutScreen = ({ navigation, route }) => {
     );
   }
 
-
   return (
     <SafeAreaView style={styles.container}>
       <CustomHeader title="Checkout" showBack />
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollContent}>
         {businessInfo?.closed && (
           <View style={[styles.section, { backgroundColor: colors.primary + '15', borderColor: colors.primary, borderWidth: 1, flexDirection: 'row', alignItems: 'center' }]}>
             <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary + '20', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
@@ -920,12 +418,6 @@ const CheckoutScreen = ({ navigation, route }) => {
                   if (!deliveryAddress || deliveryAddress.trim().length === 0) return;
                   
                   console.log('[CHECKOUT] Botón presionado. riderModalVisible actual:', riderModalVisible);
-                  if (riders.length === 0) {
-                    showAlert(
-                      'No hay repartidores 🛵',
-                      'No hemos encontrado repartidores Online, Activos y Disponibles en este momento.\n\nRevisa que el repartidor haya iniciado sesión y marcado su estado como Online.'
-                    );
-                  }
                   setRiderModalVisible(true);
                 }}
               >
@@ -945,14 +437,14 @@ const CheckoutScreen = ({ navigation, route }) => {
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 15 }}>
                 <Text style={{ fontSize: typography.sizes.sm, color: colors.text.primary, fontWeight: 'bold' }}>Tarifa de envío:</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: colors.border }}>
-                  <Text style={{ color: colors.primary, fontWeight: 'bold' }}>{formatPrice(parseFloat(costoEnvioBase) || 0)}</Text>
+                  <Text style={{ color: colors.primary, fontWeight: 'bold' }}>{formatPrice(costoEnvioCalculado)}</Text>
                 </View>
               </View>
 
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 15 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <FontAwesome5 name="bolt" size={16} color="#FF9800" style={{ marginRight: 8 }} />
-                  <Text style={{ fontSize: typography.sizes.sm, color: colors.text.primary, fontWeight: 'bold' }}>Envío Express (+{formatPrice(costoExpressDelNegocio)})</Text>
+                  <Text style={{ fontSize: typography.sizes.sm, color: colors.text.primary, fontWeight: 'bold' }}>Envío Express (+{formatPrice(costoExpressDelNegocio)}/km)</Text>
                 </View>
                 <Switch
                   value={isExpressEnvio}
@@ -1025,7 +517,6 @@ const CheckoutScreen = ({ navigation, route }) => {
             })}
           </ScrollView>
 
-          {/* Detalles de Transferencia si aplica */}
           {(paymentType.toLowerCase().includes('transf') && businessInfo?.transferDetails?.length > 0) && (
             <View style={{ backgroundColor: colors.surface, padding: 15, borderRadius: 12, marginBottom: 15, borderWidth: 1, borderColor: colors.border }}>
               <Text style={{ color: colors.text.primary, fontWeight: 'bold', marginBottom: 10 }}>
@@ -1142,7 +633,6 @@ const CheckoutScreen = ({ navigation, route }) => {
                   onChangeText={setAmountReceived} 
                   placeholderTextColor="#A0A0A0" 
                   returnKeyType="done"
-                  onSubmitEditing={executePayment}
                 />
               </View>
 
@@ -1178,19 +668,18 @@ const CheckoutScreen = ({ navigation, route }) => {
                 onChangeText={setPaymentReference} 
                 placeholderTextColor="#A0A0A0" 
                 returnKeyType="done"
-                onSubmitEditing={executePayment}
               />
             </View>
           ) : null}
         </View>
       </ScrollView>
 
-      <GlassPanel intensity={20} style={styles.footer}>
+      <GlassPanel intensity={20} style={[styles.footer, { marginHorizontal: spacing.md, marginBottom: spacing.md, borderRadius: borders.radius.lg }]}>
         <TouchableOpacity 
           style={[
             styles.confirmButton, 
             (isAmountInsufficient || isProcessing) && { opacity: 0.5 },
-            riderConfirmed && { backgroundColor: '#4CAF50' } // Verde si ya aceptó
+            riderConfirmed && { backgroundColor: '#4CAF50' }
           ]} 
           disabled={isAmountInsufficient || isProcessing} 
           onPress={executePayment}
@@ -1273,11 +762,7 @@ const CheckoutScreen = ({ navigation, route }) => {
             </View>
 
             <TouchableOpacity style={styles.cancelBtn} onPress={() => {
-              stopWaiting();
-              setSelectedRider(null);
-              if (currentOrderIdRef.current) {
-                updateOrderStatus(currentOrderIdRef.current, 'pending', { ID_Rider: '' }).catch(() => {});
-              }
+              handleCancelWaitingRider();
             }}>
               <Text style={{ color: colors.error, fontWeight: 'bold', textAlign: 'center', fontSize: 16 }}>CANCELAR SOLICITUD</Text>
             </TouchableOpacity>

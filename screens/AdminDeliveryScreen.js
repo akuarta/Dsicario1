@@ -31,6 +31,8 @@ import { useUser } from '../contexts/UserContext';
 import { storage } from '../config/firebaseConfig';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
+import AccessDeniedScreen from '../components/AccessDeniedScreen';
+
 const AdminDeliveryScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
@@ -38,12 +40,7 @@ const AdminDeliveryScreen = ({ navigation }) => {
   const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
   const [updatingId, setUpdatingId] = useState(null);
 
-  useEffect(() => {
-    if (!isAdmin) {
-      showAlert('Acceso Denegado', 'No tienes permisos para acceder a esta sección.');
-      navigation.replace('ConfigScreen');
-    }
-  }, [isAdmin]);
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
 
   useEffect(() => {
     navigation.setOptions({

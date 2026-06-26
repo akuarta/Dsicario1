@@ -93,17 +93,17 @@ const SearchBar = memo(({
     <View style={[styles.container, style]}>
       {showMenuButton ? (
         <TouchableOpacity onPress={onMenuPress} style={styles.menuButton} activeOpacity={0.7}>
-          <FontAwesome5 name="bars" size={16} color={colors.text.secondary} />
+          <FontAwesome5 name="bars" size={16} color={colors.primary} />
         </TouchableOpacity>
       ) : null}
-      <FontAwesome5 name="search" size={14} color={colors.text.secondary} style={styles.searchIcon} />
+      <FontAwesome5 name="search" size={14} color={colors.primary} style={styles.searchIcon} />
       <TextInput
         ref={inputRef}
         style={styles.input}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={colors.text.secondary}
+        placeholderTextColor={colors.primary}
         autoFocus={autoFocus}
         editable={editable}
         returnKeyType="search"
@@ -115,7 +115,7 @@ const SearchBar = memo(({
         {(showClearButton && value && value.length > 0) ? (
           <Animated.View style={{ opacity: fadeAnim }}>
             <TouchableOpacity onPress={handleClear} style={styles.clearButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} activeOpacity={0.6}>
-              <FontAwesome5 name="times-circle" size={16} color={colors.text.secondary} solid />
+              <FontAwesome5 name="times-circle" size={16} color={colors.primary} solid />
             </TouchableOpacity>
           </Animated.View>
         ) : null}
@@ -130,7 +130,7 @@ const SearchBar = memo(({
               ]} 
               activeOpacity={0.7}
             >
-              <FontAwesome5 name="sliders-h" size={16} color={filterActive ? colors.primary : colors.text.secondary} />
+              <FontAwesome5 name="sliders-h" size={16} color={colors.primary} />
             </TouchableOpacity>
           </>
         ) : null}

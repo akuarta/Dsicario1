@@ -1,6 +1,6 @@
 // Paleta de colores unificada — Sincronizada con el nuevo tema DSicario
 const common = {
-  primary: '#E31837', // Nuevo Rojo DSicario
+  primary: '#A80015', // Rojo Carmesí/Rubí Vivo y Elegante (estilo gastronómico premium)
   secondary: '#FF9500', // Naranja Cálido
   accent: '#FF9500',
   success: '#34C759',
@@ -10,7 +10,7 @@ const common = {
 
 const dark = {
   ...common,
-  primary: '#FF3B30',
+  primary: '#C90A2A', // Rojo Carmesí más luminoso para contraste en modo oscuro
   accent: '#FF9500',
   background: '#121212',
   card: '#1C1C1E',
@@ -28,7 +28,7 @@ const dark = {
 
 const light = {
   ...common,
-  primary: '#E31837',
+  primary: '#A80015',
   background: '#F2F2F7',
   card: '#FFFFFF',
   surface: '#FFFFFF', // Agregado para compatibilidad

@@ -1,18 +1,17 @@
 import { showAlert } from '../utils/showAlert';
-import React, { useState, useMemo } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  StyleSheet, 
-  ActivityIndicator, 
+import React, { useState, useMemo, useRef } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Dimensions,
-  Alert
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -20,7 +19,7 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
-import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
+import { getThemeColors, spacing, borders } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import NotificationService from '../utils/notificationService';
@@ -33,6 +32,8 @@ if (Platform.OS !== 'web') {
   });
 }
 
+// Google Logo is now loaded from local assets for a premium, modern design
+
 const LoginScreen = () => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
@@ -42,139 +43,250 @@ const LoginScreen = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showEmailForm, setShowEmailForm] = useState(false);
 
-  const styles = useMemo(() => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
-    content: { flex: 1, justifyContent: 'center', padding: spacing.xl },
-    logoContainer: { alignItems: 'center', marginBottom: spacing.xxl },
-    logo: { width: 100, height: 100, borderRadius: 20 },
-    title: { fontSize: 36, fontWeight: 'bold', color: colors.primary, textAlign: 'center', marginBottom: spacing.xs },
-    subtitle: { fontSize: 16, color: colors.text.secondary, textAlign: 'center', marginBottom: spacing.xxl },
-    inputCard: { backgroundColor: colors.surface, borderRadius: borders.radius.xl, padding: spacing.lg, ...shadows.medium, borderWidth: 1, borderColor: colors.border },
-    inputContainer: { marginBottom: spacing.md },
-    inputField: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, borderRadius: borders.radius.md, paddingHorizontal: spacing.md, height: 55, borderWidth: 1, borderColor: colors.border },
-    input: { flex: 1, color: colors.text.primary, marginLeft: spacing.sm },
-    loginButton: { height: 55, borderRadius: borders.radius.md, overflow: 'hidden', marginTop: spacing.md },
-    gradient: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    buttonText: { color: '#FFF', fontWeight: 'bold', fontSize: 18 },
-    googleButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 55, borderRadius: borders.radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginTop: spacing.xl },
-    googleText: { marginLeft: 10, color: colors.text.primary, fontWeight: 'bold' },
-    registerPrompt: { marginTop: 30, alignItems: 'center' },
-    registerLink: { color: colors.primary, fontWeight: 'bold' }
-  }), [colors, darkMode]);
+  const formHeight = useRef(new Animated.Value(0)).current;
+  const formOpacity = useRef(new Animated.Value(0)).current;
+
+  const toggleEmailForm = () => {
+    if (showEmailForm) {
+      Animated.parallel([
+        Animated.timing(formHeight, { toValue: 0, duration: 300, useNativeDriver: false }),
+        Animated.timing(formOpacity, { toValue: 0, duration: 200, useNativeDriver: false }),
+      ]).start(() => setShowEmailForm(false));
+    } else {
+      setShowEmailForm(true);
+      Animated.parallel([
+        Animated.timing(formHeight, { toValue: 235, duration: 350, useNativeDriver: false }),
+        Animated.timing(formOpacity, { toValue: 1, duration: 350, useNativeDriver: false }),
+      ]).start();
+    }
+  };
 
   const handleLogin = async () => {
-    if (!email || !password) {
-       showAlert('Atención', 'Por favor ingresa tus credenciales');
-       return;
-    }
-    // Pedir permisos en el evento de clic para que el navegador no lo bloquee
-    if (Platform.OS === 'web') {
-      try { await NotificationService.requestPermissions(); } catch (e) {}
-    }
-    try {
-      await signIn(email, password);
-    } catch (err) {
-      console.log('Login Error:', err.message);
-    }
+    if (!email || !password) { showAlert('Atención', 'Por favor ingresa tus credenciales'); return; }
+    if (Platform.OS === 'web') { try { await NotificationService.requestPermissions(); } catch (e) {} }
+    try { await signIn(email, password); } catch (err) { console.log('Login Error:', err.message); }
   };
 
   const handleGoogleLogin = async () => {
     if (Platform.OS === 'web') {
       try { await NotificationService.requestPermissions(); } catch (e) {}
-      try {
-        await signInWithGoogleWeb();
-      } catch (error) {
-        if (error.code !== 'auth/popup-closed-by-user') {
-          showAlert('Error', 'Hubo un problema al iniciar sesión con Google.');
-        }
+      try { await signInWithGoogleWeb(); } catch (error) {
+        if (error.code !== 'auth/popup-closed-by-user') showAlert('Error', 'Hubo un problema al iniciar sesión con Google.');
       }
       return;
     }
-    
-    // Flujo Nativo (Android/iOS)
     try {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-      
-      // Forzamos la limpieza de cualquier sesión previa para que SIEMPRE muestre el selector de cuentas
-      // Esto soluciona el glitch de "Continuar como..." -> "Elegir cuenta"
-      try {
-        await GoogleSignin.signOut();
-      } catch (e) {
-        // Ignorar si no había sesión
-      }
-
+      try { await GoogleSignin.signOut(); } catch (e) {}
       const response = await GoogleSignin.signIn();
       const idToken = response.data?.idToken || response.idToken;
-      
-      if (idToken) {
-        await signInWithGoogle(idToken);
-      }
+      if (idToken) await signInWithGoogle(idToken);
     } catch (error) {
-      console.log('Google Native Error:', error);
-      if (error.code !== 'status_codes.SIGN_IN_CANCELLED') {
-        showAlert('Error', 'No se pudo completar el inicio de sesión con Google.');
-      }
+      if (error.code !== 'status_codes.SIGN_IN_CANCELLED') showAlert('Error', 'No se pudo completar el inicio de sesión con Google.');
     }
   };
 
+  const isDark = darkMode;
+
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{flex:1}}>
-        <ScrollView contentContainerStyle={styles.content}>
-          <View style={styles.logoContainer}>
-            <Image source={require('../assets/logo.png')} style={styles.logo} resizeMode="contain" />
+    <SafeAreaView style={{ flex: 1, backgroundColor: isDark ? '#0F0F0F' : '#F7F7F7' }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        <ScrollView
+          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 40 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Logo */}
+          <View style={{ alignItems: 'center', marginBottom: 28 }}>
+            <View style={{
+              width: 100, height: 100, borderRadius: 28,
+              overflow: 'hidden',
+              shadowColor: colors.primary,
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.35,
+              shadowRadius: 16,
+              elevation: 12,
+            }}>
+              <Image source={require('../assets/logo.png')} style={{ width: 100, height: 100 }} resizeMode="cover" />
+            </View>
           </View>
-          <Text style={styles.title}>DSICARIO</Text>
-          <Text style={styles.subtitle}>Sabor que impone su ley</Text>
-          <View style={styles.inputCard}>
-            <View style={styles.inputContainer}>
-              <View style={styles.inputField}>
-                <FontAwesome5 name="envelope" size={18} color={colors.primary} />
-                <TextInput 
-                  style={styles.input} 
-                  placeholder="Email" 
-                  placeholderTextColor={colors.text.light} 
-                  value={email} 
-                  onChangeText={setEmail} 
+          <Text style={{ fontSize: 36, fontWeight: '900', color: colors.primary, textAlign: 'center', letterSpacing: 4, marginBottom: 6 }}>
+            DSICARIO
+          </Text>
+          <Text style={{ fontSize: 14, color: isDark ? '#888' : '#999', textAlign: 'center', letterSpacing: 1, marginBottom: 36 }}>
+            Sabor que impone su ley
+          </Text>
+
+          {/* ─── BOTÓN GOOGLE (protagonista) ─── */}
+          <TouchableOpacity
+            onPress={handleGoogleLogin}
+            disabled={isAuthenticating}
+            activeOpacity={0.92}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: '#FFF',
+              borderRadius: 20,
+              paddingVertical: 0,
+              height: 68,
+              paddingHorizontal: 20,
+              marginBottom: 16,
+              // Sombra pronunciada estilo card
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: isDark ? 0.45 : 0.12,
+              shadowRadius: 16,
+              elevation: 10,
+              // Borde sutil multicolor
+              borderWidth: 0,
+            }}
+          >
+            {isAuthenticating ? (
+              <ActivityIndicator color="#4285F4" style={{ flex: 1 }} />
+            ) : (
+              <>
+                {/* Logo Google moderno y destacado */}
+                <View style={{
+                  width: 48, height: 48, borderRadius: 24,
+                  backgroundColor: '#FFF',
+                  alignItems: 'center', justifyContent: 'center',
+                  marginRight: 16,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 4,
+                  elevation: 2,
+                }}>
+                  <Image 
+                    source={require('../assets/google-logo.png')} 
+                    style={{ width: 32, height: 32 }} 
+                    resizeMode="contain" 
+                  />
+                </View>
+
+                {/* Texto */}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#1F1F1F', letterSpacing: 0.2 }}>
+                    Continuar con Google
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#666', marginTop: 2, fontWeight: '500' }}>
+                    Acceso instantáneo con un toque
+                  </Text>
+                </View>
+
+                {/* Flecha */}
+                <View style={{
+                  width: 34, height: 34, borderRadius: 10,
+                  backgroundColor: '#F1F3F4',
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <FontAwesome5 name="arrow-right" size={14} color="#4285F4" />
+                </View>
+              </>
+            )}
+          </TouchableOpacity>
+
+          {/* ── Separador ── */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 16 }}>
+            <View style={{ flex: 1, height: 1, backgroundColor: isDark ? '#2A2A2A' : '#E5E5E5' }} />
+            <Text style={{ marginHorizontal: 14, color: isDark ? '#555' : '#AAA', fontSize: 13 }}>o</Text>
+            <View style={{ flex: 1, height: 1, backgroundColor: isDark ? '#2A2A2A' : '#E5E5E5' }} />
+          </View>
+
+          {/* ── Toggle email ── */}
+          <TouchableOpacity
+            style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+              height: 54, borderRadius: 16,
+              borderWidth: 1.5,
+              borderColor: isDark ? '#2A2A2A' : '#E5E5E5',
+              backgroundColor: isDark ? '#1A1A1A' : '#FFF',
+              marginBottom: 8,
+            }}
+            onPress={toggleEmailForm}
+            activeOpacity={0.8}
+          >
+            <FontAwesome5 name="envelope" size={16} color={colors.primary} />
+            <Text style={{ marginLeft: 10, fontSize: 15, fontWeight: '600', color: isDark ? '#EEE' : '#222' }}>
+              {showEmailForm ? 'Ocultar inicio con correo' : 'Iniciar sesión con correo'}
+            </Text>
+            <FontAwesome5
+              name={showEmailForm ? 'chevron-up' : 'chevron-down'}
+              size={12}
+              color={isDark ? '#555' : '#BBB'}
+              style={{ marginLeft: 10 }}
+            />
+          </TouchableOpacity>
+
+          {/* ── Formulario email animado ── */}
+          <Animated.View style={{ overflow: 'hidden', height: formHeight, opacity: formOpacity }}>
+            <View style={{ paddingTop: 10 }}>
+              <View style={{
+                flexDirection: 'row', alignItems: 'center',
+                backgroundColor: isDark ? '#1A1A1A' : '#FFF',
+                borderRadius: 14, paddingHorizontal: 16, height: 52,
+                borderWidth: 1, borderColor: isDark ? '#2A2A2A' : '#E5E5E5',
+                marginBottom: 10,
+              }}>
+                <FontAwesome5 name="envelope" size={16} color={colors.primary} />
+                <TextInput
+                  style={{ flex: 1, color: isDark ? '#EEE' : '#222', marginLeft: 12, fontSize: 15 }}
+                  placeholder="Email"
+                  placeholderTextColor={isDark ? '#555' : '#BBB'}
+                  value={email}
+                  onChangeText={setEmail}
                   autoCapitalize="none"
                   keyboardType="email-address"
                   returnKeyType="next"
                   blurOnSubmit={false}
                 />
               </View>
-            </View>
-            <View style={styles.inputContainer}>
-              <View style={styles.inputField}>
-                <FontAwesome5 name="lock" size={18} color={colors.primary} />
-                <TextInput 
-                  style={styles.input} 
-                  placeholder="Contraseña" 
-                  placeholderTextColor={colors.text.light} 
-                  value={password} 
-                  onChangeText={setPassword} 
+              <View style={{
+                flexDirection: 'row', alignItems: 'center',
+                backgroundColor: isDark ? '#1A1A1A' : '#FFF',
+                borderRadius: 14, paddingHorizontal: 16, height: 52,
+                borderWidth: 1, borderColor: isDark ? '#2A2A2A' : '#E5E5E5',
+                marginBottom: 12,
+              }}>
+                <FontAwesome5 name="lock" size={16} color={colors.primary} />
+                <TextInput
+                  style={{ flex: 1, color: isDark ? '#EEE' : '#222', marginLeft: 12, fontSize: 15 }}
+                  placeholder="Contraseña"
+                  placeholderTextColor={isDark ? '#555' : '#BBB'}
+                  value={password}
+                  onChangeText={setPassword}
                   secureTextEntry={!showPassword}
                   returnKeyType="done"
                   onSubmitEditing={handleLogin}
                 />
                 <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                   <FontAwesome5 name={showPassword ? "eye-slash" : "eye"} size={16} color={colors.text.secondary} />
+                  <FontAwesome5 name={showPassword ? 'eye-slash' : 'eye'} size={16} color={isDark ? '#555' : '#BBB'} />
                 </TouchableOpacity>
               </View>
+              <TouchableOpacity
+                style={{ height: 52, borderRadius: 14, overflow: 'hidden', marginBottom: 8 }}
+                onPress={handleLogin}
+                disabled={isAuthenticating}
+              >
+                <LinearGradient colors={[colors.primary, '#C0001A']} style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+                  {isAuthenticating
+                    ? <ActivityIndicator color="#FFF" />
+                    : <Text style={{ color: '#FFF', fontWeight: '800', fontSize: 16, letterSpacing: 1 }}>INICIAR SESIÓN</Text>
+                  }
+                </LinearGradient>
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity style={styles.loginButton} onPress={handleLogin} disabled={isAuthenticating}>
-              <LinearGradient colors={[colors.primary, '#D62828']} style={styles.gradient}>
-                {isAuthenticating ? <ActivityIndicator color="#FFF" /> : <Text style={styles.buttonText}>INICIAR SESIÓN</Text>}
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-          <TouchableOpacity style={styles.googleButton} onPress={handleGoogleLogin} disabled={isAuthenticating}>
-            <FontAwesome5 name="google" size={18} color="#EA4335" />
-            <Text style={styles.googleText}>Continuar con Google</Text>
+          </Animated.View>
+
+          {/* ── Registro ── */}
+          <TouchableOpacity style={{ marginTop: 28, alignItems: 'center' }} onPress={() => navigation.navigate('Register')}>
+            <Text style={{ color: isDark ? '#666' : '#AAA', fontSize: 14 }}>
+              ¿No tienes cuenta?{'  '}
+              <Text style={{ color: colors.primary, fontWeight: '700' }}>Regístrate aquí</Text>
+            </Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.registerPrompt} onPress={() => navigation.navigate('Register')}>
-            <Text style={{color: colors.text.secondary}}>¿No tienes cuenta? <Text style={styles.registerLink}>Regístrate aquí</Text></Text>
-          </TouchableOpacity>
+
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

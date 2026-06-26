@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert, AppState, Platform } from 'react-native';
+import { Alert, AppState, Platform, ToastAndroid } from 'react-native';
 import NotificationService from '../utils/notificationService';
 import {
   notifyOrderReady,
@@ -430,6 +430,13 @@ export const CartProvider = ({ children }) => {
 // --- DATA SYNC PROVIDER ---
 export const DataSyncProvider = ({ children }) => {
   const { email, role, userId, username } = useUser();
+  const userContextRef = useRef({ email, role, userId, username });
+
+  // Actualizar ref cuando cambie el contexto de usuario
+  useEffect(() => {
+    userContextRef.current = { email, role, userId, username };
+  }, [email, role, userId, username]);
+
   const [users, setUsers] = useState([]);
   const prevKitchenOrdersRef = useRef([]);
   const [kitchenOrders, setKitchenOrders] = useState([]);
@@ -451,12 +458,15 @@ export const DataSyncProvider = ({ children }) => {
       // 👈 Sincronizar acciones offline previas
       await syncOfflineActions();
       
-      // 👈 fetchTables agregado al Promise.all
+      const currentRole = userContextRef.current.role || '';
+      const isStaff = ['admin', 'owner', 'staff', 'mesero', 'delivery', 'repartidor'].includes(currentRole.toLowerCase());
+
+      // 🚀 Optimización de Recursos: Los clientes normales no descargan las tablas, deliveries y usuarios
       const [u, k, t, d] = await Promise.all([
-        fetchAllUsers().catch(() => []), 
+        isStaff ? fetchAllUsers().catch(() => []) : Promise.resolve([]), 
         fetchKitchenOrders().catch(() => []),
-        fetchTables().catch(() => []),
-        fetchDeliveries().catch(() => [])
+        isStaff ? fetchTables().catch(() => []) : Promise.resolve([]),
+        isStaff ? fetchDeliveries().catch(() => []) : Promise.resolve([])
       ]);
 
       // 🛎️ Lógica de Notificaciones 🛎️
@@ -464,8 +474,12 @@ export const DataSyncProvider = ({ children }) => {
         k.forEach(newOrder => {
           const oldOrder = prevKitchenOrdersRef.current.find(o => o.ID_Pedido === newOrder.ID_Pedido);
           
+          const currentUserEmail = userContextRef.current.email;
+          const currentUserId = userContextRef.current.userId;
+          const currentRole = userContextRef.current.role;
+
           // 1. Notificación a Empleados (nuevo pedido)
-          if (!oldOrder && (role === 'admin' || role === 'staff' || role === 'Admin' || role === 'Staff' || role === 'mesero')) {
+          if (!oldOrder && (currentRole === 'admin' || currentRole === 'staff' || currentRole === 'Admin' || currentRole === 'Staff' || currentRole === 'mesero')) {
             NotificationService.sendLocalNotification(
               '¡Nuevo Pedido! 🔔',
               `El pedido #${newOrder.ID_Pedido} acaba de ingresar.`
@@ -475,7 +489,7 @@ export const DataSyncProvider = ({ children }) => {
           if (oldOrder) {
             // ✅ FIX: api.js normaliza el email a minúscula en el campo 'email'
             // Comparamos ambos campos por si alguna versión usa Email (capital)
-            const normalizedEmail = (email || '').toLowerCase().trim();
+            const normalizedEmail = (currentUserEmail || '').toLowerCase().trim();
             const orderEmail = (
               newOrder.email ||
               (newOrder.Email ? newOrder.Email.toLowerCase() : '') ||
@@ -483,7 +497,7 @@ export const DataSyncProvider = ({ children }) => {
             ).trim();
             const isMyOrder = (
               (orderEmail && normalizedEmail && orderEmail === normalizedEmail) ||
-              (newOrder.userId && userId && String(newOrder.userId) === String(userId))
+              (newOrder.userId && currentUserId && String(newOrder.userId) === String(currentUserId))
             );
 
             // 2. Notificación al cliente (Cambio de estado)
@@ -511,8 +525,8 @@ export const DataSyncProvider = ({ children }) => {
 
               // 4. Notificación al admin/staff cuando el cliente cancela
               const isCancelled = newOrder.estado === 'cancelled' || newOrder.estado === 'cancelado_cliente';
-              const isStaff = role === 'admin' || role === 'Admin' || role === 'staff' || role === 'Staff' || role === 'mesero';
-              if (isCancelled && isStaff) {
+              const isStaffNotify = currentRole === 'admin' || currentRole === 'Admin' || currentRole === 'staff' || currentRole === 'Staff' || currentRole === 'mesero';
+              if (isCancelled && isStaffNotify) {
                 NotificationService.sendLocalNotification(
                   '❌ Pedido Cancelado',
                   `El pedido #${newOrder.ID_Pedido} fue cancelado por el cliente.`
@@ -597,13 +611,8 @@ export const DataSyncProvider = ({ children }) => {
         const token = await registerForPushNotifications();
         console.log('[PushReg] Token Expo obtenido:', token || 'null');
         if (token) savedToken = token;
-        // 🔍 DEBUG TEMPORAL: mostrar alerta en el dispositivo
-        if (isNative) {
-          Alert.alert('🔑 Token Registro', token ? `Token OK:\n${token.substring(0, 40)}...` : '❌ Token null — revisa permisos o projectId');
-        }
       } catch (e) {
         console.warn('[PushReg] Error obteniendo token Expo:', e);
-        if (isNative) Alert.alert('❌ Error Token', e?.message || String(e));
       }
 
       // En web también intentamos FCM
@@ -623,9 +632,11 @@ export const DataSyncProvider = ({ children }) => {
         const idField = role?.toLowerCase() === 'delivery' ? 'ID_Delivery' : 'ID_User';
         await savePushToken(userId, savedToken, targetSheet, idField, username);
         console.log(`[PushReg] ✅ Token guardado automáticamente para ${username}`);
-        if (isNative) Alert.alert('✅ Token Guardado', `Token guardado en ${targetSheet} para ${username}`);
-      } else if (!savedToken && !isNative) {
+      } else {
         console.warn('[PushReg] ⚠️ No se obtuvo ningún token.');
+        if (Platform.OS === 'android') {
+          ToastAndroid.show('No se pudo generar Token de notificaciones', ToastAndroid.SHORT);
+        }
       }
     })();
   }, [userId, role, username]);

@@ -21,14 +21,15 @@ import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-ico
 import * as Location from 'expo-location';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
-import { fetchRiderOrders, fetchRiderStats, updateOrderStatus, pickupOrder, formatPrice, respondToOffer, updateDelivery, pingRider, getRouteDetails, decodePolyline } from '../utils/api';
+import { fetchRiderOrders, fetchRiderStats, updateOrderStatus, pickupOrder, formatPrice, respondToOffer, updateDelivery, pingRider, getRouteDetails, getOptimizedMultiStopRoute, decodePolyline } from '../utils/api';
 import { registerForPushNotifications, saveRiderPushToken, setupNotificationResponseListener } from '../utils/notifications';
+import { updateRiderLocation } from '../utils/locationService';
 import { useDataSync } from '../contexts/AppContext';
 import GlassPanel from '../components/GlassPanel';
 import { LinearGradient } from 'expo-linear-gradient';
-// Conditionally require react-native-maps only on native platforms to avoid codegen errors on web
+import { darkMapStyle, lightMapStyle } from '../constants/MapStyles';
 const MapView = Platform.OS !== 'web' ? require('react-native-maps').default : null;
-const MapProvider = Platform.OS !== 'web' ? require('react-native-maps').PROVIDER_GOOGLE : null;
+const MapProvider = Platform.OS === 'android' ? require('react-native-maps').PROVIDER_GOOGLE : undefined;
 const Polyline = Platform.OS !== 'web' ? require('react-native-maps').Polyline : null;
 const Marker = Platform.OS !== 'web' ? require('react-native-maps').Marker : null;
 import { useUser } from '../contexts/UserContext';
@@ -55,7 +56,7 @@ const RiderScreen = ({ navigation, route }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('ready');
-  const defaultRegion = { latitude: 18.466, longitude: -69.9, latitudeDelta: 0.0922, longitudeDelta: 0.0421 };
+  const defaultRegion = { latitude: CONFIG.STORE_LOCATION.latitude, longitude: CONFIG.STORE_LOCATION.longitude, latitudeDelta: 0.0922, longitudeDelta: 0.0421 };
   const [currentRegion, setCurrentRegion] = useState(defaultRegion);
   const [locationPermission, setLocationPermission] = useState(null);
   const [MapComponents, setMapComponents] = useState(null);
@@ -135,30 +136,58 @@ const RiderScreen = ({ navigation, route }) => {
     if (ordersWithCoords.length === 0) { setRouteSegments([]); return; }
     setIsLoadingRoutes(true);
     try {
-      const results = await Promise.all(
-        ordersWithCoords.map(async (o) => {
-          const dest = parseOrderCoords(o.direccion);
-          const routeData = await getRouteDetails(CONFIG.STORE_LOCATION, dest);
-          if (!routeData || !routeData.polyline) return null;
-          return {
-            orderId: o.id,
-            cliente: o.cliente,
-            estado: o.estado,
-            total: o.total,
-            distance: routeData.distance,
-            duration: routeData.duration,
-            dest,
-            points: decodePolyline(routeData.polyline),
-          };
-        })
-      );
-      const valid = results.filter(Boolean);
+      const destinations = ordersWithCoords.map(o => parseOrderCoords(o.direccion));
+      const routeData = await getOptimizedMultiStopRoute(CONFIG.STORE_LOCATION, destinations);
+      
+      if (!routeData || !routeData.polyline) {
+        setRouteSegments([]);
+        setIsLoadingRoutes(false);
+        return;
+      }
+
+      const points = decodePolyline(routeData.polyline);
+      
+      // Construir segmentos de ruta ordenados
+      const valid = [];
+      const waypointOrder = routeData.waypointOrder || [];
+      
+      // El waypointOrder mapea el índice original (0 a N-1, donde N es número de destinos intermedios)
+      // al orden óptimo. El último destino siempre es el último (índice N).
+      let sortedDestinations = [];
+      if (waypointOrder.length > 0) {
+        waypointOrder.forEach(idx => {
+          sortedDestinations.push(ordersWithCoords[idx]);
+        });
+        // Agregar el destino final
+        sortedDestinations.push(ordersWithCoords[ordersWithCoords.length - 1]);
+      } else {
+        sortedDestinations = [...ordersWithCoords];
+      }
+
+      // En la UI, mostramos la línea completa pero desglosamos los marcadores
+      // Guardaremos la ruta completa en el primer elemento para dibujarla, y los demás solo los datos del pedido
+      sortedDestinations.forEach((o, index) => {
+        const dest = parseOrderCoords(o.direccion);
+        valid.push({
+          orderId: o.id,
+          cliente: o.cliente,
+          estado: o.estado,
+          total: o.total,
+          distance: index === 0 ? routeData.distance : '', // Solo mostramos distancia total en el primero o lo dividimos si queremos
+          duration: index === 0 ? routeData.duration : '',
+          dest,
+          points: index === 0 ? points : [], // Dibujamos la polilínea completa solo 1 vez
+          optimizedIndex: index + 1
+        });
+      });
+
       setRouteSegments(valid);
+
       // En nativo, ajustar el mapa para que entren todos los puntos
       if (Platform.OS !== 'web' && mapRef.current && valid.length > 0) {
         const allCoords = [
           CONFIG.STORE_LOCATION,
-          ...valid.flatMap(r => r.points),
+          ...points,
           ...valid.map(r => r.dest)
         ];
         setTimeout(() => {
@@ -261,7 +290,11 @@ const RiderScreen = ({ navigation, route }) => {
         fetchRiderStats(riderId, user?.email)
       ]);
       
-      const currentProposal = orderData.find(o => String(o.estado).toLowerCase().trim() === 'propuesta');
+      const currentProposal = orderData.find(o => {
+        const est = String(o.estado).toLowerCase().trim();
+        const estExcel = String(o.Estado || '').toLowerCase().trim();
+        return est === 'proposal' || est === 'propuesta' || estExcel === 'propuesta';
+      });
       if (currentProposal && (!proposal || proposal.id !== currentProposal.id)) {
           console.log('[RiderDebug] 📢 ¡Propuesta detectada!', currentProposal.id);
           setProposal(currentProposal);
@@ -368,6 +401,48 @@ const RiderScreen = ({ navigation, route }) => {
       clearInterval(interval);
     };
   }, [riderId, contextUserId, user?.uid, username, isFocused, isClientMode]);
+
+  // 🛵 Real-time GPS sharing when delivering
+  useEffect(() => {
+    const hasActiveDelivery = orders.some(o =>
+      String(o.id_repartidor || '').toLowerCase() === String(riderId).toLowerCase() &&
+      String(o.estado || '').toLowerCase() === 'on_the_way'
+    );
+
+    if (!hasActiveDelivery) return;
+
+    let watchSubscription = null;
+
+    const startTracking = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          console.warn('[GPS] Permission denied');
+          return;
+        }
+
+        watchSubscription = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, distanceInterval: 20, timeInterval: 5000 },
+          (position) => {
+            const { latitude, longitude } = position.coords;
+            const activeOrder = orders.find(o =>
+              String(o.id_repartidor || '').toLowerCase() === String(riderId).toLowerCase() &&
+              String(o.estado || '').toLowerCase() === 'on_the_way'
+            );
+            updateRiderLocation(riderId, latitude, longitude, activeOrder?.id || null);
+          }
+        );
+      } catch (e) {
+        console.warn('[GPS] Error starting tracking:', e.message);
+      }
+    };
+
+    startTracking();
+
+    return () => {
+      if (watchSubscription) watchSubscription.remove();
+    };
+  }, [orders, riderId]);
 
   // Cerrar Modal QR si el pedido se confirma (desde el lado del cliente)
   useEffect(() => {
@@ -603,7 +678,7 @@ const RiderScreen = ({ navigation, route }) => {
     mainBtnText: { color: '#FFF', fontWeight: '900', fontSize: 12 },
     secondaryActions: { flexDirection: 'row', gap: 8 },
     circleBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', elevation: 3 },
-    listContainer: { paddingBottom: 100, paddingTop: 20 },
+    listContainer: { paddingBottom: 120, paddingTop: 20 },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     emptyContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 60 },
     emptyText: { marginTop: 15, color: colors.text.disabled, fontSize: 15, textAlign: 'center' },
@@ -967,7 +1042,7 @@ const RiderScreen = ({ navigation, route }) => {
 
                       {/* Rutas + marcadores de destino */}
                       {routeSegments.map((seg, idx) => {
-                        const lineColor = seg.estado === 'on_the_way' ? '#E31837' : '#FF8C00';
+                        const lineColor = seg.estado === 'on_the_way' ? colors.primary : '#FF8C00';
                         return (
                           <React.Fragment key={seg.orderId}>
                             {/* Polilínea de la ruta */}
@@ -992,7 +1067,7 @@ const RiderScreen = ({ navigation, route }) => {
 
                       {/* Si no hay rutas calculadas, mostrar marcador del rider */}
                       {routeSegments.length === 0 && (
-                        <LeafletMarker position={[currentRegion?.latitude || 18.486, currentRegion?.longitude || -69.931]}>
+                        <LeafletMarker position={[currentRegion?.latitude || CONFIG.STORE_LOCATION.latitude, currentRegion?.longitude || CONFIG.STORE_LOCATION.longitude]}>
                           <Popup><strong>🏍️ Tú (Repartidor)</strong><br />Sin pedidos activos con coordenadas</Popup>
                         </LeafletMarker>
                       )}
@@ -1203,30 +1278,4 @@ const RiderScreen = ({ navigation, route }) => {
 
 export default RiderScreen;
 
-const lightMapStyle = [
-  { "featureType": "landscape", "elementType": "geometry", "stylers": [{ "color": "#f5f5f5" }] },
-  { "featureType": "poi", "elementType": "geometry", "stylers": [{ "color": "#eeeeee" }] },
-  { "featureType": "poi", "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
-  { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#ffffff" }] },
-  { "featureType": "road.arterial", "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
-  { "featureType": "road.highway", "elementType": "geometry", "stylers": [{ "color": "#dadada" }] },
-  { "featureType": "road.highway", "elementType": "labels.text.fill", "stylers": [{ "color": "#616161" }] },
-  { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#9ed5f0" }] },
-  { "featureType": "poi.business", "elementType": "labels", "stylers": [{ "visibility": "off" }] }
-];
 
-const darkMapStyle = [
-  { "elementType": "geometry", "stylers": [{ "color": "#212121" }] },
-  { "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] },
-  { "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
-  { "elementType": "labels.text.stroke", "stylers": [{ "color": "#212121" }] },
-  { "featureType": "administrative", "elementType": "geometry", "stylers": [{ "color": "#757575" }] },
-  { "featureType": "poi", "elementType": "geometry", "stylers": [{ "color": "#181818" }] },
-  { "featureType": "poi", "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
-  { "featureType": "road", "elementType": "geometry.fill", "stylers": [{ "color": "#2c2c2c" }] },
-  { "featureType": "road", "elementType": "labels.text.fill", "stylers": [{ "color": "#8a8a8a" }] },
-  { "featureType": "road.arterial", "elementType": "geometry.fill", "stylers": [{ "color": "#2c2c2c" }] },
-  { "featureType": "road.highway", "elementType": "geometry.fill", "stylers": [{ "color": "#3c3c3c" }] },
-  { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#000000" }] },
-  { "featureType": "water", "elementType": "labels.text.fill", "stylers": [{ "color": "#3d3d3d" }] }
-];

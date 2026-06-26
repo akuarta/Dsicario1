@@ -367,6 +367,19 @@ export const sendRiderPushNotification = async (pushToken, orderData) => {
         console.log(`[PushExpoProxy] ✅ Enviado vía GAS a ${pushToken.slice(-8)}`);
         return true;
       } else {
+        // Detectar token vencido y limpiar
+        const errMsg = result?.data?.message || result?.errorMessage || '';
+        if (errMsg.includes('DeviceNotRegistered') && orderData.riderId) {
+          console.warn(`[PushExpo] ⚠️ Token inválido para repartidor ${orderData.riderId}. Limpiando...`);
+          fetch(CONFIG.GAS_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'UPSERT', sheet: 'Deliverys', idField: 'ID_Delivery',
+              data: { ID_Delivery: orderData.riderId, PushToken: '' }
+            })
+          }).catch(() => {});
+        }
         console.warn(`[PushExpoProxy] ⚠️ Error del proxy (Expo):`, result.errorMessage || result);
         return false;
       }
@@ -396,6 +409,19 @@ export const sendRiderPushNotification = async (pushToken, orderData) => {
         console.log(`[PushExpo] ✅ Enviado a ${pushToken.slice(-8)}`);
         return true;
       } else {
+        // Detectar token vencido y limpiar
+        const errDetails = result?.data?.details?.error || '';
+        if (errDetails === 'DeviceNotRegistered' && orderData.riderId) {
+          console.warn(`[PushExpo] ⚠️ Token inválido para repartidor ${orderData.riderId}. Limpiando...`);
+          fetch(CONFIG.GAS_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'UPSERT', sheet: 'Deliverys', idField: 'ID_Delivery',
+              data: { ID_Delivery: orderData.riderId, PushToken: '' }
+            })
+          }).catch(() => {});
+        }
         console.warn('[PushExpo] ⚠️ Respuesta inesperada:', JSON.stringify(result));
         return false;
       }
@@ -434,6 +460,38 @@ export const notifyRider = async (rider, orderData) => {
   }
 
   return { success: true, notified: true };
+};
+
+// ─────────────────────────────────────────────
+// 📢 BROADCAST A TODOS LOS REPARTIDORES
+// ─────────────────────────────────────────────
+export const broadcastToAllRiders = async (orderData) => {
+  try {
+    const { fetchDeliveries } = require('./api');
+    const riders = await fetchDeliveries();
+    
+    // Filtrar riders activos o con token
+    const activeRiders = riders.filter(r => r.PushToken);
+    
+    if (activeRiders.length === 0) {
+      console.log('[Broadcast] No hay repartidores con token para notificar.');
+      return;
+    }
+
+    console.log(`[Broadcast] Enviando notificación a ${activeRiders.length} repartidores...`);
+    
+    const notifications = activeRiders.map(r => 
+      sendRiderPushNotification(r.PushToken, {
+        orderId: orderData.id || orderData.ID_Pedido,
+        customTitle: '🛵 ¡Nuevo Pedido para Domicilio!',
+        customBody: `Hay un pedido en espera. ¡Abre la app para recogerlo!`,
+      })
+    );
+      
+    await Promise.allSettled(notifications);
+  } catch(e) {
+    console.error('[Broadcast] Error en broadcastToAllRiders:', e);
+  }
 };
 
 // ─────────────────────────────────────────────
@@ -521,4 +579,89 @@ export const notifyOrderReady = async (order) => {
 
 // Asegurar que los canales de Android se configuren en cuanto la app importa este archivo.
 setupAndroidChannels().catch(console.warn);
+
+// ─────────────────────────────────────────────
+// 📋 FUNCIONES PARA NOTIFICATIONSSCREEN
+// ─────────────────────────────────────────────
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const NOTIFICATIONS_LOCAL_KEY = '@dsicario_notifications_local';
+
+export const addNotification = async ({ title, message, type = 'system', data = {} }) => {
+  try {
+    const stored = await AsyncStorage.getItem(NOTIFICATIONS_LOCAL_KEY);
+    const notifications = stored ? JSON.parse(stored) : [];
+    const newNotification = {
+      id: Date.now().toString(),
+      title,
+      message,
+      type,
+      data,
+      read: false,
+      timestamp: new Date().toISOString(),
+    };
+    const updated = [newNotification, ...notifications].slice(0, 50);
+    await AsyncStorage.setItem(NOTIFICATIONS_LOCAL_KEY, JSON.stringify(updated));
+    return newNotification;
+  } catch (e) {
+    console.error('Error adding notification:', e);
+    return null;
+  }
+};
+
+export const getUnreadCount = async () => {
+  try {
+    const stored = await AsyncStorage.getItem(NOTIFICATIONS_LOCAL_KEY);
+    if (!stored) return 0;
+    const notifications = JSON.parse(stored);
+    return notifications.filter(n => !n.read).length;
+  } catch (e) {
+    return 0;
+  }
+};
+
+export const getLocalNotifications = async () => {
+  try {
+    const stored = await AsyncStorage.getItem(NOTIFICATIONS_LOCAL_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+export const markNotificationRead = async (id) => {
+  try {
+    const stored = await AsyncStorage.getItem(NOTIFICATIONS_LOCAL_KEY);
+    if (!stored) return;
+    const notifications = JSON.parse(stored);
+    const updated = notifications.map(n => n.id === id ? { ...n, read: true } : n);
+    await AsyncStorage.setItem(NOTIFICATIONS_LOCAL_KEY, JSON.stringify(updated));
+  } catch (e) {}
+};
+
+export const markAllNotificationsRead = async () => {
+  try {
+    const stored = await AsyncStorage.getItem(NOTIFICATIONS_LOCAL_KEY);
+    if (!stored) return;
+    const notifications = JSON.parse(stored);
+    const updated = notifications.map(n => ({ ...n, read: true }));
+    await AsyncStorage.setItem(NOTIFICATIONS_LOCAL_KEY, JSON.stringify(updated));
+  } catch (e) {}
+};
+
+export const clearLocalNotifications = async () => {
+  try {
+    await AsyncStorage.removeItem(NOTIFICATIONS_LOCAL_KEY);
+  } catch (e) {}
+};
+
+export const deleteNotification = async (id) => {
+  try {
+    const stored = await AsyncStorage.getItem(NOTIFICATIONS_LOCAL_KEY);
+    if (!stored) return;
+    const notifications = JSON.parse(stored);
+    const updated = notifications.filter(n => n.id !== id);
+    await AsyncStorage.setItem(NOTIFICATIONS_LOCAL_KEY, JSON.stringify(updated));
+  } catch (e) {}
+};
 

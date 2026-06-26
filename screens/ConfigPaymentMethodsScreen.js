@@ -19,6 +19,8 @@ import { useCart } from '../contexts/AppContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import { showAlert } from '../utils/showAlert';
 import { saveBusinessInfo, savePaymentMethod, saveTransferDetail, deleteTransferDetail } from '../utils/api';
+import { useUser } from '../contexts/UserContext';
+import AccessDeniedScreen from '../components/AccessDeniedScreen';
 
 const PREDEFINED_METHODS = ['Efectivo', 'Tarjeta', 'Transferencia', 'Binance', 'PayPal', 'Zelle'];
 
@@ -27,6 +29,10 @@ const ConfigPaymentMethodsScreen = () => {
   const colors = getThemeColors(darkMode);
   const navigation = useNavigation();
   const { businessInfo, updateBusinessInfo } = useCart();
+  const { role } = useUser();
+  const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
+
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
   
   const [isSaving, setIsSaving] = useState(false);
   const [tempPaymentMethods, setTempPaymentMethods] = useState([]);

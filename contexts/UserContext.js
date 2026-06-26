@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { Modal, View, Text, Animated } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { FontAwesome5 } from '@expo/vector-icons';
 import { fetchUserRoleByEmail, fetchDeliveries, saveUser, setOffline, setUserOnlineStatus } from '../utils/api';
 import { useAuth } from './AuthContext';
 import { CONFIG } from '../constants/Config';
@@ -18,14 +20,57 @@ export const UserProvider = ({ children }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isClientMode, setIsClientModeState] = useState(false);
 
-  // Wrapper para persistir isClientMode
+  const [transitioning, setTransitioning] = useState(false);
+  const [pendingMode, setPendingMode] = useState(null);
+
+  // Animaciones
+  const overlayOpacity = useRef(new Animated.Value(0)).current;
+  const cardScale = useRef(new Animated.Value(0.85)).current;
+  const cardOpacity = useRef(new Animated.Value(0)).current;
+  const spinAnim = useRef(new Animated.Value(0)).current;
+  const spinLoop = useRef(null);
+
+  // Wrapper para persistir isClientMode con animación de transición estilo InDrive
   const setIsClientMode = async (value) => {
-    setIsClientModeState(value);
-    try {
-      await AsyncStorage.setItem('@dsicario_client_mode', JSON.stringify(value));
-    } catch (e) {
-      console.warn('Error saving client mode:', e);
-    }
+    if (value === isClientMode) return;
+
+    setPendingMode(value);
+    setTransitioning(true);
+
+    // Iniciar animación de entrada
+    Animated.parallel([
+      Animated.timing(overlayOpacity, { toValue: 1, duration: 280, useNativeDriver: true }),
+      Animated.spring(cardScale, { toValue: 1, friction: 6, tension: 90, useNativeDriver: true }),
+      Animated.timing(cardOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+    ]).start();
+
+    // Rotación del ícono
+    spinLoop.current = Animated.loop(
+      Animated.timing(spinAnim, { toValue: 1, duration: 900, useNativeDriver: true })
+    );
+    spinLoop.current.start();
+
+    // Aplicar cambio + salida del modal después de 1200ms
+    setTimeout(async () => {
+      setIsClientModeState(value);
+      try {
+        await AsyncStorage.setItem('@dsicario_client_mode', JSON.stringify(value));
+      } catch (e) {
+        console.warn('Error saving client mode:', e);
+      }
+
+      if (spinLoop.current) spinLoop.current.stop();
+      spinAnim.setValue(0);
+
+      Animated.parallel([
+        Animated.timing(overlayOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+        Animated.timing(cardOpacity, { toValue: 0, duration: 250, useNativeDriver: true }),
+        Animated.timing(cardScale, { toValue: 0.85, duration: 280, useNativeDriver: true }),
+      ]).start(() => {
+        setTransitioning(false);
+        setPendingMode(null);
+      });
+    }, 1200);
   };
 
   // Cargar isClientMode inicial y sincronizar con el rol
@@ -206,9 +251,71 @@ export const UserProvider = ({ children }) => {
     isSyncing
   }), [username, email, role, userId, user?.uid, isClientMode, isSyncing]);
 
+  const spin = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const switchingToClient = pendingMode === true;
+
   return (
     <UserContext.Provider value={value}>
       {children}
+
+      {/* ── Modal de transición de Modo Cliente/Personal estilo InDrive ── */}
+      <Modal visible={transitioning} transparent animationType="none" statusBarTranslucent>
+        <Animated.View style={{
+          flex: 1,
+          backgroundColor: 'rgba(10, 10, 10, 0.95)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          opacity: overlayOpacity,
+        }}>
+          <Animated.View style={{
+            alignItems: 'center',
+            transform: [{ scale: cardScale }],
+            opacity: cardOpacity,
+          }}>
+            {/* Círculo animado */}
+            <Animated.View style={{
+              width: 140, height: 140, borderRadius: 70,
+              backgroundColor: switchingToClient ? 'rgba(255, 107, 53, 0.12)' : 'rgba(52, 152, 219, 0.12)',
+              borderWidth: 2,
+              borderColor: switchingToClient ? '#FF6B3588' : '#3498DB88',
+              alignItems: 'center', justifyContent: 'center',
+              marginBottom: 32,
+              transform: [{ rotate: spin }],
+              // Sombra / brillo
+              shadowColor: switchingToClient ? '#FF6B35' : '#3498DB',
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.3,
+              shadowRadius: 15,
+              elevation: 10,
+            }}>
+              <FontAwesome5
+                name={switchingToClient ? 'shopping-basket' : 'user-shield'}
+                size={54}
+                color={switchingToClient ? '#FF6B35' : '#3498DB'}
+              />
+            </Animated.View>
+
+            {/* Texto informativo */}
+            <Text style={{ color: '#FFF', fontSize: 24, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center', marginBottom: 8 }}>
+              {switchingToClient ? 'Cambiando a' : 'Iniciando'}
+            </Text>
+            <Text style={{
+              fontSize: 22, fontWeight: '800',
+              color: switchingToClient ? '#FF6B35' : '#3498DB',
+              marginBottom: 16,
+              textTransform: 'uppercase',
+              letterSpacing: 1,
+            }}>
+              {switchingToClient ? 'Modo Cliente' : 'Modo Personal'}
+            </Text>
+            <Text style={{ color: '#AAA', fontSize: 14, textAlign: 'center', maxWidth: 280, lineHeight: 20 }}>
+              {switchingToClient 
+                ? 'Preparando el menú y tu carrito de compras...' 
+                : 'Cargando herramientas de gestión y pedidos...'}
+            </Text>
+          </Animated.View>
+        </Animated.View>
+      </Modal>
     </UserContext.Provider>
   );
 };

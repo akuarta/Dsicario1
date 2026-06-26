@@ -165,7 +165,7 @@ const CartScreen = ({ navigation }) => {
     },
     listContainer: {
       paddingVertical: spacing.sm,
-      paddingBottom: 100,
+      paddingBottom: 150,
     },
     emptyList: {
       flex: 1,
@@ -266,11 +266,21 @@ const CartScreen = ({ navigation }) => {
       marginHorizontal: spacing.md,
     },
     footer: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
       backgroundColor: colors.surface,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.md,
       borderTopWidth: 1,
       borderTopColor: colors.border,
+      elevation: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -5 },
+      shadowOpacity: 0.2,
+      shadowRadius: 10,
+      zIndex: 100,
     },
     noteInputContainer: {
       flexDirection: 'row',
@@ -474,6 +484,15 @@ const CartScreen = ({ navigation }) => {
   return (
     <SafeAreaView style={globalStyles.container}>
       <CustomHeader 
+        showBack={true}
+        leftIcon="arrow-left"
+        leftAction={() => {
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            navigation.navigate('InicioTab');
+          }
+        }}
         title={
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <FontAwesome5 name="shopping-cart" size={18} color={colors.text.primary} style={{ marginRight: 8 }} />

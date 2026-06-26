@@ -26,7 +26,8 @@ const RiderProposalOverlay = () => {
   const tickRef      = useRef(null);
   const seenIds      = useRef(new Set()); // IDs ya vistos, para no repetir el modal
 
-  const isRider = (role === 'Rider' || role === 'Delivery' || role === 'rider' || role === 'delivery') && role !== 'Admin';
+  const roleLow = (role || '').toLowerCase();
+  const isRider = (roleLow.includes('delivery') || roleLow.includes('rider') || roleLow.includes('repartidor')) && !roleLow.includes('admin');
 
   const styles = useMemo(() => StyleSheet.create({
     backdrop: {

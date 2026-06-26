@@ -67,7 +67,7 @@ const FavoritesScreen = ({ navigation }) => {
     },
     listContainer: {
       padding: spacing.sm,
-      paddingBottom: spacing.xxl + 20,
+      paddingBottom: 120,
     },
     itemContainer: {
       position: 'relative',

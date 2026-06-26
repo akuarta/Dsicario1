@@ -22,6 +22,8 @@ import GlassPanel from '../components/GlassPanel';
 import { fetchAllUsers, saveUser, deleteUser } from '../utils/api';
 import { useDataSync } from '../contexts/AppContext';
 import { sendLocalNotification, sendRiderPushNotification, sendWhatsAppNotification } from '../utils/notifications';
+import { useUser } from '../contexts/UserContext';
+import AccessDeniedScreen from '../components/AccessDeniedScreen';
 
 const getRoleColor = (role) => {
   switch(role) {
@@ -36,6 +38,10 @@ const getRoleColor = (role) => {
 const AdminStaffScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
+  const { role } = useUser();
+  const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
+
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
 
   const { users, isSyncing, syncAllData, setUsers } = useDataSync();
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -47,7 +53,7 @@ const AdminStaffScreen = ({ navigation }) => {
   const [editingUser, setEditingUser] = useState(null);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('Mesero');
+  const [editingRole, setEditingRole] = useState('Mesero');
   const [isActive, setIsActive] = useState(true);
 
   // Registered Users Picker State
@@ -68,13 +74,13 @@ const AdminStaffScreen = ({ navigation }) => {
       setEditingUser(user);
       setUsername(user.NombreUser || user.nombreuser || user.username || '');
       setEmail(user.EmailUser || user.emailuser || user.email || '');
-      setRole(user.Rol || user.rol || user.UserType || user.usertype || user.role || 'Mesero');
+      setEditingRole(user.Rol || user.rol || user.UserType || user.usertype || user.role || 'Mesero');
       setIsActive(user.Activo !== undefined ? user.Activo : (user['activo?'] !== undefined ? user['activo?'] : (user.active !== undefined ? user.active : true)));
     } else {
       setEditingUser(null);
       setUsername('');
       setEmail('');
-      setRole('Mesero');
+      setEditingRole('Mesero');
       setIsActive(true);
     }
     setIsModalVisible(true);
@@ -142,10 +148,10 @@ const AdminStaffScreen = ({ navigation }) => {
         nombreuser: username,
         EmailUser: email,
         emailuser: email,
-        Rol: role,
-        rol: role,
-        UserType: role,
-        usertype: role,
+        Rol: editingRole,
+        rol: editingRole,
+        UserType: editingRole,
+        usertype: editingRole,
         'Activo': isActive,
         'activo?': isActive,
         'empleado?': true,
@@ -473,7 +479,7 @@ const AdminStaffScreen = ({ navigation }) => {
           <FontAwesome5 name="arrow-left" size={20} color="#FFF" />
         </TouchableOpacity>
         <View>
-          <Text style={styles.headerTitle}>Gestión de Personal</Text>
+          <Text style={styles.headerTitle}>Gestión de Usuarios</Text>
           <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10 }}>Total: {users.length} usuarios</Text>
         </View>
         <View style={{ flexDirection: 'row', gap: 15 }}>
@@ -488,7 +494,7 @@ const AdminStaffScreen = ({ navigation }) => {
 
       <View style={styles.searchContainer}>
         <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <FontAwesome5 name="search" size={14} color="#999" style={{ marginRight: 10 }} />
+          <FontAwesome5 name="search" size={14} color={colors.primary} style={{ marginRight: 10 }} />
           <TextInput
             placeholder="Buscar por nombre o email..."
             placeholderTextColor="#999"
@@ -596,11 +602,11 @@ const AdminStaffScreen = ({ navigation }) => {
                   style={[
                     styles.roleOption, 
                     { borderColor: colors.border },
-                    role === r && { backgroundColor: getRoleColor(r), borderColor: getRoleColor(r) }
+                    editingRole === r && { backgroundColor: getRoleColor(r), borderColor: getRoleColor(r) }
                   ]}
-                  onPress={() => setRole(r)}
+                  onPress={() => setEditingRole(r)}
                 >
-                  <Text style={[styles.roleOptionText, role === r && { color: '#FFF' }]}>{r}</Text>
+                  <Text style={[styles.roleOptionText, editingRole === r && { color: '#FFF' }]}>{r}</Text>
                 </TouchableOpacity>
               ) || null)}
             </View>
@@ -650,7 +656,7 @@ const AdminStaffScreen = ({ navigation }) => {
             </View>
 
             <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.border, marginVertical: 15 }]}>
-              <FontAwesome5 name="search" size={12} color="#999" style={{ marginRight: 8 }} />
+              <FontAwesome5 name="search" size={12} color={colors.primary} style={{ marginRight: 8 }} />
               <TextInput
                 placeholder="Buscar usuario..."
                 placeholderTextColor="#999"

@@ -192,34 +192,19 @@ const ProfileDrawerContent = (props) => {
           </View>
         </View>
 
-        {isStaff && (
-          <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border || '#eee', paddingBottom: 5 }}>
-            <View style={styles.modeSection}>
-              <View>
-                <Text style={[styles.modeText, { color: colors.primary }]}>👤 Modo Cliente</Text>
-                <Text style={styles.modeSub}>{isClientMode ? 'Viendo como cliente' : 'Viendo como staff'}</Text>
-              </View>
-              <Switch
-                value={isClientMode}
-                onValueChange={setIsClientMode}
-                trackColor={{ false: '#ddd', true: colors.primary + '80' }}
-                thumbColor={isClientMode ? colors.primary : '#f4f3f4'}
-              />
-            </View>
-          </View>
-        )}
+
 
         {isStaff && (
           <TouchableOpacity 
             style={[styles.modeSection, { backgroundColor: colors.primary + '15', marginTop: 10, borderBottomWidth: 0, borderRadius: 15, marginHorizontal: 10 }]}
-            onPress={() => props.navigation.navigate('MainTabs', { screen: 'Configuracion', params: { screen: 'StaffModeSettings' } })}
+            onPress={() => props.navigation.navigate('MainTabs', { screen: 'StaffModeTab' })}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
               <View style={{ backgroundColor: colors.primary, padding: 8, borderRadius: 10, marginRight: 12 }}>
                 <FontAwesome5 name="user-shield" size={16} color="#FFF" />
               </View>
               <View>
-                <Text style={styles.modeText}>GESTIÓN EMPLEADO</Text>
+                <Text style={styles.modeText}>MODO EMPLEADO</Text>
                 <Text style={styles.modeSub}>{isClientMode ? 'Modo Cliente activo' : 'Modo Personal activo'}</Text>
               </View>
             </View>
@@ -292,6 +277,39 @@ const ProfileDrawerContent = (props) => {
           <Text style={[styles.menuItemTitle, { color: '#666' }]}>Cerrar Sesión</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Botón Estilo InDrive fijo en la parte inferior */}
+      {isStaff && (
+        <View style={{ padding: 16, backgroundColor: colors.background, borderTopWidth: 1, borderTopColor: colors.border || '#eee' }}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => setIsClientMode(!isClientMode)}
+            style={{
+              backgroundColor: isClientMode ? '#A3E635' : '#1E293B', // InDrive lime green or dark mode
+              borderRadius: 24,
+              paddingVertical: 18,
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexDirection: 'row',
+              gap: 12,
+              shadowColor: isClientMode ? '#A3E635' : '#000',
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: 0.3,
+              shadowRadius: 10,
+              elevation: 6,
+            }}
+          >
+            <FontAwesome5 
+              name={isClientMode ? "user-shield" : "user"} 
+              size={20} 
+              color={isClientMode ? '#111' : '#FFF'} 
+            />
+            <Text style={{ color: isClientMode ? '#111' : '#FFF', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 }}>
+              {isClientMode ? 'MODO PERSONAL' : 'MODO CLIENTE'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </SafeAreaView>
   );
 };

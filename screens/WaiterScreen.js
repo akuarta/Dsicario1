@@ -30,7 +30,7 @@ import { useFocusEffect } from '@react-navigation/native';
 const { width } = Dimensions.get('window');
 
 const WaiterScreen = ({ navigation }) => {
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const { kitchenOrders, setKitchenOrders, tables, isSyncing, syncAllData, waiterActiveSession, setWaiterActiveSession, clearCart } = useDataSync();
@@ -89,7 +89,7 @@ const WaiterScreen = ({ navigation }) => {
         text: 'Sí', 
         onPress: async () => {
           setUpdatingId(orderId);
-          const success = await updateOrderStatus(orderId, nextStatus);
+          const success = await updateOrderStatus(orderId, nextStatus, { ID_Mesero: user?.email || '' });
           if (success) await syncAllData();
           setUpdatingId(null);
         }
@@ -157,7 +157,7 @@ const WaiterScreen = ({ navigation }) => {
         if (shouldDelete && selectedTable.pedido_id) {
           await deleteOrder(selectedTable.pedido_id);
         } else if (finalStatus && selectedTable.pedido_id) {
-          await updateOrderStatus(selectedTable.pedido_id, finalStatus);
+          await updateOrderStatus(selectedTable.pedido_id, finalStatus, { ID_Mesero: user?.email || '' });
         }
 
         // 2. Liberar la mesa (Hard Reset)
@@ -426,7 +426,7 @@ const WaiterScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
       </View>
-      <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />} contentContainerStyle={{ paddingBottom: 40 }}>
+      <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />} contentContainerStyle={{ paddingBottom: 120 }}>
         <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>MAPA DE MESAS 🗺️</Text></View>
         <View style={styles.tableGrid}>{Array.isArray(tables) ? tables.map(renderTableItem) : []}</View>
         <View style={[styles.sectionHeader, { marginTop: 20 }]}><Text style={styles.sectionTitle}>CLIENTES DECIDIENDO ({(Array.isArray(waiterOrders) ? waiterOrders : []).filter(o => o.estado === 'draft').length}) 📝</Text></View>

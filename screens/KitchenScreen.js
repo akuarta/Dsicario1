@@ -25,7 +25,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 
 const KitchenScreen = ({ navigation }) => {
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   
@@ -75,7 +75,7 @@ const KitchenScreen = ({ navigation }) => {
       );
 
       // 2. Enviar al servidor
-      await updateOrderStatus(orderId, nextStatus);
+      await updateOrderStatus(orderId, nextStatus, { ID_Cocinero: user?.email || '' });
       
       // 3. Esperar un poco más para que Sheets se estabilice antes de pedir la lista nueva
       setTimeout(() => {
@@ -136,7 +136,7 @@ const KitchenScreen = ({ navigation }) => {
     headerTitle: { fontSize: typography.sizes.lg, fontWeight: typography.weights.bold, color: colors.text.primary },
     backButton: { padding: spacing.sm },
     refreshHeaderBtn: { padding: spacing.sm },
-    listContainer: { padding: spacing.sm, paddingBottom: 40 },
+    listContainer: { padding: spacing.sm, paddingBottom: 120 },
     sectionHeader: { paddingHorizontal: spacing.sm, marginBottom: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 4 },
     sectionTitle: { fontSize: 14, fontWeight: 'bold', letterSpacing: 1 },
     gridContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start' },

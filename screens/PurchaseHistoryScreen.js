@@ -106,7 +106,7 @@ const PurchaseHistoryScreen = ({ navigation }) => {
       borderRadius: 12,
       ...shadows.small
     },
-    list: { padding: spacing.md },
+    list: { padding: spacing.md, paddingBottom: 120 },
     orderCard: {
       padding: spacing.md,
       borderRadius: 20,

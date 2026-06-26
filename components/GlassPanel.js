@@ -8,9 +8,11 @@ import { BlurView } from 'expo-blur';
  * En Android/Web usa un fondo semi-transparente como fallback.
  */
 const GlassPanel = ({ children, style, intensity = 20, tint = 'light' }) => {
+  const overflowStyle = Platform.OS === 'web' ? { overflow: 'visible' } : {};
+
   if (Platform.OS === 'ios') {
     return (
-      <BlurView intensity={intensity} tint={tint} style={[styles.panel, style]}>
+      <BlurView intensity={intensity} tint={tint} style={[styles.panel, overflowStyle, style]}>
         {children}
       </BlurView>
     );
@@ -21,6 +23,7 @@ const GlassPanel = ({ children, style, intensity = 20, tint = 'light' }) => {
     <View style={[
       styles.panel, 
       { backgroundColor: tint === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)' },
+      overflowStyle,
       style
     ]}>
       {children}

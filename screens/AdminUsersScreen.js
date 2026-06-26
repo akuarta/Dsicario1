@@ -18,10 +18,16 @@ import { getThemeColors, spacing, typography, borders, shadows } from '../theme/
 import GlassPanel from '../components/GlassPanel';
 import { fetchAllUsers, saveUser } from '../utils/api';
 import { useDataSync } from '../contexts/AppContext';
+import { useUser } from '../contexts/UserContext';
+import AccessDeniedScreen from '../components/AccessDeniedScreen';
 
 const AdminUsersScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
+  const { role } = useUser();
+  const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
+
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
 
   const { users, isSyncing, syncAllData, setUsers } = useDataSync();
   const [searchText, setSearchText] = useState('');
@@ -219,7 +225,7 @@ const AdminUsersScreen = ({ navigation }) => {
 
       <View style={styles.searchContainer}>
         <View style={styles.searchBar}>
-          <FontAwesome5 name="search" size={16} color="#999" />
+          <FontAwesome5 name="search" size={16} color={colors.primary} />
           <TextInput
             placeholder="Buscar por ID, nombre o email..."
             placeholderTextColor="#999"

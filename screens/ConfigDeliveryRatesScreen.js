@@ -16,23 +16,29 @@ import { useCart } from '../contexts/AppContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import { showAlert } from '../utils/showAlert';
 import { saveBusinessInfo } from '../utils/api';
+import { useUser } from '../contexts/UserContext';
+import AccessDeniedScreen from '../components/AccessDeniedScreen';
 
 const ConfigDeliveryRatesScreen = () => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const navigation = useNavigation();
   const { businessInfo, updateBusinessInfo } = useCart();
+  const { role } = useUser();
+  const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
+
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
   
   const [isSaving, setIsSaving] = useState(false);
   const [tempDelivery, setTempDelivery] = useState({
-    baseFee: '100',
-    expressFee: '50'
+    costPerKm: '50',
+    expressPerKm: '30'
   });
 
   useEffect(() => {
     setTempDelivery({
-      baseFee: String(businessInfo?.deliveryBaseFee || 100),
-      expressFee: String(businessInfo?.expressFee || 50)
+      costPerKm: String(businessInfo?.deliveryCostPerKm || 50),
+      expressPerKm: String(businessInfo?.expressPerKm || 30)
     });
   }, [businessInfo]);
 
@@ -41,8 +47,8 @@ const ConfigDeliveryRatesScreen = () => {
     try {
       const payload = {
         ...businessInfo,
-        deliveryBaseFee: parseFloat(tempDelivery.baseFee) || 0,
-        expressFee: parseFloat(tempDelivery.expressFee) || 0
+        deliveryCostPerKm: parseFloat(tempDelivery.costPerKm) || 0,
+        expressPerKm: parseFloat(tempDelivery.expressPerKm) || 0
       };
 
       const result = await saveBusinessInfo(payload);
@@ -94,25 +100,25 @@ const ConfigDeliveryRatesScreen = () => {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Tarifa Base de Envío (RD$)</Text>
+          <Text style={styles.label}>Costo por Kilómetro Normal (RD$/km)</Text>
           <TextInput
             style={styles.input}
             keyboardType="numeric"
-            value={tempDelivery.baseFee}
-            onChangeText={(text) => setTempDelivery(prev => ({ ...prev, baseFee: text }))}
-            placeholder="Ej: 150"
+            value={tempDelivery.costPerKm}
+            onChangeText={(text) => setTempDelivery(prev => ({ ...prev, costPerKm: text }))}
+            placeholder="Ej: 50"
             placeholderTextColor={colors.text.light}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Recargo por Envío Express (RD$)</Text>
+          <Text style={styles.label}>Costo por Kilómetro Express (RD$/km)</Text>
           <TextInput
             style={styles.input}
             keyboardType="numeric"
-            value={tempDelivery.expressFee}
-            onChangeText={(text) => setTempDelivery(prev => ({ ...prev, expressFee: text }))}
-            placeholder="Ej: 50"
+            value={tempDelivery.expressPerKm}
+            onChangeText={(text) => setTempDelivery(prev => ({ ...prev, expressPerKm: text }))}
+            placeholder="Ej: 30"
             placeholderTextColor={colors.text.light}
           />
         </View>

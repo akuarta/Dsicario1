@@ -246,7 +246,7 @@ const OrderCenterScreen = ({ navigation }) => {
       color: colors.text.primary,
       marginLeft: 8,
     },
-    list: { padding: spacing.md, paddingBottom: 50 },
+    list: { padding: spacing.md, paddingBottom: 120 },
     orderCard: {
       padding: spacing.sm,
       borderRadius: 20,
@@ -307,7 +307,7 @@ const OrderCenterScreen = ({ navigation }) => {
             <Text style={styles.orderTime}>{item.Fecha || item.timestamp}</Text>
             {isAdmin && (
               <TouchableOpacity onPress={() => handleDeleteOrder(id)} style={{ padding: 4, marginLeft: 5 }}>
-                <FontAwesome5 name="trash-alt" size={14} color="#E31837" />
+                <FontAwesome5 name="trash-alt" size={14} color={colors.error} />
               </TouchableOpacity>
             )}
           </View>
@@ -484,7 +484,7 @@ const OrderCenterScreen = ({ navigation }) => {
       {isStaff && (
         <View style={styles.searchContainer}>
           <View style={styles.searchBar}>
-            <FontAwesome5 name="search" size={14} color="#999" />
+            <FontAwesome5 name="search" size={14} color={colors.primary} />
             <TextInput
               style={styles.searchInput}
               placeholder="Buscar por ID o Cliente..."

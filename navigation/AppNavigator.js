@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View } from 'react-native';
+import { View, Platform } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -17,6 +17,8 @@ import ProfileStack from './ProfileStack';
 import PurchaseHistoryStack from './PurchaseHistoryStack';
 import FavoritesStack from './FavoritesStack';
 import ConfigStack from './ConfigStack';
+import GestionStack from './GestionStack';
+import StaffModeScreen from '../screens/StaffModeScreen';
 import ProfileDrawerContent from '../components/ProfileDrawerContent';
 import DeliveryTrackingScreen from '../screens/DeliveryTrackingScreen';
 import ProductDetailScreen from '../screens/ProductDetailScreen';
@@ -45,7 +47,7 @@ const ExplorarStack = () => {
   return (
     <Stack.Navigator
       screenOptions={{
-        headerStyle: { backgroundColor: colors.primary },
+        headerStyle: { backgroundColor: colors.primary, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, elevation: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },
         headerTintColor: '#FFFFFF',
         headerTitleStyle: { fontWeight: 'bold' },
       }}
@@ -75,7 +77,7 @@ const PreOrderStack = () => {
   return (
     <Stack.Navigator
       screenOptions={{
-        headerStyle: { backgroundColor: colors.primary },
+        headerStyle: { backgroundColor: colors.primary, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, elevation: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },
         headerTintColor: '#FFFFFF',
         headerTitleStyle: { fontWeight: 'bold' },
       }}
@@ -153,6 +155,20 @@ const MainTabs = () => {
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textSecondary,
+        // Indicar que el tab es flotante (absolute) para que el Navigator
+        // NO añada paddingBottom automático al contenido de las pantallas
+        tabBarStyle: { position: 'absolute' },
+        // Forzar altura en el contenedor para que el scroll funcione en web
+        // cuando el tab bar es flotante (position: absolute)
+        sceneStyle: Platform.select({
+          web: {
+            flex: 1,
+            height: '100%',
+            overflowY: 'scroll',
+            overflowX: 'hidden',
+          },
+          default: {},
+        }),
       }}
     >
       <Tab.Screen
@@ -197,8 +213,10 @@ const MainTabs = () => {
         }} 
       />
       <Tab.Screen name="Favoritos" component={FavoritesStack} options={{ tabBarButton: () => null }} />
-      <Tab.Screen name="Configuracion" component={ConfigStack} options={{ tabBarButton: () => null, unmountOnBlur: true }} />
-      <Tab.Screen name="DeliveryTracking" component={DeliveryTrackingScreen} options={{ tabBarButton: () => null }} />
+      <Tab.Screen name="Configuracion" component={ConfigStack} options={{ tabBarButton: () => null }} />
+      <Tab.Screen name="GestionTab" component={GestionStack} options={{ tabBarButton: () => null }} />
+      <Tab.Screen name="StaffModeTab" component={StaffModeScreen} options={{ tabBarButton: () => null }} />
+      <Tab.Screen name="DeliveryTracking" component={DeliveryTrackingScreen} options={{ tabBarButton: () => null, unmountOnBlur: false }} />
       <Tab.Screen name="CarritoTab" component={CartStack} options={{ tabBarButton: () => null }} />
       
       {isStaff ? (
@@ -219,7 +237,16 @@ const DrawerNavigator = () => {
   const isAdmin = roleLow.includes('admin') || roleLow === 'owner';
   
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ 
+      flex: 1,
+      ...Platform.select({
+        web: {
+          height: '100%',
+          overflow: 'hidden',
+        },
+        default: {},
+      }),
+    }}>
       <Drawer.Navigator
         drawerContent={(props) => <ProfileDrawerContent {...props} />}
         screenOptions={{

@@ -112,6 +112,10 @@ const ProductDetailScreen = ({ navigation, route }) => {
     container: { flex: 1, backgroundColor: colors.background },
     scrollContent: { paddingBottom: 160 },
     fixedFooter: { 
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
       backgroundColor: colors.surface, 
       paddingHorizontal: spacing.md, 
       paddingTop: spacing.sm, 
@@ -123,6 +127,7 @@ const ProductDetailScreen = ({ navigation, route }) => {
       shadowOffset: { width: 0, height: -5 },
       shadowOpacity: 0.2,
       shadowRadius: 10,
+      zIndex: 100,
     },
     imageContainer: { position: 'relative', height: 300, backgroundColor: colors.surface },
     productImage: { width: '100%', height: '100%' },
