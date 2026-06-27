@@ -228,24 +228,35 @@ export function useCheckout({ navigation, route }) {
         if (estado === 'accepted' || estado === 'ready' || estado === 'on_the_way') {
           stopWaiting();
           setRiderConfirmed(true);
-          showAlert('¡Rider aceptó! 🛵', `${selectedRiderRef.current?.nombre} está disponible. Ahora puedes confirmar tu pedido.`);
+          console.log('[Checkout] Rider aceptó');
         } else if (estado === 'rejected' || estado === 'rechazado' || estado === 'cancelled') {
           stopWaiting();
           setSelectedRider(null);
           setRiderModalVisible(false);
-          showAlert('Rechazado ❌', 'El repartidor no puede tomar el pedido.');
+          console.log('[Checkout] Rider rechazó');
+          if (Platform.OS === 'web') {
+            showAlert('No aceptado', 'El repartidor no pudo tomar tu pedido.');
+          } else {
+            const { ToastAndroid } = require('react-native');
+            ToastAndroid.show('El repartidor no pudo tomar tu pedido', ToastAndroid.LONG);
+          }
         }
       } catch (e) { console.warn('[Poll]', e.message); }
     }, 2000);
 
     deadlineTimerRef.current = setTimeout(() => {
-      const riderName = selectedRiderRef.current?.nombre || 'El repartidor';
       const oid = currentOrderIdRef.current;
       stopWaiting();
       setSelectedRider(null);
       setRiderModalVisible(false);
-      showAlert('⏳ Sin respuesta', `${riderName} no respondió a tiempo.`);
+      console.log('[Checkout] Sin respuesta del rider');
       updateOrderStatus(oid, 'pending', { ID_Rider: '' }, true).catch(() => {});
+      if (Platform.OS === 'web') {
+        showAlert('No aceptado', 'El repartidor no respondió a tiempo.');
+      } else {
+        const { ToastAndroid } = require('react-native');
+        ToastAndroid.show('El repartidor no respondió a tiempo', ToastAndroid.LONG);
+      }
     }, 25000);
   }, [stopWaiting, pulseAnim]);
 
@@ -262,7 +273,7 @@ export function useCheckout({ navigation, route }) {
       if (deliveryType === 'delivery' && (!deliveryAddress || !deliveryAddress.trim())) {
         setRiderModalVisible(false);
         setTimeout(() => {
-          showAlert('📍 Falta dirección', 'Para pedir un delivery, primero debes escribir la dirección de destino.');
+          console.warn('[Checkout] Falta dirección de delivery');
         }, 300);
         return;
       }
@@ -324,7 +335,7 @@ export function useCheckout({ navigation, route }) {
       }
     } catch (e) {
       console.error('[NEGOTIATION] Error en sendRiderProposal:', e);
-      showAlert('Error', 'No se pudo procesar la propuesta.');
+      console.error('[Checkout] Error procesando propuesta');
       setIsWaitingRider(false);
     }
   }, [cart, email, username, finalTotal, costoEnvioCalculado, deliveryAddress, deliveryType, paymentType, startWaitingCycle, orderNote, voucherImage, businessInfo, userId, getFormattedAddress, selectedLocation]);
@@ -337,7 +348,7 @@ export function useCheckout({ navigation, route }) {
       if (riderConfirmed && currentOrderId) {
         if (paymentType.toLowerCase().includes('transf')) {
           if (!voucherImage && (!paymentReference || !paymentReference.trim())) {
-            showAlert('Comprobante Requerido', 'Para pagar con transferencia debes subir una foto del comprobante o escribir el número de referencia.');
+            console.warn('[Checkout] Falta comprobante de transferencia');
             setIsProcessing(false);
             return;
           }
@@ -373,14 +384,14 @@ export function useCheckout({ navigation, route }) {
       }
 
       if (deliveryType === 'delivery' && !deliveryAddress.trim()) {
-        showAlert('Falta dirección', 'Por favor ingresa la dirección de entrega.');
+        console.warn('[Checkout] Falta dirección de entrega');
         setIsProcessing(false);
         return;
       }
 
       if (paymentType.toLowerCase().includes('transf')) {
         if (!voucherImage && (!paymentReference || !paymentReference.trim())) {
-          showAlert('Comprobante Requerido', 'Para pagar con transferencia debes subir una foto del comprobante o escribir el número de referencia.');
+          console.warn('[Checkout] Falta comprobante de transferencia');
           setIsProcessing(false);
           return;
         }
@@ -453,7 +464,7 @@ export function useCheckout({ navigation, route }) {
       }
     } catch (e) {
       console.error('Error executePayment:', e);
-      showAlert('Error', 'No se pudo procesar el pedido. Reintenta.');
+      console.error('[Checkout] Error procesando pedido');
     } finally {
       setIsProcessing(false);
     }
@@ -483,7 +494,7 @@ export function useCheckout({ navigation, route }) {
     if (cancelInput.trim().toLowerCase() !== 'cancelar') return;
     const CANCEL_WINDOW_MS = 5 * 60 * 1000;
     if (orderCreatedAtRef.current && Date.now() - orderCreatedAtRef.current > CANCEL_WINDOW_MS) {
-      showAlert('⏰ Tiempo agotado', 'Solo puedes cancelar tu pedido dentro de los primeros 5 minutos.');
+      console.warn('[Checkout] Tiempo de cancelación agotado');
       return;
     }
     try {
@@ -495,7 +506,7 @@ export function useCheckout({ navigation, route }) {
         `Tu pedido #${currentOrderId} fue cancelado correctamente.`
       ).catch(() => {});
     } catch (e) {
-      showAlert('Error', 'No se pudo cancelar el pedido. Contáctanos directamente.');
+      console.error('[Checkout] Error cancelando pedido');
     } finally {
       setIsCancellingOrder(false);
     }
@@ -517,7 +528,7 @@ export function useCheckout({ navigation, route }) {
       if (tipo === 'ticket') await generatePDFBase64(orderData);
       else await generateInvoice(orderData, tipo);
     } catch (error) {
-      showAlert('Error', 'No se pudo generar el comprobante.');
+      console.error('[Checkout] Error generando comprobante');
     } finally {
       setIsGeneratingPDF(false);
     }
@@ -544,20 +555,12 @@ export function useCheckout({ navigation, route }) {
         console.log(`3. RESULTADO GOOGLE MAPS: Distancia = ${route.distance}, Tiempo = ${route.duration}`);
         console.log(`===================================\n`);
         
-        showAlert(
-          'Log del Cálculo 🔍',
-          `Origen: ${originSource}\n` +
-          `A Destino: Tu selección en el mapa\n` +
-          `Resultado: ${route.distance}`
-        );
+        console.log(`[Checkout] Distancia calculada: ${route.distance}`);
         
         const maxRadius = businessInfo?.deliveryMaxRadius || 15;
         const distanceKm = route.distanceValue / 1000;
         if (distanceKm > maxRadius) {
-          showAlert(
-            'Fuera de Rango 📍',
-            `Lo sentimos, esta ubicación está a ${distanceKm.toFixed(1)} km, lo cual excede nuestro radio máximo de entrega (${maxRadius} km).`
-          );
+          console.warn(`[Checkout] Fuera de rango: ${distanceKm.toFixed(1)} km > ${maxRadius} km`);
         }
       }
     }

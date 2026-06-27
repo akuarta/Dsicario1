@@ -247,7 +247,7 @@ const ProfileDrawerContent = (props) => {
                 const { setOffline } = require('../utils/api');
                 if ((userId && userId !== 'N/A') || firebaseUid) {
                   console.log(`[USER_PRESENCE] 🔴 Enviando estado OFFLINE al servidor para UID: ${firebaseUid}, DeliveryID: ${userId}, Name: ${username}`);
-                  await setOffline(userId, firebaseUid, username);
+                  await setOffline(userId, firebaseUid, username, email);
                 }
               } catch (e) {
                 console.warn('[USER_PRESENCE] Error marcando offline al salir:', e);

@@ -242,34 +242,8 @@ const RiderScreen = ({ navigation, route }) => {
 // Existing effect for proposal sync follows below
   useEffect(() => {
     if (proposal && proposal.id) {
-      // Intentamos extraer el timestamp del ID (ORD-123456789)
-      const timestamp = parseInt(proposal.id.replace('ORD-', ''));
-      if (!isNaN(timestamp)) {
-        const elapsed = Math.floor((Date.now() - timestamp) / 1000);
-        const actualTimeLeft = Math.max(0, 20 - elapsed);
-        
-        console.log(`[Timer] Pedido creado hace ${elapsed}s. Iniciando contador en: ${actualTimeLeft}s`);
-        setTimeLeft(actualTimeLeft);
-
-        if (actualTimeLeft <= 0) {
-          handleProposalResponse(false);
-          return;
-        }
-      } else {
-        setTimeLeft(20);
-      }
-
-      if (timerRef.current) clearInterval(timerRef.current);
-      timerRef.current = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            clearInterval(timerRef.current);
-            handleProposalResponse(false);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+      // Solo mostrar la propuesta, NO auto-rechazar (el modal global maneja el timeout)
+      setTimeLeft(20);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
       setTimeLeft(20);
@@ -320,7 +294,7 @@ const RiderScreen = ({ navigation, route }) => {
           if (Platform.OS === 'web') {
             import('../utils/notifications').then(m => m.sendWebBrowserNotification({ cliente: 'Admin', total: 'Asignado', orderId: 'NEW' }));
           }
-          showAlert("🚀 ¡NUEVO PEDIDO!", "Un administrador te ha asignado un pedido.");
+          console.log('[Rider] Nuevo pedido asignado');
       }
       setLastAssignedCount(currentAssigned);
       setOrders(orderData);
@@ -342,7 +316,7 @@ const RiderScreen = ({ navigation, route }) => {
         await loadData(true);
         if (accept) setActiveTab('ready');
     } catch (e) {
-        showAlert('Error', 'No se pudo enviar la respuesta.');
+        console.error('[Rider] Error enviando respuesta');
     } finally {
         setIsLoading(false);
     }
@@ -384,7 +358,7 @@ const RiderScreen = ({ navigation, route }) => {
     const performPing = async () => {
       console.log(`[RiderHeartbeat] 💓 Ping Activo para: ${riderId} (Context ID: ${contextUserId})`);
       try {
-        await pingRider(riderId, user?.uid, username);
+        await pingRider(riderId, user?.uid, username, user?.email);
       } catch (e) {
         console.warn('[RiderHeartbeat] Error en ping:', e);
       }
@@ -454,7 +428,7 @@ const RiderScreen = ({ navigation, route }) => {
           setShowQR(false);
           setActiveQRData(null);
           if (Platform.OS !== 'web') {
-             showAlert('✅ ¡Entregado!', 'El cliente ha confirmado la recepción del pedido.');
+             console.log('[Rider] Cliente confirmó recepción');
           }
         }
       } catch (e) {
@@ -483,11 +457,11 @@ const RiderScreen = ({ navigation, route }) => {
       const res = await updateDelivery(updatedRider);
       if (!res || !(res.success || res.status === 'success')) {
         setStats(prev => ({ ...prev, activo: !value }));
-        showAlert('Error', 'El servidor no pudo guardar el cambio.');
+        console.error('[Rider] Error guardando cambio');
       }
     } catch (e) {
       setStats(prev => ({ ...prev, activo: !value }));
-      showAlert('Error', 'No se pudo actualizar tu disponibilidad.');
+      console.error('[Rider] Error actualizando disponibilidad');
     }
   };
 
@@ -509,11 +483,11 @@ const RiderScreen = ({ navigation, route }) => {
 
   const handleAction = (type, val) => {
     if (type === 'whatsapp') {
-      Linking.openURL(`whatsapp://send?phone=${val}&text=Hola, soy tu repartidor de DSicario.`).catch(() => showAlert('Error', 'WhatsApp no instalado'));
+      Linking.openURL(`whatsapp://send?phone=${val}&text=Hola, soy tu repartidor de DSicario.`).catch(() => console.warn('[Rider] WhatsApp no instalado'));
     } else if (type === 'gps') {
-      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(val)}`).catch(() => showAlert('Error', 'No se pudo abrir el mapa'));
+      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(val)}`).catch(() => console.warn('[Rider] No se pudo abrir el mapa'));
     } else if (type === 'call') {
-      Linking.openURL(`tel:${val}`).catch(() => showAlert('Error', 'No se pudo llamar'));
+      Linking.openURL(`tel:${val}`).catch(() => console.warn('[Rider] No se pudo llamar'));
     }
   };
 
@@ -523,10 +497,7 @@ const RiderScreen = ({ navigation, route }) => {
     const availableFunds = (parseFloat(stats.cartera) || 0) + (parseFloat(stats.cupo) || 0);
 
     if (orderTotal > availableFunds) {
-      showAlert(
-        'Saldo Insuficiente', 
-        `Tu saldo (RD$ ${availableFunds}) no alcanza para este pedido (RD$ ${orderTotal}).\n\nPor favor, recarga tu Cartera.`
-      );
+      console.warn(`[Rider] Saldo insuficiente: RD$${availableFunds} < RD$${orderTotal}`);
       return;
     }
 
@@ -926,6 +897,7 @@ const RiderScreen = ({ navigation, route }) => {
   };
 
   return (
+    <View style={{ flex: 1 }}>
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       <LinearGradient colors={[colors.primary, '#E63946']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.statsHeader}>
@@ -1212,8 +1184,8 @@ const RiderScreen = ({ navigation, route }) => {
 
       {/* 🚀 OVERLAY DE PROPUESTA FLOTANTE */}
 
-      {proposal && (
-        <View style={styles.floatingProposal}>
+      <Modal visible={!!proposal} transparent animationType="fade" onRequestClose={() => handleProposalResponse(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: 20 }}>
           <GlassPanel style={styles.proposalInner}>
             <View style={styles.propHeader}>
               <View style={styles.timerBadge}>
@@ -1221,9 +1193,9 @@ const RiderScreen = ({ navigation, route }) => {
               </View>
               <View style={{ flex: 1, marginLeft: 10 }}>
                 <Text style={styles.propTitle}>¡Nueva Propuesta!</Text>
-                <Text style={styles.propClient}>{proposal.cliente || 'Nuevo Cliente'}</Text>
+                <Text style={styles.propClient}>{proposal?.cliente || 'Nuevo Cliente'}</Text>
               </View>
-              <Text style={styles.propPrice}>RD${proposal.total || '0'}</Text>
+              <Text style={styles.propPrice}>RD${proposal?.total || '0'}</Text>
             </View>
 
             <View style={styles.propActions}>
@@ -1244,7 +1216,7 @@ const RiderScreen = ({ navigation, route }) => {
             </View>
           </GlassPanel>
         </View>
-      )}
+      </Modal>
       {/* ✅ Botón Global de Recogida (Siempre visible) */}
       {activeTab === 'ready' && (
         <View style={styles.footerAction}>
@@ -1273,6 +1245,8 @@ const RiderScreen = ({ navigation, route }) => {
         </View>
       )}
     </SafeAreaView>
+
+    </View>
   );
 };
 

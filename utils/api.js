@@ -1659,7 +1659,7 @@ export const fetchDeliveries = async () => {
         const typeId  = normalizeId(getRobustProp(u, 'ID_UserType'));
         const rawOnline = getRobustProp(u, 'Online?') || null;
         const rawActivo = getRobustProp(u, 'activo?') || getRobustProp(u, 'Activo?') || null;
-        const entry = { online: parseStatus(rawOnline), activo: parseStatus(rawActivo) };
+        const entry = { online: parseStatus(rawOnline), activo: parseStatus(rawActivo), typeId };
         if (correo) usuarioMapEmail[correo] = entry;
         if (typeId)  usuarioMapType[typeId]  = entry;
       });
@@ -1671,6 +1671,14 @@ export const fetchDeliveries = async () => {
         if (emailMatch) {
           r.online = emailMatch.online;
           if (emailMatch.activo !== null) r.activo = emailMatch.activo;
+          // 🔧 Si el id_delivery parece Firebase UID (>20 chars sin prefijo DS/DLV), usar el ID_UserType de Usuarios
+          if (r.id_delivery.length > 20 && !r.id_delivery.startsWith('DS') && !r.id_delivery.startsWith('DLV')) {
+            if (emailMatch.typeId) {
+              console.log(`[fetchDeliveries] Corrigiendo id_delivery de ${r.id_delivery} a ${emailMatch.typeId} para ${correo}`);
+              r.id_delivery = emailMatch.typeId;
+              r.id = emailMatch.typeId;
+            }
+          }
         } else {
           const typeMatch = usuarioMapType[normalizedDeliveryId] ?? null;
           if (typeMatch) r.online = typeMatch.online;
@@ -1712,10 +1720,32 @@ export const fetchDeliveries = async () => {
 /**
  * Update rider heartbeat/connection
  */
-export const pingRider = async (riderId, firebaseUid = null, name = null) => {
+export const pingRider = async (riderId, firebaseUid = null, name = null, email = null) => {
   if (!riderId || riderId === 'N/A') {
     console.warn('[API] Skipping pingRider: Invalid riderId:', riderId);
     return { success: false };
+  }
+
+  // 🛡️ Si riderId parece Firebase UID, resolver el ID real de Deliverys
+  if (riderId.length > 20 && !riderId.startsWith('DS') && !riderId.startsWith('DLV')) {
+    console.warn(`[API] ⚠️ riderId parece Firebase UID: ${riderId}. Resolviendo...`);
+    try {
+      const deliveries = await fetchDeliveries();
+      const match = deliveries.find(d => 
+        String(d.id_user || '').trim() === riderId || 
+        String(d.email || '').toLowerCase().trim() === (email || '').toLowerCase().trim()
+      );
+      if (match && match.id_delivery) {
+        console.log(`[API] ✅ riderId resuelto: ${riderId} → ${match.id_delivery}`);
+        riderId = match.id_delivery;
+      } else {
+        console.warn('[API] No se encontró delivery match, saltando ping');
+        return { success: false };
+      }
+    } catch (e) {
+      console.warn('[API] Error resolviendo riderId:', e.message);
+      return { success: false };
+    }
   }
   
   try {
@@ -1743,8 +1773,8 @@ export const pingRider = async (riderId, firebaseUid = null, name = null) => {
     promises.push(gasPost(payloadDelivery));
 
     // 👤 Actualizar hoja de Usuarios usando la función robusta (mantiene Online=TRUE)
-    if (firebaseUid) {
-      promises.push(setUserOnlineStatus(firebaseUid, true, null, name));
+    if (riderId) {
+      promises.push(setUserOnlineStatus(riderId, true, email, name));
     }
 
     await Promise.all(promises);
@@ -1758,8 +1788,30 @@ export const pingRider = async (riderId, firebaseUid = null, name = null) => {
 /**
  * Mark rider as offline in both sheets
  */
-export const setOffline = async (riderId, firebaseUid = null, name = null) => {
+export const setOffline = async (riderId, firebaseUid = null, name = null, email = null) => {
   console.log(`[API] 😴 Marcando OFFLINE a: ${riderId} / UID: ${firebaseUid}`);
+
+  // 🛡️ Si riderId parece Firebase UID, resolver el ID real
+  if (riderId && riderId.length > 20 && !riderId.startsWith('DS') && !riderId.startsWith('DLV')) {
+    try {
+      const deliveries = await fetchDeliveries();
+      const match = deliveries.find(d => 
+        String(d.id_user || '').trim() === riderId || 
+        String(d.email || '').toLowerCase().trim() === (email || '').toLowerCase().trim()
+      );
+      if (match && match.id_delivery) {
+        console.log(`[API] ✅ riderId resuelto (offline): ${riderId} → ${match.id_delivery}`);
+        riderId = match.id_delivery;
+      } else {
+        console.warn('[API] No se encontró delivery match para offline, saltando');
+        return { success: false };
+      }
+    } catch (e) {
+      console.warn('[API] Error resolviendo riderId offline:', e.message);
+      return { success: false };
+    }
+  }
+
   try {
     const promises = [];
     
@@ -1780,8 +1832,8 @@ export const setOffline = async (riderId, firebaseUid = null, name = null) => {
     }
 
     // 2. Actualizar hoja Usuarios usando la función robusta
-    if (firebaseUid) {
-      promises.push(setUserOnlineStatus(firebaseUid, false, null, name));
+    if (riderId) {
+      promises.push(setUserOnlineStatus(riderId, false, email, name));
     }
 
     await Promise.all(promises);
@@ -1909,38 +1961,30 @@ export const deleteRecipeIngredient = async (idReceta) => {
   }
 };
 
-export const setUserOnlineStatus = async (firebaseUid, isOnline, email = null, name = null) => {
-  // LOG INMEDIATO: Para verificar que la función se llama
-  console.log(`[USER_PRESENCE] 🚀 Iniciando setUserOnlineStatus: UID=${firebaseUid}, Online=${isOnline}, Email=${email}, Name=${name}`);
+export const setUserOnlineStatus = async (correctUserId, isOnline, email = null, name = null) => {
+  console.log(`[USER_PRESENCE] 🚀 Iniciando setUserOnlineStatus: UserId=${correctUserId}, Online=${isOnline}, Email=${email}, Name=${name}`);
 
-  if (!firebaseUid && !email) return { success: false };
+  if (!correctUserId && !email) return { success: false };
   
   try {
-    const idField = (firebaseUid && firebaseUid !== 'N/A') ? "ID_User" : "EmailUser";
-    const idValue = (firebaseUid && firebaseUid !== 'N/A') ? firebaseUid : email;
-
     const payload = {
       action: "UPSERT",
       sheet: "Usuarios",
-      idField: idField,
+      idField: "ID_User",
       data: {
-        [idField]: idValue,
+        'ID_User': correctUserId,
         'Online?': isOnline ? 'TRUE' : 'FALSE'
       }
     };
 
-    // 🛡️ REQUISITO DEL SERVIDOR: NombreUser es obligatorio para UPSERT
     if (name) {
       payload.data['NombreUser'] = name;
     }
-
-    if (idField === "ID_User" && email) {
+    if (email) {
       payload.data['EmailUser'] = email;
-    } else if (idField === "EmailUser" && firebaseUid) {
-      payload.data['ID_User'] = firebaseUid;
     }
 
-    console.log(`[USER_PRESENCE] 📤 Enviando payload (con NombreUser):`, JSON.stringify(payload));
+    console.log(`[USER_PRESENCE] 📤 Enviando payload:`, JSON.stringify(payload));
     
     const result = await gasPost(payload);
     console.log(`[USER_PRESENCE] 📡 Respuesta del servidor (Usuarios):`, JSON.stringify(result));

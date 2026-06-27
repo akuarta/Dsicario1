@@ -107,11 +107,12 @@ export const UserProvider = ({ children }) => {
       setEmail(user.email);
       
       // 🔄 Sincronizar automáticamente con Excel para traer el ID_UserType y otros datos
-      syncUserRole(user.email);
-      
-      // 🟢 PING UNIVERSAL: marcar Online?=TRUE en Usuarios para TODOS los usuarios
-      console.log(`[USER_PRESENCE] 🟢 Enviando estado ONLINE al servidor para: ${user.email}`);
-      markUserOnline(user.uid, true, user.email, cleanName);
+      // y después marcar online con el userId correcto (no el Firebase UID)
+      syncUserRole(user.email).then(() => {
+        const resolvedId = userId || user.uid;
+        console.log(`[USER_PRESENCE] 🟢 Enviando estado ONLINE: UserId=${resolvedId}`);
+        markUserOnline(resolvedId, true, user.email, cleanName);
+      });
       
       // 🛡️ REFUERZO: Si es el dueño, asegurar que NO esté en modo cliente por defecto
       if (user.email?.toLowerCase().trim() === CONFIG.OWNER_EMAIL) {
@@ -125,9 +126,9 @@ export const UserProvider = ({ children }) => {
     }
   }, [user]);
 
-  // Marca Online?=TRUE o FALSE en la hoja Usuarios para CUALQUIER usuario
-  const markUserOnline = (firebaseUid, isOnline, email = null, name = null) => {
-    setUserOnlineStatus(firebaseUid, isOnline, email, name || username).catch(e =>
+  // Marca Online?=TRUE o FALSE en la hoja Usuarios
+  const markUserOnline = (correctUserId, isOnline, email = null, name = null) => {
+    setUserOnlineStatus(correctUserId, isOnline, email, name || username).catch(e =>
       console.warn('[UserContext] Error marcando online status:', e)
     );
   };
@@ -158,13 +159,18 @@ export const UserProvider = ({ children }) => {
           try {
             const allRiders = await fetchDeliveries();
             const internalId = String(profile.id || '').trim();
+            // 🔍 Buscar por email PRIMERO (más confiable), luego por id_user
             const myRiderInfo = allRiders.find(r => 
+              (String(r.email || '').toLowerCase().trim() === cleanAuthEmail && cleanAuthEmail !== '') ||
               (String(r.id_user || '').trim() === internalId && internalId !== '') ||
-              (String(r.email || '').toLowerCase().trim() === cleanAuthEmail) ||
               (isOwner && (r.id_delivery === CONFIG.OWNER_RIDER_ID || r.id_delivery === `${CONFIG.OWNER_RIDER_ID}1`))
             );
-            if (myRiderInfo) finalId = myRiderInfo.id_delivery;
-            else if (isOwner) finalId = CONFIG.OWNER_RIDER_ID; 
+            if (myRiderInfo) {
+              console.log('[UserContext] Delivery encontrado:', myRiderInfo.id_delivery, '| email:', myRiderInfo.email);
+              finalId = myRiderInfo.id_delivery;
+            } else if (isOwner) {
+              finalId = CONFIG.OWNER_RIDER_ID; 
+            }
           } catch (e) { console.warn('Error vinculando repartidor:', e); }
         }
         
@@ -201,8 +207,21 @@ export const UserProvider = ({ children }) => {
         const nextNumber = (counts[roleToAssign.toLowerCase()] || 0) + 1;
         const newTypeId = `${prefix}${String(nextNumber).padStart(2, '0')}`;
         
+        // 🔍 Buscar en Deliverys por email para evitar sobrescribir con Firebase UID
+        let resolvedId = newTypeId;
+        try {
+          const allDeliveries = await fetchDeliveries();
+          const matchedDelivery = allDeliveries.find(d => 
+            String(d.email || '').toLowerCase().trim() === cleanAuthEmail
+          );
+          if (matchedDelivery) {
+            resolvedId = matchedDelivery.id_delivery || matchedDelivery.id;
+            console.log('[UserContext] Delivery encontrado por email:', resolvedId);
+          }
+        } catch (e) { /* ignorar */ }
+
         const newUser = {
-          id: user?.uid,
+          id: resolvedId,
           id_usertype: newTypeId,
           username: username || user?.displayName || user?.email?.split('@')[0],
           email: cleanAuthEmail,

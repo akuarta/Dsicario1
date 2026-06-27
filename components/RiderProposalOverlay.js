@@ -4,6 +4,7 @@ import {
   ActivityIndicator, StyleSheet, Platform, Vibration
 } from 'react-native';
 import { useUser } from '../contexts/UserContext';
+import { useCart } from '../contexts/AppContext';
 import { fetchRiderOrders, respondToOffer } from '../utils/api';
 import { getThemeColors } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
@@ -17,17 +18,21 @@ const RiderProposalOverlay = () => {
   const { role, userId } = useUser();
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
+  const { activeStaffMode } = useCart();
 
   const [proposal, setProposal] = useState(null); // La propuesta activa
   const [isResponding, setIsResponding] = useState(false);
-  const [countdown, setCountdown] = useState(15);
+  const [countdown, setCountdown] = useState(20);
 
   const pollRef      = useRef(null);
   const tickRef      = useRef(null);
   const seenIds      = useRef(new Set()); // IDs ya vistos, para no repetir el modal
+  const proposalRef  = useRef(null); // Ref para evitar stale closure en el interval
 
   const roleLow = (role || '').toLowerCase();
-  const isRider = (roleLow.includes('delivery') || roleLow.includes('rider') || roleLow.includes('repartidor')) && !roleLow.includes('admin');
+  const isRiderByRole = roleLow.includes('delivery') || roleLow.includes('rider') || roleLow.includes('repartidor') || roleLow.includes('owner') || roleLow.includes('admin');
+  const isRiderByMode = activeStaffMode === 'repartidor';
+  const isRider = isRiderByRole || isRiderByMode;
 
   const styles = useMemo(() => StyleSheet.create({
     backdrop: {
@@ -91,17 +96,21 @@ const RiderProposalOverlay = () => {
 
   // ─── Limpiar el modal de propuesta ─────────────────────────────────
   const dismissProposal = useCallback(() => {
+    const current = proposalRef.current;
+    if (current?.id) seenIds.current.add(current.id);
+    proposalRef.current = null;
     setProposal(null);
-    setCountdown(15);
+    setCountdown(20);
     if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
   }, []);
 
   // ─── Responder al pedido ────────────────────────────────────────────
   const handleResponse = useCallback(async (accept) => {
-    if (!proposal || isResponding) return;
+    const current = proposalRef.current;
+    if (!current || isResponding) return;
     setIsResponding(true);
     try {
-      await respondToOffer(proposal.id, userId || proposal.id_rider, accept);
+      await respondToOffer(current.id, userId || current.riderId, accept);
       console.log(`[Overlay] Propuesta ${accept ? 'ACEPTADA ✅' : 'RECHAZADA ❌'}`);
     } catch (e) {
       console.error('[Overlay] Error respondiendo:', e.message);
@@ -109,23 +118,41 @@ const RiderProposalOverlay = () => {
       dismissProposal();
       setIsResponding(false);
     }
-  }, [proposal, userId, isResponding, dismissProposal]);
+  }, [userId, isResponding, dismissProposal]);
 
   // ─── Polling global ─────────────────────────────────────────────────
   useEffect(() => {
+    console.log('[Overlay] isRider:', isRider, '| role:', role, '| activeStaffMode:', activeStaffMode, '| userId:', userId);
     if (!isRider || !userId) return;
 
-    pollRef.current = setInterval(async () => {
-      try {
-        const orders = await fetchRiderOrders(userId);
-        const found = orders.find(o =>
-          o.estado === 'proposal' && !seenIds.current.has(o.id)
-        );
+    // Usar userId directamente como riderId — no resolver contra fetchDeliveries
+    // porque la tabla Deliverys puede tener un ID_Delivery diferente al userId (DS01)
+    const riderIdResolved = userId;
+    console.log('[Overlay] Usando riderId directo:', riderIdResolved);
 
-        if (found && !proposal) {
+    const poll = async () => {
+      try {
+        const orders = await fetchRiderOrders(riderIdResolved);
+        const statuses = orders.map(o => o.estado);
+        const proposalOrders = orders.filter(o => o.estado === 'proposal');
+        console.log('[Overlay] Pedidos:', orders.length, '| Estados:', [...new Set(statuses)].join(','), '| Propuestas:', proposalOrders.length);
+
+        if (proposalOrders.length > 0) {
+          console.log('[Overlay] Propuestas encontradas:', proposalOrders.map(p => `${p.id} (riderId: ${p.riderId})`).join(', '));
+        }
+
+        const found = orders.find(o => {
+          if (o.estado !== 'proposal') return false;
+          if (seenIds.current.has(o.id)) return false;
+          return true;
+        });
+
+        if (found && !proposalRef.current) {
+          console.log('[Overlay] ✅ Propuesta detectada!', found.id);
           seenIds.current.add(found.id);
+          proposalRef.current = found;
           setProposal(found);
-          setCountdown(15);
+    setCountdown(20);
 
           // Vibrar para llamar la atención (móvil)
           if (Platform.OS !== 'web') Vibration.vibrate([200, 100, 200]);
@@ -141,13 +168,31 @@ const RiderProposalOverlay = () => {
             }
           }
         }
+
+        if (proposalRef.current && !proposalOrders.find(o => o.id === proposalRef.current.id)) {
+          const goneOrder = proposalRef.current;
+          dismissProposal();
+          if (Platform.OS === 'web' && typeof window !== 'undefined' && 'Notification' in window) {
+            new window.Notification('Trato cancelado', {
+              body: `El cliente canceló el pedido #${goneOrder.id}`,
+              tag: `gone-${goneOrder.id}`,
+            });
+          }
+          if (Platform.OS !== 'web') {
+            const { ToastAndroid } = require('react-native');
+            ToastAndroid.show(`Trato cancelado — Pedido #${goneOrder.id}`, ToastAndroid.LONG);
+          }
+        }
       } catch (e) { console.warn('[Overlay Poll]', e.message); }
-    }, 3000);
+    };
+
+    poll();
+    pollRef.current = setInterval(poll, 3000);
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [isRider, userId, proposal]);
+  }, [isRider, userId, activeStaffMode]);
 
   // ─── Cuenta regresiva de la propuesta ───────────────────────────────
   useEffect(() => {
@@ -157,7 +202,7 @@ const RiderProposalOverlay = () => {
       setCountdown(prev => {
         if (prev <= 1) {
           dismissProposal(); // Tiempo agotado: cerrar modal automáticamente
-          return 15;
+          return 20;
         }
         return prev - 1;
       });
@@ -196,7 +241,7 @@ const RiderProposalOverlay = () => {
             {proposal.direccion && (
               <>
                 <Text style={styles.label}>Dirección</Text>
-                <Text style={styles.value} numberOfLines={1}>{proposal.direccion}</Text>
+                <Text style={styles.value} numberOfLines={1}>{proposal.direccion.replace(/^[\d.-]+,[\d.-]+\s*\|\s*/, '')}</Text>
               </>
             )}
 

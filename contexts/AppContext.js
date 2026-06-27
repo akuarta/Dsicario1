@@ -470,8 +470,14 @@ export const DataSyncProvider = ({ children }) => {
       ]);
 
       // 🛎️ Lógica de Notificaciones 🛎️
+      // Filtrar pedidos en estado Propuesta — no son visibles hasta que el cliente pague
+      const visibleOrders = k.filter(o => {
+        const st = (o.estado || '').toLowerCase();
+        return !st.includes('proposal') && !st.includes('propuesta');
+      });
+
       if (prevKitchenOrdersRef.current.length > 0) {
-        k.forEach(newOrder => {
+        visibleOrders.forEach(newOrder => {
           const oldOrder = prevKitchenOrdersRef.current.find(o => o.ID_Pedido === newOrder.ID_Pedido);
           
           const currentUserEmail = userContextRef.current.email;
@@ -502,7 +508,11 @@ export const DataSyncProvider = ({ children }) => {
 
             // 2. Notificación al cliente (Cambio de estado)
             if (oldOrder.estado !== newOrder.estado) {
-              if (isMyOrder) {
+              const wasProposal = (oldOrder.estado || '').toLowerCase().includes('proposal') || (oldOrder.estado || '').toLowerCase().includes('propuesta');
+              const isNowPending = (newOrder.estado || '').toLowerCase() === 'pending' || (newOrder.estado || '').toLowerCase() === 'pendiente';
+              const skipNotify = wasProposal && isNowPending;
+
+              if (isMyOrder && !skipNotify) {
                 console.log('[🔔 Notify] Estado cambió:', oldOrder.estado, '->', newOrder.estado, '| Pedido:', newOrder.ID_Pedido);
                 NotificationService.notifyOrderStatus(
                   newOrder.ID_Pedido,
@@ -544,10 +554,10 @@ export const DataSyncProvider = ({ children }) => {
           }
         });
       }
-      prevKitchenOrdersRef.current = k;
+      prevKitchenOrdersRef.current = visibleOrders;
 
       setUsers(u); 
-      setKitchenOrders(k);
+      setKitchenOrders(visibleOrders);
       setTables(t);
       setDeliveries(d); 
     } catch (e) {
