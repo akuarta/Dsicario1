@@ -7,16 +7,18 @@ import { useAuth } from './AuthContext';
 import { CONFIG } from '../constants/Config';
 
 const UserContext = createContext();
+const PROFILE_KEY = '@dsicario_user_profile';
 
 export const UserProvider = ({ children }) => {
   const { user } = useAuth();
   const [username, setUsername] = useState('Usuario');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('Cliente'); // Role por defecto
+  const [role, setRole] = useState('Cliente');
   const [userId, setUserId] = useState('');
   const [userTypeId, setUserTypeId] = useState('');
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
+  const profileLoadedRef = useRef(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isClientMode, setIsClientModeState] = useState(false);
 
@@ -73,6 +75,37 @@ export const UserProvider = ({ children }) => {
     }, 1200);
   };
 
+  // Cargar perfil persistido al inicio (instantáneo antes del API)
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const saved = await AsyncStorage.getItem(PROFILE_KEY);
+        if (saved) {
+          const p = JSON.parse(saved);
+          if (p.username) setUsername(p.username);
+          if (p.email) setEmail(p.email);
+          if (p.role) setRole(p.role);
+          if (p.userId) setUserId(p.userId);
+          if (p.userTypeId) setUserTypeId(p.userTypeId);
+          if (p.address) setAddress(p.address);
+          if (p.phone) setPhone(p.phone);
+          console.log('[UserContext] Perfil cargado de AsyncStorage:', p.role, p.userId);
+        }
+      } catch (e) {
+        console.warn('[UserContext] Error cargando perfil:', e);
+      }
+      profileLoadedRef.current = true;
+    };
+    loadProfile();
+  }, []);
+
+  // Persistir perfil cada vez que cambie
+  useEffect(() => {
+    if (!profileLoadedRef.current) return;
+    const profile = { username, email, role, userId, userTypeId, address, phone };
+    AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile)).catch(() => {});
+  }, [username, email, role, userId, userTypeId, address, phone]);
+
   // Cargar isClientMode inicial y sincronizar con el rol
   useEffect(() => {
     const loadClientMode = async () => {
@@ -121,8 +154,15 @@ export const UserProvider = ({ children }) => {
       }
     } else {
       console.log(`[USER_PRESENCE] 🔴 CIERRE DE SESIÓN DETECTADO (User es null)`);
-      // Usuario cerró sesión
-      // (El setOffline se llama explícitamente desde ProfileDrawerContent al hacer logout)
+      setUsername('Usuario');
+      setEmail('');
+      setRole('Cliente');
+      setUserId('');
+      setUserTypeId('');
+      setAddress('');
+      setPhone('');
+      AsyncStorage.removeItem(PROFILE_KEY).catch(()=>null);
+    }
     }
   }, [user]);
 
