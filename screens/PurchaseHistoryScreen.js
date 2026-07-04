@@ -44,24 +44,36 @@ const PurchaseHistoryScreen = ({ navigation }) => {
       }
 
       const allOrders = await fetchOrders();
+      const roleLow = (role || '').toLowerCase();
+      const myId = String(userId || '').trim();
+      const myEmail = String(contextUserEmail || authUser?.email || '').trim().toLowerCase();
       
-      // Filtro por Rol: Admin ve todo, Usuario normal solo lo suyo
-      const filtered = (role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'administrador')
-        ? allOrders 
-        : allOrders.filter(o => {
-        const orderUserId = String(o.id_user || o.ID_Usuario || '').trim();
-        const orderEmail = String(o.EmailUser || o.email || '').trim().toLowerCase();
-        
-        const myId = String(userId || '').trim();
-        const myEmail = String(contextUserEmail || authUser?.email || '').trim().toLowerCase();
-
-        // 🛡️ FILTRO BLINDADO:
-        // 1. El ID no puede estar vacío y debe coincidir.
-        // 2. O el Email no puede estar vacío y debe coincidir.
-        const matchesId = myId !== '' && orderUserId !== '' && orderUserId === myId;
-        const matchesEmail = myEmail !== '' && orderEmail !== '' && orderEmail === myEmail;
-
-        return matchesId || matchesEmail;
+      // Admin/Owner ve todo
+      const isAdmin = roleLow === 'admin' || roleLow === 'owner' || roleLow === 'administrador';
+      
+      const filtered = isAdmin ? allOrders : allOrders.filter(o => {
+        // Cliente: pedidos propios
+        if (roleLow === 'cliente' || !roleLow.includes('cocina') && !roleLow.includes('mesero') && !roleLow.includes('delivery') && !roleLow.includes('repartidor')) {
+          const orderUserId = String(o.id_user || o.ID_Usuario || '').trim();
+          const orderEmail = String(o.EmailUser || o.email || '').trim().toLowerCase();
+          return (myId !== '' && orderUserId === myId) || (myEmail !== '' && orderEmail === myEmail);
+        }
+        // Cocinero: pedidos que él preparó
+        if (roleLow.includes('cocina') || roleLow.includes('cosina')) {
+          const orderCocinero = String(o.ID_Cocinero || '').trim().toLowerCase();
+          return orderCocinero !== '' && orderCocinero === myEmail;
+        }
+        // Mesero: pedidos que él atendió
+        if (roleLow.includes('mesero')) {
+          const orderMesero = String(o.ID_Mesero || '').trim().toLowerCase();
+          return orderMesero !== '' && orderMesero === myEmail;
+        }
+        // Repartidor: pedidos que él entregó
+        if (roleLow.includes('delivery') || roleLow.includes('repartidor')) {
+          const orderRider = String(o.ID_Repartidor || o.repartidorId || '').trim().toLowerCase();
+          return orderRider !== '' && (orderRider === myEmail || orderRider === myId);
+        }
+        return false;
       }).sort((a, b) => {
         const dateA = new Date(a.Fecha || a.timestamp || 0);
         const dateB = new Date(b.Fecha || b.timestamp || 0);
@@ -178,30 +190,6 @@ const PurchaseHistoryScreen = ({ navigation }) => {
             <Text style={styles.orderDate}>{item.Fecha || item.timestamp}</Text>
             <Text style={styles.orderTotal}>${item.Total || item.total}</Text>
           </View>
-
-          {/* 📍 BOTÓN DE RASTREO — Solo para pedidos no entregados */}
-          {s !== 'delivered' && s !== 'finalizado' && s !== 'entregado' && (
-            <TouchableOpacity 
-              style={{ 
-                marginTop: 15, 
-                backgroundColor: colors.primary + '15', 
-                padding: 10, 
-                borderRadius: 12,
-                flexDirection: 'row',
-                justifyContent: 'center',
-                alignItems: 'center',
-                borderWidth: 1,
-                borderColor: colors.primary + '30'
-              }}
-              onPress={(e) => {
-                e.stopPropagation();
-                navigation.navigate('DeliveryTracking', { orderId: item.id || item.ID_Orden });
-              }}
-            >
-              <FontAwesome5 name="map-marked-alt" size={14} color={colors.primary} />
-              <Text style={{ color: colors.primary, fontWeight: 'bold', marginLeft: 8, fontSize: 13 }}>Rastrear Pedido</Text>
-            </TouchableOpacity>
-          )}
         </GlassPanel>
       </TouchableOpacity>
     );
@@ -214,7 +202,10 @@ const PurchaseHistoryScreen = ({ navigation }) => {
           <FontAwesome5 name="chevron-left" size={18} color={colors.text.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>
-          {activeStaffMode === 'mesero' ? 'Mis Servicios 🤵' : 'Mis Compras'}
+          {role?.toLowerCase().includes('cocina') || role?.toLowerCase().includes('cosina') ? 'Mis Preparaciones 👨‍🍳'
+            : role?.toLowerCase().includes('mesero') ? 'Mis Servicios 🤵'
+            : role?.toLowerCase().includes('delivery') || role?.toLowerCase().includes('repartidor') ? 'Mis Entregas 🏍️'
+            : 'Mis Compras'}
         </Text>
       </View>
 
@@ -240,10 +231,20 @@ const PurchaseHistoryScreen = ({ navigation }) => {
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <FontAwesome5 name={activeStaffMode === 'mesero' ? "concierge-bell" : "shopping-bag"} size={60} color={colors.border} />
+              <FontAwesome5 
+                name={role?.toLowerCase().includes('cocina') || role?.toLowerCase().includes('cosina') ? 'utensils'
+                  : role?.toLowerCase().includes('mesero') ? 'concierge-bell'
+                  : role?.toLowerCase().includes('delivery') || role?.toLowerCase().includes('repartidor') ? 'motorcycle'
+                  : 'shopping-bag'} 
+                size={60} color={colors.border} 
+              />
               <Text style={styles.emptyText}>
-                {activeStaffMode === 'mesero' 
+                {role?.toLowerCase().includes('cocina') || role?.toLowerCase().includes('cosina') 
+                  ? 'No has preparado pedidos aún.' 
+                  : role?.toLowerCase().includes('mesero') 
                   ? 'No tienes servicios registrados aún.' 
+                  : role?.toLowerCase().includes('delivery') || role?.toLowerCase().includes('repartidor')
+                  ? 'No has realizado entregas aún.'
                   : 'Aún no has realizado ninguna compra.'}
               </Text>
             </View>

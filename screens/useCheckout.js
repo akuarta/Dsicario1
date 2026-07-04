@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Animated, Easing, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { showAlert } from '../utils/showAlert';
 import { useCart, useDataSync } from '../contexts/AppContext';
 import { useUser } from '../contexts/UserContext';
@@ -28,7 +29,7 @@ export function useCheckout({ navigation, route }) {
   const orderNumber = params.orderId || params.orderNumber || `ORD-${Date.now()}`;
 
   const { clearCart, businessInfo, exchangeRates, waiterActiveSession } = useCart();
-  const { user, username, email, userId } = useUser();
+  const { user, username, email, userId, metodosPago } = useUser();
   const { syncAllData } = useDataSync();
 
   const availablePaymentMethods = businessInfo?.paymentMethods || ['Efectivo', 'Tarjeta'];
@@ -50,9 +51,39 @@ export function useCheckout({ navigation, route }) {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [orderCompleted, setOrderCompleted] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
-  const [deliveryType, setDeliveryType] = useState('local');
+  const [deliveryType, setDeliveryTypeState] = useState('pickup');
+  const [rememberDeliveryType, setRememberDeliveryType] = useState(false);
   const [amountReceived, setAmountReceived] = useState('');
   const [includePropina, setIncludePropina] = useState(true);
+
+  useEffect(() => {
+    AsyncStorage.getItem('@dsicario_remember_delivery').then(v => {
+      if (v === 'true') {
+        setRememberDeliveryType(true);
+        AsyncStorage.getItem('@dsicario_delivery_type').then(saved => {
+          if (saved) setDeliveryTypeState(saved);
+        });
+      }
+    });
+  }, []);
+
+  const setDeliveryType = useCallback((value) => {
+    setDeliveryTypeState(value);
+    if (rememberDeliveryType) {
+      AsyncStorage.setItem('@dsicario_delivery_type', value);
+    }
+  }, [rememberDeliveryType]);
+
+  const toggleRememberDelivery = useCallback(() => {
+    const next = !rememberDeliveryType;
+    setRememberDeliveryType(next);
+    AsyncStorage.setItem('@dsicario_remember_delivery', String(next));
+    if (next) {
+      AsyncStorage.setItem('@dsicario_delivery_type', deliveryType);
+    } else {
+      AsyncStorage.removeItem('@dsicario_delivery_type');
+    }
+  }, [rememberDeliveryType, deliveryType]);
 
   const initialPaymentType = paymentTypeProps === 'cash' ? 'Efectivo' : 
                              paymentTypeProps === 'card' ? 'Tarjeta' : 
@@ -139,7 +170,10 @@ export function useCheckout({ navigation, route }) {
     return sum + (discPct > 0 ? (price * discPct / 100) * qty : 0);
   }, 0);
   const subtotal = totalCost;
-  const itbis = subtotal * 0.18;
+  const taxRate = businessInfo?.taxEnabled !== false ? (businessInfo?.taxRate || 18) / 100 : 0;
+  const taxInclusive = businessInfo?.taxInclusive === true;
+  const itbis = subtotal * taxRate;
+  const itbisAplicado = taxInclusive ? 0 : itbis;
   const propina = (deliveryType === 'local' && includePropina) ? subtotal * 0.10 : 0;
   const costoExpressDelNegocio = businessInfo?.expressPerKm || 30;
   const costPerKm = businessInfo?.deliveryCostPerKm || 50;
@@ -164,7 +198,7 @@ export function useCheckout({ navigation, route }) {
   };
 
   const costoEnvioCalculado = getDynamicDeliveryFee();
-  const finalTotal = subtotal + itbis + propina + costoEnvioCalculado;
+  const finalTotal = subtotal + itbisAplicado + propina + costoEnvioCalculado;
 
   const currentRate = (currency === 'DOP' || currency === 'RD$') ? 1 : (exchangeRates?.[currency] || 1);
   const numericAmountReceived = parseFloat(amountReceived) || 0;
@@ -242,7 +276,7 @@ export function useCheckout({ navigation, route }) {
           }
         }
       } catch (e) { console.warn('[Poll]', e.message); }
-    }, 2000);
+    }, 5000);
 
     deadlineTimerRef.current = setTimeout(() => {
       const oid = currentOrderIdRef.current;
@@ -569,7 +603,7 @@ export function useCheckout({ navigation, route }) {
   return {
     // Context & Params
     cart, totalCost, businessInfo, exchangeRates, waiterActiveSession,
-    user, username, email, userId, syncAllData,
+    user, username, email, userId, metodosPago, syncAllData,
     availablePaymentMethods, availableCurrencies, orderNumber,
     // State
     clientName, setClientName,
@@ -585,7 +619,7 @@ export function useCheckout({ navigation, route }) {
     isProcessing, setIsProcessing,
     isGeneratingPDF, setIsGeneratingPDF,
     orderCompleted, setOrderCompleted,
-    deliveryType, setDeliveryType,
+    deliveryType, setDeliveryType, rememberDeliveryType, toggleRememberDelivery,
     amountReceived, setAmountReceived,
     includePropina, setIncludePropina,
     paymentReference, setPaymentReference,
@@ -605,7 +639,7 @@ export function useCheckout({ navigation, route }) {
     deadlineTimerRef, tickTimerRef, pollTimerRef,
     selectedRiderRef, currentOrderIdRef, pulseAnim, orderCreatedAtRef,
     // Computed
-    totalDiscount, subtotal, itbis, propina,
+    totalDiscount, subtotal, itbis, taxInclusive, propina,
     costoExpressDelNegocio, costPerKm,
     costoEnvioCalculado, finalTotal,
     currentRate, numericAmountReceived, convertedAmountReceived,

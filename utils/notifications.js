@@ -97,8 +97,7 @@ export const sendLocalNotification = async (title, body, data = {}) => {
       const isFocused = typeof document !== 'undefined' && document.hasFocus();
       console.log(`[Notif] Web: permiso="${perm}", focused=${isFocused}, title="${title}"`);
       if (isFocused) {
-        showAlert(title, body);
-        console.log('[Notif] ✅ Alert mostrado (tab activa)');
+        console.log('[Notif] ✅ Tab activa — skip alert (usuario ya ve la pantalla)');
         return true;
       }
       if (perm === 'granted') {

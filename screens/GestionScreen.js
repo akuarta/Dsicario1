@@ -101,6 +101,7 @@ const GestionScreen = () => {
             <SettingItem icon="shipping-fast" title="Costos de Envío" onPress={() => navigation.navigate('ConfigDeliveryRates')} />
             <SettingItem icon="money-bill-wave" title="Tasas de Cambio" onPress={() => navigation.navigate('ConfigExchangeRates')} />
             <SettingItem icon="credit-card" title="Métodos de Pago" onPress={() => navigation.navigate('ConfigPaymentMethods')} />
+            <SettingItem icon="percentage" title="Configurar Impuestos" onPress={() => navigation.navigate('ConfigTax')} />
           </View>
         )}
 

@@ -12,14 +12,14 @@ import {
   Platform,
   Linking,
   ActivityIndicator,
-  Modal,
-  Alert
+  Modal
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { updateOrderStatus, getRouteDetails } from '../utils/api';
+import { updateOrderStatus, getRouteDetails, fetchUserRatings, hasUserRatedOrder } from '../utils/api';
 import { subscribeToRiderLocation } from '../utils/locationService';
 import { getDistance, getDistanceMeters } from '../utils/mathUtils';
+import RatingModal from '../components/RatingModal';
 
 // Importar expo-location solo en native
 let Location = null;
@@ -76,10 +76,9 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
   const [routeData, setRouteData] = useState(null);
   const [fetchingRoute, setFetchingRoute] = useState(false);
   const [deviceLocation, setDeviceLocation] = useState(null);
-
-  if (!loading && !isAuthorized) {
-    return <AccessDeniedScreen navigation={navigation} message={`No tienes permiso para ver o rastrear el pedido ${orderId}.`} />;
-  }
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [ratedAlready, setRatedAlready] = useState(false);
+  const [riderRatingData, setRiderRatingData] = useState(null);
 
   // Ubicaciones
   const storeLocation = CONFIG.STORE_LOCATION;
@@ -445,6 +444,33 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     }
   }, [route.params?.autoOpenScanner]);
 
+  // Load rider rating data when order is delivered
+  useEffect(() => {
+    if (!orderDetails) return;
+    const status = (orderDetails.estado || '').toLowerCase();
+    const riderId = orderDetails.riderId || orderDetails.id_repartidor || '';
+    const isDelivered = status === 'delivered' || status === 'entregado';
+
+    if (isDelivered && riderId) {
+      fetchUserRatings(riderId).then(data => setRiderRatingData(data)).catch(() => {});
+      if (userId) {
+        hasUserRatedOrder(orderId, userId).then(rated => setRatedAlready(rated)).catch(() => {});
+      }
+    }
+  }, [orderDetails?.estado, orderId, userId]);
+
+  // Show rating modal for delivered orders (client only, not staff)
+  useEffect(() => {
+    if (!orderDetails || isStaff) return;
+    const status = (orderDetails.estado || '').toLowerCase();
+    const isDelivered = status === 'delivered' || status === 'entregado';
+    if (isDelivered && !ratedAlready && !showRatingModal) {
+      // Small delay so the user sees the "delivered" state first
+      const t = setTimeout(() => setShowRatingModal(true), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [orderDetails?.estado, ratedAlready, isStaff]);
+
   const handleBarCodeScanned = async ({ type, data }) => {
     if (scanned || isProcessingQR) return;
     setScanned(true);
@@ -464,6 +490,8 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
         const message = isCash ? '¡RECIBIDO Y PAGADO ✅! Gracias por tu preferencia.' : '¡RECIBIDO ✅! Esperamos que disfrutes tu pedido.';
         
         showAlert('Éxito', message);
+        // Show rating modal after a short delay
+        setTimeout(() => setShowRatingModal(true), 2000);
       } else {
         showAlert('Error', 'Este código no corresponde a tu pedido actual.');
         setScanned(false);
@@ -508,6 +536,10 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
   };
 
   const currentStepIndex = getStatusIndex(orderDetails?.estado);
+
+  if (!loading && !isAuthorized) {
+    return <AccessDeniedScreen navigation={navigation} message={`No tienes permiso para ver o rastrear el pedido ${orderId}.`} />;
+  }
 
   if (loading || !orderDetails) {
     return (
@@ -624,10 +656,15 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
                 </View>
                 <View style={styles.premiumRatingRow}>
                   <View style={styles.premiumRatingItem}>
-                    <FontAwesome5 name="star" size={10} color={colors.warning} solid /><Text style={styles.premiumRatingText}>4.9</Text>
+                    <FontAwesome5 name="star" size={10} color={colors.warning} solid />
+                    <Text style={styles.premiumRatingText}>
+                      {riderRatingData?.promedio ? riderRatingData.promedio.toFixed(1) : '—'}
+                    </Text>
                   </View>
                   <View style={styles.ratingSeparator} />
-                  <Text style={styles.deliveriesText}>1.2k pedidos</Text>
+                  <Text style={styles.deliveriesText}>
+                    {riderRatingData?.cantidad ? `${riderRatingData.cantidad} pedidos` : 'Nuevo'}
+                  </Text>
                 </View>
               </View>
               <View style={styles.riderActions}>
@@ -773,6 +810,23 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
         scanned={scanned}
         isProcessing={isProcessingQR}
         colors={colors}
+      />
+
+      {/* ⭐ MODAL DE VALORACIÓN POST-ENTREGA */}
+      <RatingModal
+        visible={showRatingModal}
+        pedidoId={orderId}
+        paraUsuario={orderDetails?.riderId || orderDetails?.id_repartidor || ''}
+        paraNombre={orderDetails?.nombre || orderDetails?.Nombre || 'Empleado'}
+        tipoPedido={isDelivery ? 'delivery' : 'local'}
+        onRated={() => {
+          setShowRatingModal(false);
+          setRatedAlready(true);
+        }}
+        onSkip={() => {
+          setShowRatingModal(false);
+          setRatedAlready(true);
+        }}
       />
     </SafeAreaView>
   );

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -30,10 +30,11 @@ const CheckoutScreen = ({ navigation, route }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const { businessInfo } = useCart();
+  const [transferAmount, setTransferAmount] = React.useState('');
 
   const {
     cart, totalCost, exchangeRates, waiterActiveSession,
-    user, username, email, userId, syncAllData,
+    user, username, email, userId, syncAllData, metodosPago,
     availablePaymentMethods, availableCurrencies,
     clientName, setClientName,
     clientPhone, setClientPhone,
@@ -47,7 +48,7 @@ const CheckoutScreen = ({ navigation, route }) => {
     riderConfirmed, setRiderConfirmed,
     isProcessing, isGeneratingPDF,
     orderCompleted,
-    deliveryType, setDeliveryType,
+    deliveryType, setDeliveryType, rememberDeliveryType, toggleRememberDelivery,
     amountReceived, setAmountReceived,
     includePropina, setIncludePropina,
     paymentReference, setPaymentReference,
@@ -62,7 +63,7 @@ const CheckoutScreen = ({ navigation, route }) => {
     cancelInput, setCancelInput,
     isCancellingOrder, orderCancelledByClient,
     selectedRiderRef, currentOrderIdRef, pulseAnim, orderCreatedAtRef,
-    totalDiscount, subtotal, itbis, propina,
+    totalDiscount, subtotal, itbis, taxInclusive, propina,
     costoExpressDelNegocio, costPerKm,
     costoEnvioCalculado, finalTotal,
     currentRate, numericAmountReceived,
@@ -81,6 +82,42 @@ const CheckoutScreen = ({ navigation, route }) => {
     if (m.includes('cripto') || m.includes('bitcoin')) return 'bitcoin';
     return 'wallet';
   };
+
+  useEffect(() => {
+    if (!businessInfo?.paymentMethods || paymentType) return;
+    const filtered = businessInfo.paymentMethods.filter(method => {
+      if (metodosPago && metodosPago.trim()) {
+        const allowed = metodosPago.split(',').map(m => m.trim().toLowerCase());
+        if (allowed.length > 0 && !allowed.includes(method.toLowerCase())) return false;
+      }
+      if (businessInfo?.paymentMethodsDetailed && businessInfo.paymentMethodsDetailed.length > 0) {
+        const detailed = businessInfo.paymentMethodsDetailed.find(m => {
+          const mName = m['Metodo Pago'] || m['metodo pago'] || m['Metodo_Pago'] || m['Metodo_pago'] || '';
+          return mName.toLowerCase() === method.toLowerCase();
+        });
+        if (detailed) {
+          const methodType = (detailed['Tipo Entrega'] || '').toLowerCase();
+          if (!methodType || methodType.includes('ambos')) return true;
+          if (deliveryType === 'delivery') return methodType.includes('delivery') || methodType.includes('domicilio');
+          return methodType.includes('local') || methodType.includes('recogida');
+        }
+      }
+      return true;
+    });
+    if (filtered.length === 1) setPaymentType(filtered[0]);
+  }, [businessInfo, metodosPago, deliveryType]);
+
+  useEffect(() => {
+    if (!paymentType || !businessInfo?.paymentMethods) return;
+    const filtered = businessInfo.paymentMethods.filter(method => {
+      if (metodosPago && metodosPago.trim()) {
+        const allowed = metodosPago.split(',').map(m => m.trim().toLowerCase());
+        if (allowed.length > 0 && !allowed.includes(method.toLowerCase())) return false;
+      }
+      return true;
+    });
+    if (!filtered.includes(paymentType)) setPaymentType(filtered[0] || '');
+  }, [metodosPago]);
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
@@ -243,7 +280,7 @@ const CheckoutScreen = ({ navigation, route }) => {
                     backgroundColor: colors.background || '#fff',
                   }}
                   placeholder='Escribe "cancelar"'
-                  placeholderTextColor={colors.text?.tertiary || '#999'}
+                  placeholderTextColor={colors.text?.light || '#999'}
                   value={cancelInput}
                   onChangeText={setCancelInput}
                   autoCapitalize='none'
@@ -340,13 +377,23 @@ const CheckoutScreen = ({ navigation, route }) => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Tipo de Entrega</Text>
           <View style={styles.optionContainer}>
-            {['local', 'pickup', 'delivery'].map(type => (
+            {['pickup', 'local', 'delivery'].map(type => (
               <TouchableOpacity key={type} style={[styles.optionButton, deliveryType === type && styles.optionButtonActive]} onPress={() => setDeliveryType(type)}>
                 <FontAwesome5 name={type === 'local' ? 'utensils' : type === 'pickup' ? 'store' : 'motorcycle'} size={14} color={deliveryType === type ? '#FFF' : colors.text.secondary} />
                 <Text style={[styles.optionText, deliveryType === type && styles.optionTextActive]}>{type === 'local' ? 'En Local' : type === 'pickup' ? 'Recogida' : 'A Domicilio'}</Text>
               </TouchableOpacity>
             ))}
           </View>
+
+          <TouchableOpacity 
+            style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8 }}
+            onPress={toggleRememberDelivery}
+          >
+            <View style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: colors.primary, backgroundColor: rememberDeliveryType ? colors.primary : 'transparent', justifyContent: 'center', alignItems: 'center' }}>
+              {rememberDeliveryType && <FontAwesome5 name="check" size={10} color="#FFF" />}
+            </View>
+            <Text style={{ fontSize: 12, color: colors.text.secondary }}>Recordar selección</Text>
+          </TouchableOpacity>
 
           {deliveryType === 'delivery' && (
             <View style={styles.riderTrustContainer}>
@@ -411,7 +458,7 @@ const CheckoutScreen = ({ navigation, route }) => {
               <TouchableOpacity 
                 style={[
                   styles.riderSelectBtn, 
-                  (!deliveryAddress || deliveryAddress.trim().length === 0) && { opacity: 0.3, backgroundColor: '#E0E0E0' }
+                  (!deliveryAddress || deliveryAddress.trim().length === 0) && { opacity: 0.3, backgroundColor: colors.border }
                 ]} 
                 disabled={!deliveryAddress || deliveryAddress.trim().length === 0}
                 onPress={() => {
@@ -471,7 +518,15 @@ const CheckoutScreen = ({ navigation, route }) => {
           ))}
           <View style={{ marginTop: 10 }}>
             <View style={styles.taxRow}><Text style={styles.taxLabel}>Subtotal</Text><Text style={styles.taxValue}>{formatPrice(subtotal)}</Text></View>
-            <View style={styles.taxRow}><Text style={styles.taxLabel}>Impuestos (18%)</Text><Text style={styles.taxValue}>{formatPrice(itbis)}</Text></View>
+            {businessInfo?.taxEnabled !== false && (
+              <View style={styles.taxRow}>
+                <Text style={styles.taxLabel}>
+                  {`${businessInfo?.taxName || 'ITBIS'} (${businessInfo?.taxRate || 18}%)`}
+                  {taxInclusive ? ' Incluido' : ''}
+                </Text>
+                <Text style={styles.taxValue}>{formatPrice(itbis)}</Text>
+              </View>
+            )}
             {propina > 0 && <View style={styles.taxRow}><Text style={styles.taxLabel}>Propina (10%)</Text><Text style={styles.taxValue}>{formatPrice(propina)}</Text></View>}
             {costoEnvioCalculado > 0 && <View style={styles.taxRow}><Text style={styles.taxLabel}>Costo de Envío {isExpressEnvio ? '(Express)' : ''}</Text><Text style={styles.taxValue}>{formatPrice(costoEnvioCalculado)}</Text></View>}
             <View style={styles.totalRow}><Text style={styles.totalLabel}>TOTAL</Text><Text style={styles.totalAmount}>{formatPrice(finalTotal)}</Text></View>
@@ -484,6 +539,14 @@ const CheckoutScreen = ({ navigation, route }) => {
           </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 20, paddingBottom: 15, marginBottom: 5 }}>
             {(businessInfo?.paymentMethods || ['Efectivo', 'Tarjeta']).filter(method => {
+              // 1. Filtrar por métodos permitidos del usuario (si tiene configurado)
+              if (metodosPago && metodosPago.trim()) {
+                const allowedMethods = metodosPago.split(',').map(m => m.trim().toLowerCase());
+                if (allowedMethods.length > 0 && !allowedMethods.includes(method.toLowerCase())) {
+                  return false;
+                }
+              }
+              // 2. Filtrar por tipo de entrega (domicilio/recogida)
               if (businessInfo?.paymentMethodsDetailed && businessInfo.paymentMethodsDetailed.length > 0) {
                   const detailed = businessInfo.paymentMethodsDetailed.find(m => {
                       const mName = m['Metodo Pago'] || m['metodo pago'] || m['Metodo_Pago'] || m['Metodo_pago'] || '';
@@ -517,100 +580,7 @@ const CheckoutScreen = ({ navigation, route }) => {
             })}
           </ScrollView>
 
-          {(paymentType.toLowerCase().includes('transf') && businessInfo?.transferDetails?.length > 0) && (
-            <View style={{ backgroundColor: colors.surface, padding: 15, borderRadius: 12, marginBottom: 15, borderWidth: 1, borderColor: colors.border }}>
-              <Text style={{ color: colors.text.primary, fontWeight: 'bold', marginBottom: 10 }}>
-                <FontAwesome5 name="university" color={colors.primary} /> Elige el Banco a Transferir:
-              </Text>
-              
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingBottom: 5, marginBottom: 15 }}>
-                {businessInfo.transferDetails.map((bank, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    onPress={() => setSelectedBankIdx(idx)}
-                    style={{
-                      paddingHorizontal: 15, paddingVertical: 8, borderRadius: 8, borderWidth: 1,
-                      borderColor: selectedBankIdx === idx ? colors.primary : colors.border,
-                      backgroundColor: selectedBankIdx === idx ? colors.primary + '20' : colors.background
-                    }}
-                  >
-                    <Text style={{ color: selectedBankIdx === idx ? colors.primary : colors.text.secondary, fontWeight: 'bold' }}>
-                      {bank.Banco}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              {businessInfo.transferDetails[selectedBankIdx] && (
-                <View style={{ backgroundColor: colors.background, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}>
-                  <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 14 }}>{businessInfo.transferDetails[selectedBankIdx].Banco}</Text>
-                  <Text style={{ color: colors.text.primary, fontSize: 13 }}>Cuenta: <Text style={{ fontWeight: 'bold' }}>{businessInfo.transferDetails[selectedBankIdx].No_Cuenta || businessInfo.transferDetails[selectedBankIdx].Cuenta}</Text></Text>
-                  <Text style={{ color: colors.text.secondary, fontSize: 12 }}>Titular: {businessInfo.transferDetails[selectedBankIdx].Titular}</Text>
-                </View>
-              )}
-
-              <TouchableOpacity 
-                onPress={async () => {
-                  const result = await ImagePicker.launchImageLibraryAsync({
-                    mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                    allowsEditing: true,
-                    quality: 0.5,
-                    base64: true
-                  });
-                  if (!result.canceled) {
-                    setVoucherImage(result.assets[0]);
-                  }
-                }}
-                style={{ 
-                  marginTop: 15, 
-                  backgroundColor: colors.primary, 
-                  padding: 12, 
-                  borderRadius: 10, 
-                  flexDirection: 'row', 
-                  justifyContent: 'center', 
-                  alignItems: 'center' 
-                }}
-              >
-                <FontAwesome5 name="camera" size={16} color="white" style={{ marginRight: 10 }} />
-                <Text style={{ color: 'white', fontWeight: 'bold' }}>
-                  {voucherImage ? '✅ Comprobante Listo' : 'Subir Comprobante'}
-                </Text>
-              </TouchableOpacity>
-              
-              {voucherImage && (
-                <View style={{ marginTop: 10, alignItems: 'center' }}>
-                  <Image source={{ uri: voucherImage.uri }} style={{ width: 100, height: 100, borderRadius: 8 }} />
-                  <TouchableOpacity onPress={() => setVoucherImage(null)}>
-                    <Text style={{ color: colors.error, fontSize: 12, marginTop: 5 }}>Quitar imagen</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          )}
-          
-          {businessInfo?.paymentNotes && businessInfo.paymentNotes[paymentType] ? (
-            <View style={{ backgroundColor: colors.primary + '10', padding: 15, borderRadius: 10, marginBottom: 15, borderWidth: 1, borderColor: colors.primary + '30' }}>
-              <Text style={{ color: colors.primary, fontWeight: 'bold', marginBottom: 5 }}>
-                <FontAwesome5 name="info-circle" /> Instrucciones de Pago:
-              </Text>
-              <Text style={{ color: colors.text.secondary, fontSize: 14 }}>
-                {businessInfo.paymentNotes[paymentType]}
-              </Text>
-            </View>
-          ) : null}
-
-          {businessInfo?.generalPaymentNote && typeof businessInfo.generalPaymentNote === 'string' && businessInfo.generalPaymentNote.trim() !== '' ? (
-            <View style={{ backgroundColor: colors.background, padding: 15, borderRadius: 10, marginBottom: 15, borderWidth: 1, borderColor: colors.border }}>
-              <Text style={{ color: colors.text.primary, fontWeight: 'bold', marginBottom: 5 }}>
-                <FontAwesome5 name="info-circle" color={colors.text.secondary} /> Nota General:
-              </Text>
-              <Text style={{ color: colors.text.secondary, fontSize: 13, fontStyle: 'italic' }}>
-                {businessInfo.generalPaymentNote}
-              </Text>
-            </View>
-          ) : null}
-          
-          {(paymentType.toLowerCase().includes('efectivo') || paymentType.toLowerCase().includes('cash')) ? (
+          {paymentType.toLowerCase().includes('efectivo') || paymentType.toLowerCase().includes('cash') ? (
             <View style={styles.cashInputContainer}>
               <Text style={{ fontSize: 13, color: colors.text.secondary, marginBottom: 10, fontWeight: 'bold' }}>
                 {deliveryType === 'delivery' ? '¿Con cuánto dinero en efectivo enviará el pago al repartidor?' : '¿Con cuánto dinero en efectivo vas a pagar?'}
@@ -631,7 +601,7 @@ const CheckoutScreen = ({ navigation, route }) => {
                   keyboardType="numeric" 
                   value={amountReceived} 
                   onChangeText={setAmountReceived} 
-                  placeholderTextColor="#A0A0A0" 
+                  placeholderTextColor={colors.text?.light || '#A0A0A0'} 
                   returnKeyType="done"
                 />
               </View>
@@ -648,7 +618,7 @@ const CheckoutScreen = ({ navigation, route }) => {
                 </View>
               )}
             </View>
-          ) : (paymentType.toLowerCase().includes('tarjeta') || paymentType.toLowerCase().includes('card')) ? (
+          ) : paymentType.toLowerCase().includes('tarjeta') || paymentType.toLowerCase().includes('card') ? (
             <View style={styles.cashInputContainer}>
               <Text style={{ fontSize: 14, color: colors.text.secondary, marginBottom: 10, textAlign: 'center', fontStyle: 'italic', paddingHorizontal: 10 }}>
                 {deliveryType === 'delivery' 
@@ -656,8 +626,101 @@ const CheckoutScreen = ({ navigation, route }) => {
                   : 'Podrás pagar con tu tarjeta en el mostrador del local.'}
               </Text>
             </View>
-          ) : (paymentType.toLowerCase().includes('transf') || paymentType.toLowerCase().includes('zelle') || paymentType.toLowerCase().includes('paypal') || paymentType.toLowerCase().includes('binance') || paymentType.toLowerCase().includes('depósito')) ? (
+          ) : paymentType.toLowerCase().includes('transf') || paymentType.toLowerCase().includes('zelle') || paymentType.toLowerCase().includes('paypal') || paymentType.toLowerCase().includes('binance') || paymentType.toLowerCase().includes('depósito') ? (
             <View style={styles.cashInputContainer}>
+              <Text style={{ fontSize: 13, color: colors.text.secondary, marginBottom: 10, fontWeight: 'bold' }}>
+                Monto de la transferencia
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, borderRadius: borders.radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, marginBottom: 15 }}>
+                <TouchableOpacity 
+                  onPress={cycleCurrency} 
+                  style={{ flexDirection: 'row', alignItems: 'center', paddingRight: spacing.md, borderRightWidth: 1, borderRightColor: colors.border, height: '100%' }}
+                >
+                  <Text style={{ fontSize: typography.sizes.lg, fontWeight: 'bold', color: colors.text.primary, marginRight: 5 }}>{currency}</Text>
+                  <FontAwesome5 name="caret-down" size={14} color={colors.text.secondary} />
+                </TouchableOpacity>
+                <TextInput 
+                  style={{ flex: 1, fontSize: typography.sizes.xl, fontWeight: 'bold', color: colors.text.primary, paddingVertical: spacing.md, paddingHorizontal: spacing.md }} 
+                  placeholder="Ej: 2500" 
+                  keyboardType="numeric" 
+                  value={transferAmount} 
+                  onChangeText={setTransferAmount} 
+                  placeholderTextColor={colors.text?.light || '#A0A0A0'} 
+                  returnKeyType="done"
+                />
+              </View>
+
+              {businessInfo?.transferDetails?.length > 0 && (
+                <View style={{ backgroundColor: colors.surface, padding: 15, borderRadius: 12, marginBottom: 15, borderWidth: 1, borderColor: colors.border }}>
+                  <Text style={{ color: colors.text.primary, fontWeight: 'bold', marginBottom: 10 }}>
+                    <FontAwesome5 name="university" color={colors.primary} /> Elige el Banco a Transferir:
+                  </Text>
+                  
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingBottom: 5, marginBottom: 15 }}>
+                    {businessInfo.transferDetails.map((bank, idx) => (
+                      <TouchableOpacity
+                        key={idx}
+                        onPress={() => setSelectedBankIdx(idx)}
+                        style={{
+                          paddingHorizontal: 15, paddingVertical: 8, borderRadius: 8, borderWidth: 1,
+                          borderColor: selectedBankIdx === idx ? colors.primary : colors.border,
+                          backgroundColor: selectedBankIdx === idx ? colors.primary + '20' : colors.background
+                        }}
+                      >
+                        <Text style={{ color: selectedBankIdx === idx ? colors.primary : colors.text.secondary, fontWeight: 'bold' }}>
+                          {bank.Banco}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  {businessInfo.transferDetails[selectedBankIdx] && (
+                    <View style={{ backgroundColor: colors.background, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 14 }}>{businessInfo.transferDetails[selectedBankIdx].Banco}</Text>
+                      <Text style={{ color: colors.text.primary, fontSize: 13 }}>Cuenta: <Text style={{ fontWeight: 'bold' }}>{businessInfo.transferDetails[selectedBankIdx].No_Cuenta || businessInfo.transferDetails[selectedBankIdx].Cuenta}</Text></Text>
+                      <Text style={{ color: colors.text.secondary, fontSize: 12 }}>Titular: {businessInfo.transferDetails[selectedBankIdx].Titular}</Text>
+                    </View>
+                  )}
+
+                  <TouchableOpacity 
+                    onPress={async () => {
+                      const result = await ImagePicker.launchImageLibraryAsync({
+                        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                        allowsEditing: true,
+                        quality: 0.5,
+                        base64: true
+                      });
+                      if (!result.canceled) {
+                        setVoucherImage(result.assets[0]);
+                      }
+                    }}
+                    style={{ 
+                      marginTop: 15, 
+                      backgroundColor: colors.primary, 
+                      padding: 12, 
+                      borderRadius: 10, 
+                      flexDirection: 'row', 
+                      justifyContent: 'center', 
+                      alignItems: 'center' 
+                    }}
+                  >
+                    <FontAwesome5 name="camera" size={16} color="white" style={{ marginRight: 10 }} />
+                    <Text style={{ color: 'white', fontWeight: 'bold' }}>
+                      {voucherImage ? '✅ Comprobante Listo' : 'Subir Comprobante'}
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  {voucherImage && (
+                    <View style={{ marginTop: 10, alignItems: 'center' }}>
+                      <Image source={{ uri: voucherImage.uri }} style={{ width: 100, height: 100, borderRadius: 8 }} />
+                      <TouchableOpacity onPress={() => setVoucherImage(null)}>
+                        <Text style={{ color: colors.error, fontSize: 12, marginTop: 5 }}>Quitar imagen</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              )}
+
               <Text style={{ fontSize: 13, color: colors.text.secondary, marginBottom: 10, fontWeight: 'bold' }}>
                 Número de Referencia / Confirmación (Opcional)
               </Text>
@@ -669,6 +732,28 @@ const CheckoutScreen = ({ navigation, route }) => {
                 placeholderTextColor="#A0A0A0" 
                 returnKeyType="done"
               />
+            </View>
+          ) : null}
+
+          {businessInfo?.paymentNotes && businessInfo.paymentNotes[paymentType] ? (
+            <View style={{ backgroundColor: colors.primary + '10', padding: 15, borderRadius: 10, marginBottom: 15, borderWidth: 1, borderColor: colors.primary + '30' }}>
+              <Text style={{ color: colors.primary, fontWeight: 'bold', marginBottom: 5 }}>
+                <FontAwesome5 name="info-circle" /> Instrucciones de Pago:
+              </Text>
+              <Text style={{ color: colors.text.secondary, fontSize: 14 }}>
+                {businessInfo.paymentNotes[paymentType]}
+              </Text>
+            </View>
+          ) : null}
+
+          {businessInfo?.generalPaymentNote && typeof businessInfo.generalPaymentNote === 'string' && businessInfo.generalPaymentNote.trim() !== '' ? (
+            <View style={{ backgroundColor: colors.background, padding: 15, borderRadius: 10, marginBottom: 15, borderWidth: 1, borderColor: colors.border }}>
+              <Text style={{ color: colors.text.primary, fontWeight: 'bold', marginBottom: 5 }}>
+                <FontAwesome5 name="info-circle" color={colors.text.secondary} /> Nota General:
+              </Text>
+              <Text style={{ color: colors.text.secondary, fontSize: 13, fontStyle: 'italic' }}>
+                {businessInfo.generalPaymentNote}
+              </Text>
             </View>
           ) : null}
         </View>

@@ -34,7 +34,7 @@ const AppMap = forwardRef(({
   return (
     <View ref={ref} style={[styles.container, style]}>
       <iframe
-        key={`${originKey}-${destKey}`}
+        key={`${originKey}-${destKey}-${initialRegion?.latitude || ''}-${initialRegion?.longitude || ''}`}
         style={styles.iframe}
         loading="lazy"
         allowFullScreen

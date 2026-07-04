@@ -2,7 +2,6 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigationState } from '@react-navigation/native';
 
 // Solo mostramos los tabs que tengan un tabBarIcon definido
 export function CustomTabBar({ state, descriptors, navigation }) {
@@ -11,14 +10,18 @@ export function CustomTabBar({ state, descriptors, navigation }) {
   const isDark = darkMode;
 
   // Obtener el nombre de la ruta actual (incluso dentro de sub-stacks)
-  const routeName = useNavigationState(state => {
-    if (!state) return "";
-    let route = state.routes[state.index];
+  const currentTabName = state?.routes?.[state?.index]?.name || '';
+  
+  // Buscar el nombre más profundo en el state anidado
+  const getDeepRouteName = (navState) => {
+    if (!navState) return "";
+    let route = navState.routes[navState.index];
     while (route && route.state && typeof route.state.index === 'number' && route.state.routes) {
       route = route.state.routes[route.state.index];
     }
     return route ? route.name : "";
-  });
+  };
+  const deepRouteName = getDeepRouteName(state);
 
   // Pantallas de detalle, configuración o pago donde NO debe aparecer la barra de pestañas
   const screensWithoutTabBar = [
@@ -37,10 +40,15 @@ export function CustomTabBar({ state, descriptors, navigation }) {
     'ConfigPersonalData',
     'ConfigDeliveryRates',
     'ConfigExchangeRates',
-    'ConfigPaymentMethods'
+    'ConfigPaymentMethods',
+    'GestionTab',
+    'Gestion',
+    'AdminUsers',
+    'AdminKitchen',
+    'AdminWaiter'
   ];
 
-  if (screensWithoutTabBar.includes(routeName)) {
+  if (screensWithoutTabBar.includes(currentTabName) || screensWithoutTabBar.includes(deepRouteName)) {
     return null;
   }
 

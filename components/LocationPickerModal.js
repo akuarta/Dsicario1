@@ -35,6 +35,7 @@ const LocationPickerModal = ({ visible, onClose, onLocationSelected, initialLoca
   const searchTimeout = useRef(null);
   const locationSub = useRef(null);
   const mapRef = useRef(null);
+  const geocodeCounter = useRef(0);
 
   const NEARBY_CATEGORIES = [
     { type: 'establishment', label: 'Todos', icon: 'map-marker-alt' },
@@ -138,7 +139,7 @@ const LocationPickerModal = ({ visible, onClose, onLocationSelected, initialLoca
     setShowSuggestions(false);
     setSearching(true);
     try {
-      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&key=${CONFIG.GOOGLE_MAPS_API_KEY}`;
+      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&language=es&key=${CONFIG.GOOGLE_MAPS_API_KEY}`;
       const res = await fetch(getCorsProxyUrl(url));
       const data = await res.json();
       if (data.result && data.result.geometry) {
@@ -298,13 +299,14 @@ const LocationPickerModal = ({ visible, onClose, onLocationSelected, initialLoca
   };
 
   const reverseGeocode = async (lat, lon) => {
+    const callId = ++geocodeCounter.current;
     try {
       if (Platform.OS === 'web') {
-        const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lon}&key=${CONFIG.GOOGLE_MAPS_API_KEY}`;
-        // Usar corsproxy.io que es mucho más estable que allorigins
+        const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lon}&language=es&key=${CONFIG.GOOGLE_MAPS_API_KEY}`;
         const fetchUrl = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
         const res = await fetch(fetchUrl);
         const data = await res.json();
+        if (callId !== geocodeCounter.current) return;
         if (data.results && data.results.length > 0) {
           setAddress(data.results[0].formatted_address);
         } else {
@@ -319,18 +321,25 @@ const LocationPickerModal = ({ visible, onClose, onLocationSelected, initialLoca
         longitude: lon,
       });
 
+      if (callId !== geocodeCounter.current) return;
       if (geocode.length > 0) {
         const place = geocode[0];
-        const addr = `${place.street || ''} ${place.streetNumber || ''}, ${place.city || ''}, ${place.region || ''}`.trim().replace(/^,|,$/g, '').trim();
+        const streetPart = [place.street, place.streetNumber].filter(Boolean).join(' ');
+        const parts = [streetPart, place.city, place.region].filter(Boolean);
+        const addr = parts.join(', ');
         setAddress(addr || 'Dirección desconocida');
       } else {
         setAddress('Dirección desconocida');
       }
     } catch (e) {
       console.error(e);
-      setAddress('Error al obtener la dirección');
+      if (callId === geocodeCounter.current) {
+        setAddress('Error al obtener la dirección');
+      }
     }
-    setLoading(false);
+    if (callId === geocodeCounter.current) {
+      setLoading(false);
+    }
   };
 
   const onRegionChangeComplete = (region) => {

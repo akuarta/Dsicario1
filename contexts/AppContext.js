@@ -45,6 +45,7 @@ export const DataSyncContext = createContext();
 
 // --- PRODUCT PROVIDER CON ACTUALIZACIÓN SUBJETIVA ---
 export const ProductsProvider = ({ children }) => {
+  const { isClientMode } = useUser();
   const [products, setProducts] = useState([]);
   const [suggestedProducts, setSuggestedProducts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -62,6 +63,10 @@ export const ProductsProvider = ({ children }) => {
       console.warn('Error saving editor mode:', e);
     }
   };
+
+  useEffect(() => {
+    if (isClientMode) setIsEditorMode(false);
+  }, [isClientMode]);
 
   // ─── FASE 1: Cargar caché de AsyncStorage INMEDIATAMENTE ───────────────────
   // Siempre llama setIsLoading(false) al terminar, con o sin datos.
@@ -556,10 +561,22 @@ export const DataSyncProvider = ({ children }) => {
       }
       prevKitchenOrdersRef.current = visibleOrders;
 
-      setUsers(u); 
-      setKitchenOrders(visibleOrders);
-      setTables(t);
-      setDeliveries(d); 
+      setUsers(prev => {
+        const same = prev.length === u.length && prev.every((p, i) => JSON.stringify(p) === JSON.stringify(u[i]));
+        return same ? prev : u;
+      }); 
+      setKitchenOrders(prev => {
+        const same = prev.length === visibleOrders.length && prev.every((p, i) => JSON.stringify(p) === JSON.stringify(visibleOrders[i]));
+        return same ? prev : visibleOrders;
+      });
+      setTables(prev => {
+        const same = prev.length === t.length && prev.every((p, i) => JSON.stringify(p) === JSON.stringify(t[i]));
+        return same ? prev : t;
+      });
+      setDeliveries(prev => {
+        const same = prev.length === d.length && prev.every((p, i) => JSON.stringify(p) === JSON.stringify(d[i]));
+        return same ? prev : d;
+      }); 
     } catch (e) {
       console.error('Sync Error:', e);
     } finally { 

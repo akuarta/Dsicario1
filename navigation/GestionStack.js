@@ -11,6 +11,7 @@ import StaffModeScreen from '../screens/StaffModeScreen';
 import ConfigDeliveryRatesScreen from '../screens/ConfigDeliveryRatesScreen';
 import ConfigExchangeRatesScreen from '../screens/ConfigExchangeRatesScreen';
 import ConfigPaymentMethodsScreen from '../screens/ConfigPaymentMethodsScreen';
+import ConfigTaxScreen from '../screens/ConfigTaxScreen';
 
 const Stack = createStackNavigator();
 
@@ -32,17 +33,14 @@ const GestionStack = () => {
           headerStyle: { backgroundColor: colors.primary },
           headerTintColor: '#FFFFFF',
           headerTitleStyle: { fontWeight: 'bold' },
+          headerTitleAlign: 'center',
+          headerBackTitleVisible: false,
         }}
       />
       <Stack.Screen
         name="AdminStaff"
         component={AdminStaffScreen}
-        options={{
-          title: 'Gestión de Personal',
-          headerStyle: { backgroundColor: colors.primary },
-          headerTintColor: '#FFFFFF',
-          headerTitleStyle: { fontWeight: 'bold' },
-        }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="StaffModeSettings"
@@ -52,32 +50,17 @@ const GestionStack = () => {
       <Stack.Screen
         name="AdminUsers"
         component={AdminUsersScreen}
-        options={{
-          title: 'Gestión de Usuarios',
-          headerStyle: { backgroundColor: colors.primary },
-          headerTintColor: '#FFFFFF',
-          headerTitleStyle: { fontWeight: 'bold' },
-        }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="AdminKitchen"
         component={AdminKitchenScreen}
-        options={{
-          title: 'Cocineros',
-          headerStyle: { backgroundColor: colors.primary },
-          headerTintColor: '#FFFFFF',
-          headerTitleStyle: { fontWeight: 'bold' },
-        }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="AdminWaiter"
         component={AdminWaiterScreen}
-        options={{
-          title: 'Meseros',
-          headerStyle: { backgroundColor: colors.primary },
-          headerTintColor: '#FFFFFF',
-          headerTitleStyle: { fontWeight: 'bold' },
-        }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="ConfigDeliveryRates"
@@ -92,6 +75,11 @@ const GestionStack = () => {
       <Stack.Screen
         name="ConfigPaymentMethods"
         component={ConfigPaymentMethodsScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="ConfigTax"
+        component={ConfigTaxScreen}
         options={{ headerShown: false }}
       />
     </Stack.Navigator>

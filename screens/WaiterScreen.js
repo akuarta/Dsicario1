@@ -3,12 +3,9 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
   RefreshControl,
-  Alert,
   ActivityIndicator,
-  Vibration,
   ScrollView,
   Modal,
   TextInput,
@@ -369,9 +366,29 @@ const WaiterScreen = ({ navigation }) => {
               </TouchableOpacity>
             </View>
           ) : (
-            <TouchableOpacity style={[styles.actionBtn, { backgroundColor: isReady ? colors.success : colors.primary }]} onPress={() => handleUpdateStatus(item.id, status)}>
-              <Text style={styles.actionBtnText}>{isReady ? 'ENTREGAR' : 'NOTIFICAR'}</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 10, flex: 1 }}>
+              <TouchableOpacity style={[styles.actionBtn, { backgroundColor: isReady ? colors.success : colors.primary, flex: 1 }]} onPress={() => handleUpdateStatus(item.id, status)}>
+                <Text style={styles.actionBtnText}>{isReady ? 'ENTREGAR' : 'NOTIFICAR'}</Text>
+              </TouchableOpacity>
+              {isReady && (
+                <TouchableOpacity 
+                  style={[styles.actionBtn, { backgroundColor: colors.error, width: 60, height: 45, justifyContent: 'center', alignItems: 'center' }]}
+                  onPress={() => {
+                    showAlert('Devolver a Cocina', '¿Enviar este pedido de vuelta a cocina?', [
+                      { text: 'No', style: 'cancel' },
+                      { text: 'Sí', onPress: async () => {
+                        setUpdatingId(item.id);
+                        const success = await updateOrderStatus(item.id, 'preparing', { ID_Mesero: user?.email || '' });
+                        if (success) await syncAllData();
+                        setUpdatingId(null);
+                      }}
+                    ]);
+                  }}
+                >
+                  <Ionicons name="arrow-undo" size={20} color="#FFF" />
+                </TouchableOpacity>
+              )}
+            </View>
           )}
         </View>
       </GlassPanel>

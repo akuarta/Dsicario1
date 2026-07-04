@@ -5,7 +5,6 @@ import {
   StyleSheet, 
   ScrollView, 
   TouchableOpacity, 
-  Switch,
   StatusBar,
   Dimensions
 } from 'react-native';
@@ -15,8 +14,9 @@ import { useNavigation } from '@react-navigation/native';
 import { useUser } from '../contexts/UserContext';
 import { useCart } from '../contexts/AppContext';
 import { useThemeMode } from '../contexts/ThemeContext';
-import { getThemeColors, spacing, typography, shadows } from '../theme/theme';
+import { getThemeColors, spacing, shadows } from '../theme/theme';
 import { LinearGradient } from 'expo-linear-gradient';
+import { CONFIG } from '../constants/Config';
 
 const { width } = Dimensions.get('window');
 
@@ -33,7 +33,7 @@ const StaffModeScreen = () => {
   const isCocina = roleLow.includes('cocina') || roleLow.includes('cosina');
   const isMesero = roleLow.includes('mesero');
   
-  const isOwner = email?.toLowerCase()?.trim() === 'hairoman28@gmail.com';
+  const isOwner = email?.toLowerCase()?.trim() === CONFIG.OWNER_EMAIL?.toLowerCase()?.trim();
   const isStaff = isCocina || isDelivery || isMesero || isAdmin || isOwner;
 
   const styles = useMemo(() => StyleSheet.create({

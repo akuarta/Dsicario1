@@ -29,10 +29,12 @@ const RiderProposalOverlay = () => {
   const seenIds      = useRef(new Set()); // IDs ya vistos, para no repetir el modal
   const proposalRef  = useRef(null); // Ref para evitar stale closure en el interval
 
-  const roleLow = (role || '').toLowerCase();
-  const isRiderByRole = roleLow.includes('delivery') || roleLow.includes('rider') || roleLow.includes('repartidor') || roleLow.includes('owner') || roleLow.includes('admin');
-  const isRiderByMode = activeStaffMode === 'repartidor';
-  const isRider = isRiderByRole || isRiderByMode;
+  const isRider = React.useMemo(() => {
+    const roleLow = (role || '').toLowerCase();
+    return roleLow.includes('delivery') || roleLow.includes('rider') || 
+           roleLow.includes('repartidor') || roleLow.includes('owner') || 
+           roleLow.includes('admin') || activeStaffMode === 'repartidor';
+  }, [role, activeStaffMode]);
 
   const styles = useMemo(() => StyleSheet.create({
     backdrop: {
@@ -121,18 +123,19 @@ const RiderProposalOverlay = () => {
   }, [userId, isResponding, dismissProposal]);
 
   // ─── Polling global ─────────────────────────────────────────────────
+  // Poll ALWAYS (even when not in rider mode) so we detect proposals instantly.
+  // Only show the modal when the user is actually in rider mode.
+  // Polls if user could be a rider (role-based) OR is currently in rider mode.
   useEffect(() => {
     console.log('[Overlay] isRider:', isRider, '| role:', role, '| activeStaffMode:', activeStaffMode, '| userId:', userId);
-    if (!isRider || !userId) return;
+    if (!userId || !isRider) return;
 
-    // Usar userId directamente como riderId — no resolver contra fetchDeliveries
-    // porque la tabla Deliverys puede tener un ID_Delivery diferente al userId (DS01)
     const riderIdResolved = userId;
     console.log('[Overlay] Usando riderId directo:', riderIdResolved);
 
     const poll = async () => {
       try {
-        const orders = await fetchRiderOrders(riderIdResolved);
+        const orders = await fetchRiderOrders(riderIdResolved, false);
         const statuses = orders.map(o => o.estado);
         const proposalOrders = orders.filter(o => o.estado === 'proposal');
         console.log('[Overlay] Pedidos:', orders.length, '| Estados:', [...new Set(statuses)].join(','), '| Propuestas:', proposalOrders.length);
@@ -148,11 +151,11 @@ const RiderProposalOverlay = () => {
         });
 
         if (found && !proposalRef.current) {
-          console.log('[Overlay] ✅ Propuesta detectada!', found.id);
+          console.log('[Overlay] ✅ Propuesta detectada! id:', found.id);
           seenIds.current.add(found.id);
           proposalRef.current = found;
           setProposal(found);
-    setCountdown(20);
+          setCountdown(20);
 
           // Vibrar para llamar la atención (móvil)
           if (Platform.OS !== 'web') Vibration.vibrate([200, 100, 200]);
@@ -187,7 +190,7 @@ const RiderProposalOverlay = () => {
     };
 
     poll();
-    pollRef.current = setInterval(poll, 3000);
+    pollRef.current = setInterval(poll, 10000);
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);

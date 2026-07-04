@@ -48,6 +48,7 @@ const SectionProductsScreen = ({ route, navigation }) => {
         keyExtractor={(item, index) => (item.id || index).toString()}
         contentContainerStyle={{
           padding: 16,
+          paddingBottom: 120,
         }}
         numColumns={2}
         columnWrapperStyle={{ justifyContent: 'space-between' }}

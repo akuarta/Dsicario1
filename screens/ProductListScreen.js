@@ -100,6 +100,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
   const colors = getThemeColors(darkMode);
   const activeWaiterSession = waiterActiveSession;
   const isAdmin = role?.toLowerCase().includes('admin') || role?.toLowerCase().includes('owner');
+  const isOwner = role?.toLowerCase() === 'owner';
   const isStaff = isAdmin ||
     role?.toLowerCase().includes('cocina') ||
     role?.toLowerCase().includes('cosina') ||
@@ -169,7 +170,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       return;
     }
 
-    if (isEditorMode && isAdmin) {
+    if (isEditorMode && isAdmin && !isClientMode) {
       navigation.navigate('ProductEditor', { product });
     } else {
       navigation.navigate('ProductDetail', { 
@@ -678,7 +679,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
               filterActive={showFilters}
               onMenuPress={() => navigation.openDrawer()}
               placeholder="Buscar productos..."
-              style={{ backgroundColor: 'rgba(255,255,255,0.95)' }}
+              style={{ backgroundColor: darkMode ? colors.surface + 'F2' : 'rgba(255,255,255,0.95)' }}
             />
             {showFilters && (
               <ScrollView 
@@ -712,9 +713,9 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
         )}
 
         {businessInfo?.closed && (
-          <View style={{ backgroundColor: '#2D0050', paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-            <FontAwesome5 name="moon" size={14} color="#B19CD9" />
-            <Text style={{ color: '#E6E6FA', fontWeight: 'bold', fontSize: 13 }}>MODO PRE-ORDEN ACTIVO: RECIBE AL ABRIR 🌙</Text>
+          <View style={{ backgroundColor: darkMode ? colors.primary + '30' : '#2D0050', paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            <FontAwesome5 name="moon" size={14} color={darkMode ? colors.primary : '#B19CD9'} />
+            <Text style={{ color: darkMode ? colors.text.primary : '#E6E6FA', fontWeight: 'bold', fontSize: 13 }}>MODO PRE-ORDEN ACTIVO: RECIBE AL ABRIR 🌙</Text>
           </View>
         )}
 
@@ -758,7 +759,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
         )}
 
         {/* 🛠️ Banner de Modo Editor para Administradores (Vista Inicio) */}
-        {isAdmin && (
+        {isAdmin && !isClientMode && (
           <EditorModeToggleBtn
             isEditorMode={isEditorMode}
             onToggle={setIsEditorMode}
@@ -829,7 +830,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
           ))}
         </ScrollView>
         {/* ➕ Botón Flotante para Añadir Producto (Vista Inicio) */}
-        {isAdmin && isEditorMode && (
+        {isAdmin && !isClientMode && isEditorMode && (
           <TouchableOpacity 
             style={styles.fabAdd}
             onPress={() => navigation.navigate('ProductEditor')}
@@ -854,9 +855,9 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
           filterActive={showFilters}
         />
         {businessInfo?.closed && (
-          <View style={{ backgroundColor: '#2D0050', paddingVertical: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-            <FontAwesome5 name="moon" size={12} color="#B19CD9" />
-            <Text style={{ color: '#E6E6FA', fontWeight: 'bold', fontSize: 12 }}>MODO PRE-ORDEN 🌙</Text>
+          <View style={{ backgroundColor: darkMode ? colors.primary + '30' : '#2D0050', paddingVertical: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            <FontAwesome5 name="moon" size={12} color={darkMode ? colors.primary : '#B19CD9'} />
+            <Text style={{ color: darkMode ? colors.text.primary : '#E6E6FA', fontWeight: 'bold', fontSize: 12 }}>MODO PRE-ORDEN 🌙</Text>
           </View>
         )}
 
@@ -872,7 +873,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       </View>
 
       {/* 🛠️ Banner de Modo Editor para Administradores */}
-      {isAdmin && (
+      {isAdmin && !isClientMode && (
         <EditorModeToggleBtn
           isEditorMode={isEditorMode}
           onToggle={setIsEditorMode}
@@ -1135,7 +1136,7 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       </View>
 
       {/* ➕ Botón Flotante Adaptativo */}
-      {((isEditorMode && isAdmin) || selectedFilter === 'suggestions') && (
+      {((isEditorMode && isAdmin && !isClientMode) || selectedFilter === 'suggestions') && (
         <TouchableOpacity 
           style={[styles.fabAdd, selectedFilter === 'suggestions' && { backgroundColor: colors.primary }]}
           onPress={() => {
@@ -1341,7 +1342,7 @@ const EditorModeToggleBtn = ({ isEditorMode, onToggle, colors }) => {
             }}>
               Modo Editor
             </Text>
-            <Text style={{ color: '#555', fontSize: 14, textAlign: 'center', maxWidth: 260 }}>
+            <Text style={{ color: colors.text?.secondary || 'rgba(255,255,255,0.6)', fontSize: 14, textAlign: 'center', maxWidth: 260 }}>
               {activating ? 'Preparando tu espacio de trabajo...' : 'Volviendo a la vista de cliente...'}
             </Text>
           </Animated.View>

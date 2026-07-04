@@ -37,6 +37,25 @@ import { useAuth } from '../contexts/AuthContext';
 import { useIsFocused } from '@react-navigation/native';
 import { CONFIG } from '../constants/Config';
 
+// Componente estable para centrar el mapa Leaflet en web (definido a nivel de módulo para evitar remontajes)
+const LeafletMapCenterer = ({ useMap, routeSegments, currentRegion, isLoadingRoutes }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (routeSegments.length > 0) {
+      const allLatLngs = [
+        [CONFIG.STORE_LOCATION.latitude, CONFIG.STORE_LOCATION.longitude],
+        ...routeSegments.filter(s => s.points.length > 0).flatMap(s =>
+          s.points.map(p => [p.latitude, p.longitude])
+        ),
+      ];
+      map.fitBounds(allLatLngs, { padding: [60, 60], maxZoom: 15 });
+    } else if (!isLoadingRoutes) {
+      map.flyTo([currentRegion?.latitude || CONFIG.STORE_LOCATION.latitude, currentRegion?.longitude || CONFIG.STORE_LOCATION.longitude], 14, { duration: 1 });
+    }
+  }, [routeSegments, isLoadingRoutes, currentRegion, map]);
+  return null;
+};
+
 const RiderScreen = ({ navigation, route }) => {
   const { user, logout } = useAuth();
   const { username, userId: contextUserId, isClientMode } = useUser();
@@ -214,6 +233,13 @@ const RiderScreen = ({ navigation, route }) => {
     }
   }, [activeTab, orders, loadRoutes]);
 
+  // Centrar mapa nativo en ubicación del rider cuando no hay rutas
+  useEffect(() => {
+    if (activeTab === 'route' && routeSegments.length === 0 && !isLoadingRoutes && Platform.OS !== 'web' && mapRef.current) {
+      mapRef.current.animateToRegion(currentRegion, 800);
+    }
+  }, [currentRegion, activeTab, routeSegments, isLoadingRoutes]);
+
   const { isAutoSyncEnabled } = useDataSync();
   const [proposal, setProposal] = useState(null);
   const [timeLeft, setTimeLeft] = useState(20);
@@ -327,7 +353,7 @@ const RiderScreen = ({ navigation, route }) => {
     let interval = null;
     if (isAutoSyncEnabled) {
       // ✅ 5 segundos — suficiente para detectar cambios sin saturar la API
-      interval = setInterval(() => loadData(true), 5000);
+      interval = setInterval(() => loadData(true), 15000);
     }
     const setupPushNotifications = async () => {
       const token = await registerForPushNotifications();
@@ -990,16 +1016,17 @@ const RiderScreen = ({ navigation, route }) => {
 
               {Platform.OS === 'web' ? (
                 MapComponents ? (() => {
-                  const { MapContainer, TileLayer, Marker: LeafletMarker, Polyline: LeafletPolyline, Popup } = MapComponents;
+                  const { MapContainer, TileLayer, Marker: LeafletMarker, Polyline: LeafletPolyline, Popup, useMap } = MapComponents;
                   const storeCoords = { latitude: CONFIG.STORE_LOCATION.latitude, longitude: CONFIG.STORE_LOCATION.longitude };
 
                   return (
                     <MapContainer 
-                      center={[CONFIG.STORE_LOCATION.latitude, CONFIG.STORE_LOCATION.longitude]} 
-                      zoom={13} 
+                      center={[currentRegion?.latitude || CONFIG.STORE_LOCATION.latitude, currentRegion?.longitude || CONFIG.STORE_LOCATION.longitude]} 
+                      zoom={14} 
                       style={{ width: '100%', height: '100%', borderRadius: 20 }}
                       zoomControl={true}
                     >
+                      <LeafletMapCenterer useMap={useMap} routeSegments={routeSegments} currentRegion={currentRegion} isLoadingRoutes={isLoadingRoutes} />
                       <TileLayer 
                         url={darkMode 
                           ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" 

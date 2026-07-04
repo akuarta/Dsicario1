@@ -11,6 +11,8 @@
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "^11.5.2",
+    "@react-native-firebase/app": "^25.1.0",
+    "@react-native-firebase/app-distribution": "^25.1.0",
     "@react-native-google-signin/google-signin": "^16.1.2",
     "@react-native-masked-view/masked-view": "0.3.2",
     "@react-native-segmented-control/segmented-control": "2.5.7",

@@ -18,6 +18,7 @@ import { useUser } from '../contexts/UserContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { showAlert } from '../utils/showAlert';
 import NotificationService from '../utils/notificationService';
+import UpdateService from '../utils/UpdateService';
 import {
   getLocalNotifications,
   markNotificationRead,
@@ -282,6 +283,24 @@ const NotificationsScreen = ({ navigation }) => {
             <Text style={[styles.actionText, { color: colors.primary }]}>Probar Notificación</Text>
           </TouchableOpacity>
         )}
+      </View>
+
+      <View style={[styles.settingsCard, { backgroundColor: colors.surface, marginHorizontal: spacing.md, marginBottom: spacing.md, padding: spacing.md, borderRadius: borders.radius.lg, ...shadows.small }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <View style={[styles.notifIcon, { backgroundColor: colors.primary + '15' }]}>
+            <FontAwesome5 name="download" size={18} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: typography.sizes.md, fontWeight: typography.weights.bold, color: colors.text.primary }}>Actualización de App</Text>
+            <Text style={{ fontSize: typography.sizes.sm, color: colors.text.secondary }}>Buscar nuevas versiones disponibles</Text>
+          </View>
+          <TouchableOpacity
+            style={{ backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: borders.radius.md }}
+            onPress={() => UpdateService.checkUpdate(true)}
+          >
+            <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 12 }}>Buscar</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {notifications.length > 0 && (

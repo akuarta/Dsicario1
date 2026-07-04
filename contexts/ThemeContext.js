@@ -45,6 +45,15 @@ export const ThemeProvider = ({ children }) => {
     }
   }, [themeMode, systemColorScheme, isLoaded]);
 
+  // Sync Web body styles
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      const activeColors = currentTheme === 'dark' ? Colors.dark : Colors.light;
+      document.body.style.backgroundColor = activeColors.background;
+      document.body.style.color = activeColors.text.primary;
+    }
+  }, [currentTheme]);
+
   const toggleTheme = async () => {
     const next = currentTheme === 'dark' ? 'light' : 'dark';
     setThemeMode(next);

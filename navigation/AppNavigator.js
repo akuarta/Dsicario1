@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Platform } from 'react-native';
+import { View, Platform, KeyboardAvoidingView } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -22,7 +22,6 @@ import StaffModeScreen from '../screens/StaffModeScreen';
 import ProfileDrawerContent from '../components/ProfileDrawerContent';
 import DeliveryTrackingScreen from '../screens/DeliveryTrackingScreen';
 import ProductDetailScreen from '../screens/ProductDetailScreen';
-import CheckoutScreen from '../screens/CheckoutScreen';
 import FullLoadingScreen from '../components/FullLoadingScreen';
 import { CustomTabBar } from '../components/CustomTabBar';
 import FloatingCartButton from '../components/FloatingCartButton';
@@ -33,7 +32,6 @@ import RiderScreen from '../screens/RiderScreen';
 import WaiterScreen from '../screens/WaiterScreen';
 import ProductListScreen from '../screens/ProductListScreen';
 import OrderCenterScreen from '../screens/OrderCenterScreen';
-import AdminDeliveryScreen from '../screens/AdminDeliveryScreen';
 import ProductEditorScreen from '../screens/ProductEditorScreen';
 import InventoryScreen from '../screens/InventoryScreen';
 import UpdateService from '../utils/UpdateService';
@@ -50,6 +48,8 @@ const ExplorarStack = () => {
         headerStyle: { backgroundColor: colors.primary, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, elevation: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },
         headerTintColor: '#FFFFFF',
         headerTitleStyle: { fontWeight: 'bold' },
+        headerTitleAlign: 'center',
+        headerBackTitleVisible: false,
       }}
     >
       <Stack.Screen 
@@ -80,6 +80,8 @@ const PreOrderStack = () => {
         headerStyle: { backgroundColor: colors.primary, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, elevation: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },
         headerTintColor: '#FFFFFF',
         headerTitleStyle: { fontWeight: 'bold' },
+        headerTitleAlign: 'center',
+        headerBackTitleVisible: false,
       }}
     >
       <Stack.Screen 
@@ -203,7 +205,6 @@ const MainTabs = () => {
           tabBarIcon: ({ color }) => <ClipboardList color={color} size={24} />,
         }}
       />
-      <Tab.Screen name="OrderCenter" component={OrderCenterScreen} options={{ tabBarButton: () => null }} />
       <Tab.Screen 
         name="Historial" 
         component={PurchaseHistoryStack} 
@@ -266,7 +267,7 @@ const DrawerNavigator = () => {
 const AppNavigator = () => {
   const { darkMode } = useTheme();
   const { isAuthenticated, user, loading: authLoading } = useAuth();
-  const { syncUserRole, isClientMode, role } = useUser();
+  const { syncUserRole, isClientMode, role, isSyncing } = useUser();
   const [roleReady, setRoleReady] = useState(false);
   
   // 🔑 Usar el contexto directamente SIN useProducts() para evitar re-renders
@@ -282,16 +283,18 @@ const AppNavigator = () => {
   const roleLow = role ? role.toLowerCase() : '';
   const isAdmin = roleLow.includes('admin');
 
+  // No duplicar syncUserRole — UserContext ya lo maneja en useEffect([user])
   useEffect(() => {
     if (authLoading) return;
     if (!isAuthenticated) {
       setRoleReady(true);
       return;
     }
-    syncUserRole(user?.email).finally(() => setRoleReady(true));
-  }, [authLoading, isAuthenticated, user?.email]);
+    // Mostrar la app inmediatamente — el rol se sincroniza en background
+    setRoleReady(true);
+  }, [authLoading, isAuthenticated]);
 
-  const isLoading = authLoading || !roleReady || (isAuthenticated && productsLoading);
+  const isLoading = authLoading || !roleReady;
 
   useEffect(() => {
     // Check for updates on mount (if not in loading state)
@@ -303,18 +306,24 @@ const AppNavigator = () => {
   if (isLoading) return <FullLoadingScreen />;
 
   return (
-    <NavigationContainer theme={darkMode ? DarkTheme : DefaultTheme}>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {isAuthenticated ? (
-          <Stack.Screen name="Main" component={DrawerNavigator} />
-        ) : (
-          <React.Fragment>
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="Register" component={RegisterScreen} />
-          </React.Fragment>
-        )}
-      </Stack.Navigator>
-    </NavigationContainer>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+    >
+      <NavigationContainer theme={darkMode ? DarkTheme : DefaultTheme}>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {isAuthenticated ? (
+            <Stack.Screen name="Main" component={DrawerNavigator} />
+          ) : (
+            <React.Fragment>
+              <Stack.Screen name="Login" component={LoginScreen} />
+              <Stack.Screen name="Register" component={RegisterScreen} />
+            </React.Fragment>
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+    </KeyboardAvoidingView>
   );
 };
 

@@ -6,7 +6,6 @@ import {
   Image, 
   StyleSheet, 
   FlatList,
-  Alert,
   TextInput
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,7 +16,6 @@ import { useUser } from '../contexts/UserContext';
 import { useGlobalStyles } from '../styles/globalStyles';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
-import theme from '../theme';
 import { showAlert } from '../utils/showAlert';
 import { showConfirm } from '../utils/showConfirm';
 import { CustomHeader } from '../components/CustomHeader';

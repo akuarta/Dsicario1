@@ -142,9 +142,9 @@ const ConfigScreen = () => {
     menuText: { flex: 1, fontSize: typography.sizes.md, color: colors.text.primary, fontWeight: typography.weights.medium },
     themeSelector: {
       flexDirection: 'row', backgroundColor: darkMode ? '#2C2C2E' : '#E9E9EB', padding: 3,
-      borderRadius: borders.radius.md, borderWidth: 1, borderColor: colors.border,
+      borderRadius: borders.radius.md, borderWidth: 1, borderColor: colors.border, gap: 2,
     },
-    themeBtn: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: borders.radius.sm + 2 },
+    themeBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: borders.radius.sm + 2 },
     themeBtnActive: { backgroundColor: colors.primary, ...shadows.small },
     logoutButton: {
       margin: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -190,7 +190,7 @@ const ConfigScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
+      <ScrollView bounces={false} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <FontAwesome5 name="arrow-left" size={20} color="#FFFFFF" />
@@ -239,10 +239,13 @@ const ConfigScreen = () => {
             <Text style={styles.menuText}>Tema Visual</Text>
             <View style={styles.themeSelector}>
               <TouchableOpacity onPress={() => setThemeMode('light')} style={[styles.themeBtn, themeMode === 'light' && styles.themeBtnActive]}>
-                <FontAwesome5 name="sun" size={12} color={themeMode === 'light' ? 'white' : colors.text.secondary} />
+                <FontAwesome5 name="sun" size={12} color={themeMode === 'light' ? '#FFF' : colors.text.secondary} />
               </TouchableOpacity>
               <TouchableOpacity onPress={() => setThemeMode('dark')} style={[styles.themeBtn, themeMode === 'dark' && styles.themeBtnActive]}>
-                <FontAwesome5 name="moon" size={12} color={themeMode === 'dark' ? 'white' : colors.text.secondary} />
+                <FontAwesome5 name="moon" size={12} color={themeMode === 'dark' ? '#FFF' : colors.text.secondary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setThemeMode('system')} style={[styles.themeBtn, themeMode === 'system' && styles.themeBtnActive]}>
+                <FontAwesome5 name="adjust" size={12} color={themeMode === 'system' ? '#FFF' : colors.text.secondary} />
               </TouchableOpacity>
             </View>
           </View>

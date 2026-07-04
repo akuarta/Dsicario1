@@ -6,11 +6,9 @@ import {
   Image, 
   StyleSheet, 
   ScrollView,
-  Alert,
   TextInput,
-  Dimensions,
-  Modal,
-  ActivityIndicator
+  ActivityIndicator,
+  Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -32,7 +30,6 @@ import { useThemeMode } from '../contexts/ThemeContext';
 import { useFavorites } from '../contexts/FavoritesContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 
-const { width } = Dimensions.get('window');
 
 const SimpleRating = ({ defaultRating = 5, onFinishRating, isDisabled = false, size = 20, selectedColor = '#f1c40f' }) => {
   const [rating, setRating] = useState(defaultRating);
@@ -109,8 +106,15 @@ const ProductDetailScreen = ({ navigation, route }) => {
   }, [cartItem]); // Se ejecuta al cargar o si el item del carrito cambia externamente
 
   const styles = useMemo(() => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
-    scrollContent: { paddingBottom: 160 },
+    container: { 
+      flex: 1, 
+      backgroundColor: colors.background,
+      ...Platform.select({ web: { overflow: 'hidden' }, default: {} }),
+    },
+    scrollContent: { 
+      flexGrow: 1, 
+      paddingBottom: 160,
+    },
     fixedFooter: { 
       position: 'absolute',
       bottom: 0,
@@ -158,7 +162,7 @@ const ProductDetailScreen = ({ navigation, route }) => {
       width: 45,
       height: 45,
       borderRadius: 22.5,
-      backgroundColor: 'rgba(255,255,255,0.9)',
+      backgroundColor: darkMode ? 'rgba(30,30,30,0.9)' : 'rgba(255,255,255,0.9)',
       justifyContent: 'center',
       alignItems: 'center',
       shadowColor: '#000',
@@ -235,7 +239,7 @@ const ProductDetailScreen = ({ navigation, route }) => {
   return (
     <SafeAreaView style={styles.container}>
       <CustomHeader title={product.nombre} showBack={true} />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <View style={styles.imageContainer}>
           <Image source={{ uri: product.imagen }} style={styles.productImage} />
           
@@ -335,16 +339,15 @@ const ProductDetailScreen = ({ navigation, route }) => {
           {suggestedProducts.length > 0 && (
             <View style={{ marginTop: spacing.xl }}>
               <Text style={styles.sectionTitle}>También te podría gustar</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -spacing.md }} contentContainerStyle={{ paddingHorizontal: spacing.md }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.md, gap: 12 }}>
                 {suggestedProducts.map((p, i) => (
-                  <View key={i} style={{ width: 160, marginRight: 15 }}>
-                    <ProductItem
-                      product={p}
-                      compact={true}
-                      showCategory={false}
-                      onPress={(prod) => navigation.push('ProductDetail', { product: prod })}
-                    />
-                  </View>
+                  <ProductItem
+                    key={i}
+                    product={p}
+                    compact={true}
+                    showCategory={false}
+                    onPress={(prod) => navigation.push('ProductDetail', { product: prod })}
+                  />
                 ))}
               </ScrollView>
             </View>

@@ -7,6 +7,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useUser } from '../contexts/UserContext';
 import { useCart } from '../contexts/AppContext';
+import { CONFIG } from '../constants/Config';
 
 const ProfileDrawerContent = (props) => {
   const { colors } = useTheme();
@@ -18,10 +19,10 @@ const ProfileDrawerContent = (props) => {
   const roleLow = role ? role.toLowerCase() : '';
   const isAdmin = roleLow.includes('admin') || roleLow === 'owner';
   const isDelivery = roleLow.includes('delivery') || roleLow.includes('repartidor');
-  const isCocina = roleLow.includes('cocina') || roleLow === 'cosina';
+  const isCocina = roleLow.includes('cocina') || roleLow.includes('cosina');
   const isMesero = roleLow.includes('mesero');
   
-  const isOwner = email?.toLowerCase()?.trim() === 'hairoman28@gmail.com';
+  const isOwner = email?.toLowerCase()?.trim() === CONFIG.OWNER_EMAIL?.toLowerCase()?.trim();
   // Temporalmente habilitamos el switch para más gente si algo falla
   const isStaff = isCocina || isDelivery || isMesero || isAdmin || isOwner;
 
@@ -49,43 +50,15 @@ const ProfileDrawerContent = (props) => {
 
   const navigate = (screen) => {
     props.navigation.closeDrawer();
-    props.navigation.navigate('MainTabs', { screen });
+    setTimeout(() => {
+      props.navigation.navigate('MainTabs', { screen });
+    }, 350);
   };
 
   // Log de depuración para ver cambios de modo en tiempo real
   React.useEffect(() => {
     console.log('[DRAWER] Estado de Modo Personal:', activeStaffMode);
   }, [activeStaffMode]);
-
-  const staffSwitches = [
-    {
-      id: 'cocina',
-      label: '🍳 Monitor de Cocina',
-      sub: activeStaffMode === 'cocina' ? 'Modo cocina activo' : 'Ver pedidos en cocina',
-      color: '#E67E22',
-      visible: (isAdmin || isCocina) && !isClientMode,
-      onToggle: () => setActiveStaffMode(activeStaffMode === 'cocina' ? null : 'cocina'),
-      isActive: activeStaffMode === 'cocina'
-    },
-    {
-      id: 'repartidor',
-      label: '🛵 Modo Repartidor',
-      sub: activeStaffMode === 'repartidor' ? 'Modo repartidor activo' : 'Habilitar GPS y entregas',
-      color: '#3498DB',
-      visible: (isAdmin || isDelivery) && !isClientMode,
-      onToggle: () => setActiveStaffMode(activeStaffMode === 'repartidor' ? null : 'repartidor'),
-      isActive: activeStaffMode === 'repartidor'
-    },
-    {
-      id: 'mesero',
-      label: '🔔 Modo Mesero',
-      sub: activeStaffMode === 'mesero' ? 'Modo mesero activo' : 'Toma pedidos en mesa',
-      color: '#F1C40F',
-      visible: (isAdmin || isMesero) && !isClientMode,
-      onToggle: () => setActiveStaffMode(activeStaffMode === 'mesero' ? null : 'mesero'),
-      isActive: activeStaffMode === 'mesero'
-    }
-  ];
 
   const menuItems = [
     // --- SECCIÓN CLIENTE (PARA TODOS O SI ESTÁ EN MODO CLIENTE) ---
@@ -273,8 +246,8 @@ const ProfileDrawerContent = (props) => {
             }
           }}
         >
-          <FontAwesome5 name="sign-out-alt" size={20} color="#666" style={{ marginRight: 16 }} />
-          <Text style={[styles.menuItemTitle, { color: '#666' }]}>Cerrar Sesión</Text>
+          <FontAwesome5 name="sign-out-alt" size={20} color={colors.text?.secondary || '#666'} style={{ marginRight: 16 }} />
+          <Text style={[styles.menuItemTitle, { color: colors.text?.secondary || '#666' }]}>Cerrar Sesión</Text>
         </TouchableOpacity>
       </ScrollView>
 

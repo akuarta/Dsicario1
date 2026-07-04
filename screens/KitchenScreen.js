@@ -5,11 +5,9 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  FlatList,
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
-  Alert,
   Platform,
   StatusBar,
   Animated
@@ -52,9 +50,8 @@ const KitchenScreen = ({ navigation }) => {
       nextStatus = 'preparing';
     } else if (status === 'preparing') {
       nextStatus = 'ready';
-    } else if (status === 'ready') {
-      nextStatus = 'pending';
     }
+    // ready → pending ELIMINADO: solo el mesero puede devolver pedidos
 
     if (!nextStatus) return;
 

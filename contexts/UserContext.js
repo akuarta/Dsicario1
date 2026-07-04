@@ -18,6 +18,7 @@ export const UserProvider = ({ children }) => {
   const [userTypeId, setUserTypeId] = useState('');
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
+  const [metodosPago, setMetodosPago] = useState('');
   const profileLoadedRef = useRef(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isClientMode, setIsClientModeState] = useState(false);
@@ -57,6 +58,7 @@ export const UserProvider = ({ children }) => {
       setIsClientModeState(value);
       try {
         await AsyncStorage.setItem('@dsicario_client_mode', JSON.stringify(value));
+        if (value) await AsyncStorage.setItem('@dsicario_editor_mode', 'false');
       } catch (e) {
         console.warn('Error saving client mode:', e);
       }
@@ -123,9 +125,6 @@ export const UserProvider = ({ children }) => {
   useEffect(() => {
     if (role?.toLowerCase() === 'cliente' || !role) {
       setIsClientModeState(true);
-      // Limpiar el caché de staff mode para evitar contaminación cruzada de sesiones
-      AsyncStorage.removeItem('@dsicario_staff_mode').catch(()=>null);
-      AsyncStorage.removeItem('@dsicario_client_mode').catch(()=>null);
     }
   }, [role]);
 
@@ -154,6 +153,8 @@ export const UserProvider = ({ children }) => {
       }
     } else {
       console.log(`[USER_PRESENCE] 🔴 CIERRE DE SESIÓN DETECTADO (User es null)`);
+      // NO borrar el perfil de AsyncStorage aquí — puede ser un estado temporal
+      // antes de que Firebase dispare onAuthStateChanged. Solo resetear el estado en memoria.
       setUsername('Usuario');
       setEmail('');
       setRole('Cliente');
@@ -161,8 +162,6 @@ export const UserProvider = ({ children }) => {
       setUserTypeId('');
       setAddress('');
       setPhone('');
-      AsyncStorage.removeItem(PROFILE_KEY).catch(()=>null);
-    }
     }
   }, [user]);
 
@@ -217,6 +216,7 @@ export const UserProvider = ({ children }) => {
         setRole(finalRole);
         setUsername(profile.nombre || username);
         setUserId(finalId);
+        setMetodosPago(profile.metodos_pago || '');
         
         if (!profile.userTypeId) {
           let prefix = 'CLN';
@@ -304,11 +304,12 @@ export const UserProvider = ({ children }) => {
     userTypeId, setUserTypeId,
     address, setAddress,
     phone, setPhone,
+    metodosPago,
     isClientMode: (role?.toLowerCase() === 'cliente' || !role) ? true : isClientMode,
     setIsClientMode,
     syncUserRole,
     isSyncing
-  }), [username, email, role, userId, user?.uid, isClientMode, isSyncing]);
+  }), [username, email, role, userId, user?.uid, isClientMode, isSyncing, metodosPago]);
 
   const spin = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
   const switchingToClient = pendingMode === true;

@@ -74,7 +74,7 @@ const CheckoutScreen = ({ navigation, route }) => {
     riderConfirmed, setRiderConfirmed,
     isProcessing, isGeneratingPDF,
     orderCompleted,
-    deliveryType, setDeliveryType,
+    deliveryType, setDeliveryType, rememberDeliveryType, toggleRememberDelivery,
     amountReceived, setAmountReceived,
     includePropina, setIncludePropina,
     paymentReference, setPaymentReference,
@@ -89,7 +89,7 @@ const CheckoutScreen = ({ navigation, route }) => {
     cancelInput, setCancelInput,
     isCancellingOrder, orderCancelledByClient,
     selectedRiderRef, currentOrderIdRef, pulseAnim, orderCreatedAtRef,
-    totalDiscount, subtotal, itbis, propina,
+    totalDiscount, subtotal, itbis, taxInclusive, propina,
     costoExpressDelNegocio, costPerKm,
     costoEnvioCalculado, finalTotal,
     currentRate, numericAmountReceived,
@@ -353,13 +353,23 @@ const CheckoutScreen = ({ navigation, route }) => {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Tipo de Entrega</Text>
             <View style={styles.optionContainer}>
-              {['local', 'pickup', 'delivery'].map(type => (
+              {['pickup', 'local', 'delivery'].map(type => (
                 <TouchableOpacity key={type} style={[styles.optionButton, deliveryType === type && styles.optionButtonActive]} onPress={() => setDeliveryType(type)}>
                   <FontAwesome5 name={type === 'local' ? 'utensils' : type === 'pickup' ? 'store' : 'motorcycle'} size={14} color={deliveryType === type ? '#FFF' : colors.text.secondary} />
                   <Text style={[styles.optionText, deliveryType === type && styles.optionTextActive]}>{type === 'local' ? 'En Local' : type === 'pickup' ? 'Recogida' : 'A Domicilio'}</Text>
                 </TouchableOpacity>
               ))}
             </View>
+
+            <TouchableOpacity 
+              style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8 }}
+              onPress={toggleRememberDelivery}
+            >
+              <View style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: colors.primary, backgroundColor: rememberDeliveryType ? colors.primary : 'transparent', justifyContent: 'center', alignItems: 'center' }}>
+                {rememberDeliveryType && <FontAwesome5 name="check" size={10} color="#FFF" />}
+              </View>
+              <Text style={{ fontSize: 12, color: colors.text.secondary }}>Recordar selección</Text>
+            </TouchableOpacity>
 
             {deliveryType === 'delivery' && (
               <View style={styles.riderTrustContainer}>
@@ -483,7 +493,15 @@ const CheckoutScreen = ({ navigation, route }) => {
             ))}
             <View style={{ marginTop: 10 }}>
               <View style={styles.taxRow}><Text style={styles.taxLabel}>Subtotal</Text><Text style={styles.taxValue}>{formatPrice(subtotal)}</Text></View>
-              <View style={styles.taxRow}><Text style={styles.taxLabel}>Impuestos (18%)</Text><Text style={styles.taxValue}>{formatPrice(itbis)}</Text></View>
+              {businessInfo?.taxEnabled !== false && (
+                <View style={styles.taxRow}>
+                  <Text style={styles.taxLabel}>
+                    {`${businessInfo?.taxName || 'ITBIS'} (${businessInfo?.taxRate || 18}%)`}
+                    {taxInclusive ? ' Incluido' : ''}
+                  </Text>
+                  <Text style={styles.taxValue}>{formatPrice(itbis)}</Text>
+                </View>
+              )}
               {propina > 0 && <View style={styles.taxRow}><Text style={styles.taxLabel}>Propina (10%)</Text><Text style={styles.taxValue}>{formatPrice(propina)}</Text></View>}
               {costoEnvioCalculado > 0 && <View style={styles.taxRow}><Text style={styles.taxLabel}>Costo de Envío {isExpressEnvio ? '(Express)' : ''}</Text><Text style={styles.taxValue}>{formatPrice(costoEnvioCalculado)}</Text></View>}
               <View style={styles.totalRow}><Text style={styles.totalLabel}>TOTAL</Text><Text style={styles.totalAmount}>{formatPrice(finalTotal)}</Text></View>

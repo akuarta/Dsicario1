@@ -222,7 +222,7 @@ const AdminStaffScreen = ({ navigation }) => {
       paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight + 20) : 45,
       justifyContent: 'space-between',
     },
-    headerTitle: { color: colors.text.white, fontSize: 18, fontWeight: 'bold' },
+    headerTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
     backBtn: { padding: 5 },
     list: { padding: spacing.md, paddingBottom: 100 },
     userCard: {
@@ -445,7 +445,7 @@ const AdminStaffScreen = ({ navigation }) => {
             <FontAwesome5 
               name={userRole === 'Admin' ? 'user-shield' : 'user-tie'} 
               size={20} 
-              color={isActiveUser ? colors.primary : '#999'} 
+              color={isActiveUser ? colors.primary : colors.text.light} 
             />
           </View>
           <View style={styles.userInfo}>
@@ -457,13 +457,13 @@ const AdminStaffScreen = ({ navigation }) => {
               </View>
               {hasPushToken && <FontAwesome5 name="mobile-alt" size={10} color="#22c55e" />}
               {hasWhatsApp && <FontAwesome5 name="whatsapp" size={10} color="#25D366" />}
-              {!hasPushToken && !hasWhatsApp && <FontAwesome5 name="times-circle" size={10} color="#999" />}
+              {!hasPushToken && !hasWhatsApp && <FontAwesome5 name="times-circle" size={10} color={colors.text.light} />}
             </View>
           </View>
           <TouchableOpacity onPress={() => { setNotifTargetUser(item); setNotifTargetAll(false); setNotifTitle(''); setNotifBody(''); setNotifModalVisible(true); }} style={{ marginRight: 10 }}>
-            <FontAwesome5 name="bell" size={16} color={hasPushToken || hasWhatsApp ? colors.primary : '#999'} />
+            <FontAwesome5 name="bell" size={16} color={hasPushToken || hasWhatsApp ? colors.primary : colors.text.light} />
           </TouchableOpacity>
-          <FontAwesome5 name="chevron-right" size={12} color="#CCC" />
+          <FontAwesome5 name="chevron-right" size={12} color={colors.text.light} />
         </GlassPanel>
       </TouchableOpacity>
     );
@@ -497,14 +497,14 @@ const AdminStaffScreen = ({ navigation }) => {
           <FontAwesome5 name="search" size={14} color={colors.primary} style={{ marginRight: 10 }} />
           <TextInput
             placeholder="Buscar por nombre o email..."
-            placeholderTextColor="#999"
+            placeholderTextColor={colors.text.light}
             style={[styles.searchInput, { color: colors.text.primary }]}
             value={searchText}
             onChangeText={setSearchText}
           />
           {searchText ? (
             <TouchableOpacity onPress={() => setSearchText('')}>
-              <FontAwesome5 name="times-circle" size={16} color="#999" />
+              <FontAwesome5 name="times-circle" size={16} color={colors.text.light} />
             </TouchableOpacity>
           ) : null}
         </View>
@@ -578,7 +578,7 @@ const AdminStaffScreen = ({ navigation }) => {
             <TextInput
               style={[styles.input, { color: colors.text.primary, borderColor: colors.border }]}
               placeholder="Nombre Completo"
-              placeholderTextColor="#999"
+              placeholderTextColor={colors.text.light}
               value={username}
               onChangeText={setUsername}
             />
@@ -586,7 +586,7 @@ const AdminStaffScreen = ({ navigation }) => {
             <TextInput
               style={[styles.input, { color: colors.text.primary, borderColor: colors.border }]}
               placeholder="Email (Gmail sugerido)"
-              placeholderTextColor="#999"
+              placeholderTextColor={colors.text.light}
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -659,7 +659,7 @@ const AdminStaffScreen = ({ navigation }) => {
               <FontAwesome5 name="search" size={12} color={colors.primary} style={{ marginRight: 8 }} />
               <TextInput
                 placeholder="Buscar usuario..."
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.text.light}
                 style={[styles.searchInput, { color: colors.text.primary, fontSize: 14 }]}
                 value={pickerSearch}
                 onChangeText={setPickerSearch}
@@ -721,7 +721,7 @@ const AdminStaffScreen = ({ navigation }) => {
             <TextInput
               style={[styles.input, { color: colors.text.primary, borderColor: colors.border }]}
               placeholder="Título de la notificación"
-              placeholderTextColor="#999"
+              placeholderTextColor={colors.text.light}
               value={notifTitle}
               onChangeText={setNotifTitle}
             />
@@ -729,7 +729,7 @@ const AdminStaffScreen = ({ navigation }) => {
             <TextInput
               style={[styles.input, { color: colors.text.primary, borderColor: colors.border, minHeight: 80, textAlignVertical: 'top' }]}
               placeholder="Mensaje de la notificación"
-              placeholderTextColor="#999"
+              placeholderTextColor={colors.text.light}
               value={notifBody}
               onChangeText={setNotifBody}
               multiline

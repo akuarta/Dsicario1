@@ -1,5 +1,5 @@
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, View, Platform } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet, View } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useNavigation, useNavigationState } from '@react-navigation/native';
 import { useCart } from '../contexts/AppContext';
@@ -25,7 +25,7 @@ const FloatingCartButton = () => {
   const totalItems = getTotalItems();
 
   // Pantallas donde NO debe aparecer el botón
-  const hiddenScreens = ['Cart', 'Carrito', 'Checkout', 'DeliveryTracking', 'CocinaAdmin', 'RiderAdmin', 'AdminStaff', 'CarritoTab', 'CartScreen'];
+  const hiddenScreens = ['Cart', 'Carrito', 'Checkout', 'DeliveryTracking', 'CocinaAdmin', 'RiderAdmin', 'AdminStaff', 'CarritoTab', 'CartScreen', 'Configuracion', 'Config', 'GestionTab', 'Gestion', 'AdminUsers', 'AdminKitchen', 'AdminWaiter'];
   
   // Ajustar posición si hay elementos fijos abajo (como en ProductDetail)
   const isProductDetail = routeName === 'ProductDetail';
@@ -36,8 +36,8 @@ const FloatingCartButton = () => {
 
   return (
     <View 
-      style={[styles.wrapper, Platform.OS === 'web' && { pointerEvents: 'box-none' }]} 
-      {...(Platform.OS !== 'web' ? { pointerEvents: 'box-none' } : {})}
+      style={styles.wrapper}
+      pointerEvents="box-none"
     >
       <TouchableOpacity 
         style={[

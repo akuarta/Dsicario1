@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 // ✅ Importar logger al inicio para monkey-patch console.log
@@ -18,6 +18,7 @@ import { getThemeColors } from './theme/theme';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import RiderProposalOverlay from './components/RiderProposalOverlay';
 import BrowserNotificationBanner from './components/BrowserNotificationBanner';
+import OnboardingTutorial, { hasSeenOnboarding } from './components/OnboardingTutorial';
 
 // Reanimated 3 Web fix
 if (Platform.OS === 'web') {
@@ -27,6 +28,21 @@ if (Platform.OS === 'web') {
 const AppContent = () => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
+  const [showOnboarding, setShowOnboarding] = useState(null);
+
+  useEffect(() => {
+    hasSeenOnboarding().then(seen => setShowOnboarding(!seen));
+  }, []);
+
+  if (showOnboarding === null) return null; // Loading
+
+  if (showOnboarding) {
+    return (
+      <SafeAreaProvider>
+        <OnboardingTutorial onComplete={() => setShowOnboarding(false)} />
+      </SafeAreaProvider>
+    );
+  }
   
   return (
     <SafeAreaProvider>

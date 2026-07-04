@@ -9,9 +9,6 @@ import {
   TextInput,
   Modal,
   ActivityIndicator,
-  Alert,
-  ScrollView,
-  Dimensions,
   Platform,
   StatusBar
 } from 'react-native';
@@ -20,20 +17,20 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import GlassPanel from '../components/GlassPanel';
+import ScannerModal from '../components/ScannerModal';
 import { useDataSync } from '../contexts/AppContext';
 import { useUser } from '../contexts/UserContext';
 import { useAuth } from '../contexts/AuthContext';
 import { updateOrderStatus, deleteOrder } from '../utils/api';
 import { generatePDFBase64 } from '../utils/pdfGenerator';
 
-const { width } = Dimensions.get('window');
 
 const OrderCenterScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   
   const { kitchenOrders: orders, isSyncing, syncAllData, setKitchenOrders: setOrders } = useDataSync();
-  const { role, contextUserId, contextUserEmail, isClientMode } = useUser();
+  const { role, userId, email: userEmail, isClientMode } = useUser();
   const { user: authUser } = useAuth();
   
   const isAdmin = role === 'Admin' || role === 'Owner';
@@ -47,6 +44,33 @@ const OrderCenterScreen = ({ navigation }) => {
   const [searchText, setSearchText] = useState('');
   const [loadingReceiptId, setLoadingReceiptId] = useState(null); // ID de la orden generando recibo
   const [updatingOrderId, setUpdatingOrderId] = useState(null); // ID de la orden actualizándose
+  const [scannerVisible, setScannerVisible] = useState(false);
+  const [scannedOrderId, setScannedOrderId] = useState(null);
+  const [scanned, setScanned] = useState(false);
+  const [isProcessingQR, setIsProcessingQR] = useState(false);
+
+  const handleScanQR = async (data, orderId) => {
+    if (scanned || isProcessingQR) return;
+    setScanned(true);
+    setIsProcessingQR(true);
+    try {
+      const payload = JSON.parse(data);
+      if (payload.action === 'confirm_delivery' && String(payload.orderId) === String(orderId)) {
+        await updateOrderStatus(orderId, 'delivered');
+        await syncAllData();
+        setScannerVisible(false);
+        showAlert('Éxito', '¡Pedido recibido correctamente!');
+      } else {
+        showAlert('Error', 'Este código no corresponde a este pedido.');
+        setScanned(false);
+      }
+    } catch (e) {
+      showAlert('Error', 'Código no válido.');
+      setScanned(false);
+    } finally {
+      setIsProcessingQR(false);
+    }
+  };
 
 
   const handleGenerateReceipt = async (item) => {
@@ -90,8 +114,8 @@ const OrderCenterScreen = ({ navigation }) => {
     // 🛡️ FILTRO DE SEGURIDAD POR ROL
     if (!isStaff) {
       // Si no es personal, solo ve sus propios pedidos
-      const myId = String(contextUserId || '').trim();
-      const myEmail = String(contextUserEmail || authUser?.email || '').trim().toLowerCase();
+      const myId = String(userId || '').trim();
+      const myEmail = String(userEmail || authUser?.email || '').trim().toLowerCase();
       
       console.log('🛡️ Aplicando Filtro de Privacidad:', { myId, myEmail });
 
@@ -117,7 +141,7 @@ const OrderCenterScreen = ({ navigation }) => {
         else if (isMesero) {
           result = result.filter(o => 
             (String(o.tipo || '').toLowerCase() === 'local') || 
-            (String(o.id_user || o.ID_Usuario || '').trim() === String(contextUserId).trim())
+            (String(o.id_user || o.ID_Usuario || '').trim() === String(userId).trim())
           );
         }
       }
@@ -137,7 +161,7 @@ const OrderCenterScreen = ({ navigation }) => {
     }
     
     return result;
-  }, [orders, activeTab, searchText, isStaff, contextUserId, contextUserEmail, authUser?.email]);
+  }, [orders, activeTab, searchText, isStaff, userId, userEmail, authUser?.email]);
 
   const confirmAction = (msg, onConfirm) => {
     if (Platform.OS === 'web') {
@@ -282,6 +306,9 @@ const OrderCenterScreen = ({ navigation }) => {
       paddingVertical: 8,
       borderRadius: 10,
       backgroundColor: colors.primary + '15',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
     },
     actionText: { color: colors.primary, fontWeight: 'bold', fontSize: 12 },
     itemsBrief: {
@@ -299,6 +326,7 @@ const OrderCenterScreen = ({ navigation }) => {
 
   const renderOrder = ({ item }) => {
     const id = item.id || item.ID_Orden;
+    const s = (item.Estado || item.status || '').toLowerCase();
     return (
       <GlassPanel intensity={10} style={styles.orderCard}>
         <View style={styles.orderHeader}>
@@ -312,7 +340,7 @@ const OrderCenterScreen = ({ navigation }) => {
             )}
           </View>
         </View>
-        <Text style={styles.customerName}>{item.NombreUser || 'Cliente'}</Text>
+        <Text style={styles.customerName}>{item.NombreUser || item.Cliente || item.Nombre || item.Email || 'Cliente'}</Text>
         
         {/* 📦 RESUMEN DE PRODUCTOS */}
         <View style={styles.itemsBrief}>
@@ -329,20 +357,29 @@ const OrderCenterScreen = ({ navigation }) => {
         <Text style={styles.orderTotal}>${item.Total || item.total}</Text>
         
         <View style={styles.actionRow}>
-          <TouchableOpacity 
-            style={styles.actionBtn}
-            onPress={() => navigation.navigate('DeliveryTracking', { orderId: id })}
-          >
-            <Text style={styles.actionText}>Detalles</Text>
-          </TouchableOpacity>
+          {!s.includes('cancel') && (
+            <TouchableOpacity 
+              style={styles.actionBtn}
+              onPress={() => navigation.navigate('DeliveryTracking', { orderId: id })}
+            >
+              <FontAwesome5 name="map-marker-alt" size={11} color={colors.primary} />
+              <Text style={styles.actionText}>Rastrear</Text>
+            </TouchableOpacity>
+          )}
 
-          {/* 📍 RASTREO */}
-          <TouchableOpacity 
-            style={[styles.actionBtn, { backgroundColor: colors.primary + '10' }]}
-            onPress={() => navigation.navigate('DeliveryTracking', { orderId: id })}
-          >
-            <FontAwesome5 name="map-marker-alt" size={11} color={colors.primary} />
-          </TouchableOpacity>
+          {!isStaff && (s === 'ready' || s === 'on_the_way' || s === 'shipping' || s === 'transito' || s === 'ruta') && (
+            <TouchableOpacity 
+              style={[styles.actionBtn, { backgroundColor: colors.success + '20' }]}
+              onPress={() => {
+                setScannedOrderId(id);
+                setScanned(false);
+                setScannerVisible(true);
+              }}
+            >
+              <FontAwesome5 name="qrcode" size={11} color={colors.success} />
+              <Text style={[styles.actionText, { color: colors.success }]}>Recibir</Text>
+            </TouchableOpacity>
+          )}
 
           {/* 🧾 BOTÓN DE RECIBO — Solo para staff */}
           {isStaff && (
@@ -509,6 +546,15 @@ const OrderCenterScreen = ({ navigation }) => {
             <Text style={{ marginTop: 20, color: colors.text.secondary }}>No hay pedidos en esta sección</Text>
           </View>
         }
+      />
+      
+      <ScannerModal
+        visible={scannerVisible}
+        onClose={() => setScannerVisible(false)}
+        onScan={(data) => handleScanQR(data, scannedOrderId)}
+        scanned={scanned}
+        isProcessing={isProcessingQR}
+        colors={colors}
       />
     </SafeAreaView>
   );

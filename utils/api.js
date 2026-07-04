@@ -60,6 +60,7 @@ const gasPost = async (payload) => {
  * @param {boolean} returnCacheImmediately - If true, returns cache if available and fetches in background
  */
 let activeFetchPromise = null;
+let backgroundFetchInProgress = false;
 
 export const fetchWholeData = async (forceRefresh = false, returnCacheImmediately = false) => {
   const now = Date.now();
@@ -88,17 +89,23 @@ export const fetchWholeData = async (forceRefresh = false, returnCacheImmediatel
           apiCache.allData = { data: parsed, timestamp: now };
           
           if (returnCacheImmediately) {
-            // Disparamos el fetch en background sin await
-            console.log('🔄 Cargado de AsyncStorage, actualizando en segundo plano...');
-            fetchAndPersistData().catch(console.error);
+            // Disparamos el fetch en background sin await (con dedup)
+            if (!backgroundFetchInProgress) {
+              backgroundFetchInProgress = true;
+              console.log('🔄 Cargado de AsyncStorage, actualizando en segundo plano...');
+              fetchAndPersistData().finally(() => { backgroundFetchInProgress = false; }).catch(console.error);
+            }
             return parsed;
           }
 
           // Si no queremos forzar refresco, retornamos caché, pero IGUAL iniciamos un fetch en background
           // para mantener el AsyncStorage y memory cache actualizados para la próxima vez.
           if (!forceRefresh) {
-            console.log('✅ Usando caché persistente de AsyncStorage, actualizando en background...');
-            fetchAndPersistData().catch(console.error);
+            if (!backgroundFetchInProgress) {
+              backgroundFetchInProgress = true;
+              console.log('✅ Usando caché persistente de AsyncStorage, actualizando en background...');
+              fetchAndPersistData().finally(() => { backgroundFetchInProgress = false; }).catch(console.error);
+            }
             return parsed;
           }
         }
@@ -128,11 +135,27 @@ const fetchAndPersistData = async () => {
     const response = await fetch(url, { redirect: 'follow' });
     const data = await response.json();
     
-    // Guardar en memoria y persistir
+    // Guardar en memoria y persistir solo si los datos cambiaron
     apiCache.allData = { data, timestamp: Date.now() };
-    AsyncStorage.setItem(PERSIST_CACHE_KEY, JSON.stringify(data))
-      .then(() => console.log(`💾 ✅ Todo el bloque de datos (${data?.productos?.length || 0} productos) se ha guardado físicamente en el teléfono (AsyncStorage).`))
-      .catch(e => console.warn('❌ Error guardando en AsyncStorage:', e));
+    
+    // Comparar con AsyncStorage antes de escribir
+    try {
+      const existing = await AsyncStorage.getItem(PERSIST_CACHE_KEY);
+      const existingData = existing ? JSON.parse(existing) : null;
+      const newDataStr = JSON.stringify(data);
+      const existingStr = existing ? JSON.stringify(existingData) : null;
+      
+      if (newDataStr !== existingStr) {
+        AsyncStorage.setItem(PERSIST_CACHE_KEY, newDataStr)
+          .then(() => console.log(`💾 ✅ Datos actualizados en AsyncStorage (${data?.productos?.length || 0} productos)`))
+          .catch(e => console.warn('❌ Error guardando en AsyncStorage:', e));
+      } else {
+        console.log('💾 ⏭ AsyncStorage sin cambios, omitiendo escritura');
+      }
+    } catch (e) {
+      // Si falla la lectura, guardar de todos modos
+      AsyncStorage.setItem(PERSIST_CACHE_KEY, JSON.stringify(data)).catch(() => {});
+    }
     
     return data;
   } catch (error) {
@@ -558,8 +581,20 @@ export const voteSuggestion = async (id, type, currentCount) => {
  */
 export const fetchBusinessInfo = async () => {
   try {
-    const response = await fetch(`${CONFIG.GAS_API_URL}`, { redirect: 'follow' });
-    const data = await response.json();
+    const data = await fetchWholeData(false, false);
+    if (!data) {
+      return {
+        name: 'D´Sicario',
+        phone: '809-000-0000',
+        email: 'hairoman28@gmail.com',
+        address: 'Calle diagonal 1ra. no. 29, Santo Tomas De Aquino',
+        logo: null, appLink: null, closed: false,
+        currencies: ['DOP', 'USD', 'EUR', 'COP', 'MXN'],
+        deliveryCostPerKm: 50, expressPerKm: 30,
+        paymentMethods: ['Efectivo', 'Tarjeta'],
+        paymentNotes: {}, generalPaymentNote: ''
+      };
+    }
     
     // Intentar 'Principal' primero, luego 'inicio' (compatibilidad)
     const info = resolveSheetData(data, 'Principal').length > 0 
@@ -611,7 +646,12 @@ export const fetchBusinessInfo = async () => {
             return {};
           }
         })(),
-        generalPaymentNote: getRobustProp(b, 'NotaGeneralPago') || ''
+        generalPaymentNote: getRobustProp(b, 'NotaGeneralPago') || '',
+        // Impuestos configurables
+        taxName: getRobustProp(b, 'NombreImpuesto') || 'ITBIS',
+        taxRate: parseFloat(getRobustProp(b, 'PorcentajeImpuesto') || '18'),
+        taxEnabled: String(getRobustProp(b, 'ImpuestoHabilitado') || 'true').toLowerCase() === 'true',
+        taxInclusive: String(getRobustProp(b, 'ImpuestoIncluido') || 'false').toLowerCase() === 'true',
       };
     }
     
@@ -629,7 +669,11 @@ export const fetchBusinessInfo = async () => {
       expressPerKm: 30,
       paymentMethods: ['Efectivo', 'Tarjeta'],
       paymentNotes: {},
-      generalPaymentNote: ''
+      generalPaymentNote: '',
+      taxName: 'ITBIS',
+      taxRate: 18,
+      taxEnabled: true,
+      taxInclusive: false
     };
   } catch (error) {
     console.error('Error fetching business info:', error);
@@ -660,7 +704,11 @@ export const saveBusinessInfo = async (info) => {
         'Monedas': (info.currencies || []).join(', '),
         'MetodosPago': [...new Set((info.paymentMethods || []).map(m => m.toLowerCase().includes('transf') ? 'Transferencia' : m))].join(', '),
         'NotasMetodosPago': JSON.stringify(info.paymentNotes || {}),
-        'NotaGeneralPago': info.generalPaymentNote || ''
+        'NotaGeneralPago': info.generalPaymentNote || '',
+        'NombreImpuesto': info.taxName || 'ITBIS',
+        'PorcentajeImpuesto': String(info.taxRate ?? 18),
+        'ImpuestoHabilitado': info.taxEnabled !== false ? 'TRUE' : 'FALSE',
+        'ImpuestoIncluido': info.taxInclusive ? 'TRUE' : 'FALSE'
       }
     };
 
@@ -814,47 +862,34 @@ export const updateOrderStatus = async (orderId, newStatus, extraData = {}, sile
       );
     }
 
-    // 🚀 [BLACKLIST] Si el cliente cancela, poner en lista negra
-    if (newStatus === 'cancelado_cliente') {
-      console.log(`🚀 [BLACKLIST] Pedido ${idStr} cancelado por cliente. Aplicando sanción...`);
-      fetchOrders().then(orders => {
-        const order = orders.find(o => String(o.id).split('.')[0].trim() === idStr);
-        if (order && order.email) {
+    // 🚀 Post-update: fetch orders ONCE and reuse for all checks
+    if (!silent || newStatus === 'cancelado_cliente' || newStatus === 'ready' || newStatus === 'listo' || newStatus === 'pending') {
+      try {
+        const allOrders = await fetchOrders();
+        const order = allOrders.find(o => String(o.id).split('.')[0].trim() === idStr);
+        
+        // 🚀 [BLACKLIST] Si el cliente cancela, poner en lista negra
+        if (newStatus === 'cancelado_cliente' && order && order.email) {
           blacklistUser(order.email).catch(err => console.error('❌ [BLACKLIST] Fallo:', err));
         }
-      });
-    }
 
-    // 🚀 [NOTIFICACION CLIENTE] Enviar alerta local al cliente del cambio de estado
-    if (!silent) {
-      try {
-        const orders = await fetchOrders();
-        const order = orders.find(o => String(o.id).split('.')[0].trim() === idStr);
-        if (order) {
+        // 🚀 [NOTIFICACION CLIENTE] Enviar alerta local al cliente del cambio de estado
+        if (!silent && order) {
           const { notifyOrderStatus } = require('./notifications');
           notifyOrderStatus(idStr, newStatus).catch(err => console.warn('[NOTIF CLIENTE] Fallo en background:', err));
         }
-      } catch (e) {
-        console.warn('[NOTIF CLIENTE] Error preparando notificación:', e);
-      }
-    }
 
-    // 🚀 [BROADCAST REPARTIDORES] Avisar a todos los repartidores si es un delivery libre
-    if (newStatus === 'ready' || newStatus === 'listo' || newStatus === 'pending') {
-      try {
-        const orders = await fetchOrders();
-        const order = orders.find(o => String(o.id).split('.')[0].trim() === idStr);
-        if (order) {
-           const isDelivery = String(order.tipo || order.Tipo || '').toLowerCase() === 'delivery';
-           const hasRider = order.ID_Rider && String(order.ID_Rider).toLowerCase() !== 'n/a' && String(order.ID_Rider).toLowerCase() !== 'pendiente' && String(order.ID_Rider).trim() !== '';
-           
-           if (isDelivery && !hasRider) {
-             const { broadcastToAllRiders } = require('./notifications');
-             broadcastToAllRiders(order).catch(e => console.warn('[BROADCAST] Error:', e));
-           }
+        // 🚀 [BROADCAST REPARTIDORES] Avisar a todos los repartidores si es un delivery libre
+        if ((newStatus === 'ready' || newStatus === 'listo' || newStatus === 'pending') && order) {
+          const isDelivery = String(order.tipo || order.Tipo || '').toLowerCase() === 'delivery';
+          const hasRider = order.ID_Rider && String(order.ID_Rider).toLowerCase() !== 'n/a' && String(order.ID_Rider).toLowerCase() !== 'pendiente' && String(order.ID_Rider).trim() !== '';
+          if (isDelivery && !hasRider) {
+            const { broadcastToAllRiders } = require('./notifications');
+            broadcastToAllRiders(order).catch(e => console.warn('[BROADCAST] Error:', e));
+          }
         }
       } catch (e) {
-        console.warn('[BROADCAST] Catch exterior:', e);
+        console.warn('[POST-UPDATE] Error:', e);
       }
     }
 
@@ -1061,12 +1096,58 @@ export const fetchOrderStatus = async (orderId) => {
 };
 
 
+const processKitchenOrders = (rawOrders, rawItems) => {
+  const itemsMap = {};
+  rawItems.forEach(item => {
+    const pid = getRobustProp(item, 'ID_Pedido');
+    if (pid) {
+      if (!itemsMap[pid]) itemsMap[pid] = [];
+      itemsMap[pid].push(item);
+    }
+  });
+
+  return rawOrders
+    .filter(order => {
+      const rawId = getRobustProp(order, 'ID_Pedido') || getRobustProp(order, 'ID_Orden');
+      const hasId = rawId && String(rawId).trim() !== '' && String(rawId).trim() !== '-';
+      const hasCliente = !!(getRobustProp(order, 'Cliente') || getRobustProp(order, 'NombreUser') || getRobustProp(order, 'Email'));
+      const hasTotal = parseFloat(getRobustProp(order, 'Total') || 0) > 0;
+      const hasItems = !!(getRobustProp(order, 'Pedido_Items'));
+      if (!hasId || (!hasCliente && !hasTotal && !hasItems)) return false;
+      return true;
+    })
+    .filter(order => {
+      const excelStatus = getRobustProp(order, 'Estado') || getRobustProp(order, 'estado pedido') || '';
+      const status = STATUS_MAP.fromExcel(excelStatus);
+      const orderDate = getRobustProp(order, 'Fecha') || '';
+      const todayStr = new Date().toLocaleDateString();
+      const isCompleted = ['delivered', 'entregado', 'completed'].includes(status);
+      const isCancelled = ['cancelled', 'cancelado_cliente'].includes(status);
+      if (isCancelled) return false;
+      if (isCompleted && orderDate && orderDate !== todayStr) return false;
+      return true;
+    })
+    .map(order => {
+      const mapped = mapOrderData(order, itemsMap);
+      const lockKey = mapped.id ? String(mapped.id).split('.')[0].trim() : null;
+      if (lockKey && pendingUpdates[lockKey]) {
+        const update = pendingUpdates[lockKey];
+        const elapsed = Date.now() - update.time;
+        if (elapsed < UPDATE_LOCK_MS) {
+          mapped.estado = update.status;
+          mapped.Estado = STATUS_MAP.toExcel(update.status);
+        } else {
+          delete pendingUpdates[lockKey];
+        }
+      }
+      return mapped;
+    });
+};
+
 export const fetchKitchenOrders = async () => {
   try {
     const now = Date.now();
     if (apiCache.kitchenOrders.data.length > 0 && (now - apiCache.kitchenOrders.timestamp) < API_TTL_MS) {
-      // Servir desde caché sin hacer peticiones a GAS
-      // 🚫 ANTI-FANTASMA: también filtrar cancelados y fantasmas del caché
       return apiCache.kitchenOrders.data
         .filter(order => {
           if (!order.id && !order.ID_Pedido) return false;
@@ -1089,83 +1170,26 @@ export const fetchKitchenOrders = async () => {
         });
     }
 
-    const [ordersRes, itemsRes] = await Promise.all([
-      fetch(`${CONFIG.GAS_API_URL}?sheet=Pedidos`, { redirect: 'follow' }),
-      fetch(`${CONFIG.GAS_API_URL}?sheet=pedido detalle`, { redirect: 'follow' })
-    ]);
+    const wholeData = await fetchWholeData(false, false);
+    let rawOrders = wholeData ? resolveSheetData(wholeData, 'Pedidos') : [];
+    let rawItems = wholeData ? resolveSheetData(wholeData, 'pedido detalle') : [];
 
-    const [ordersData, itemsData] = await Promise.all([
-      ordersRes.json(),
-      itemsRes.json()
-    ]);
+    if (!rawOrders || rawOrders.length === 0) {
+      const [ordersRes, itemsRes] = await Promise.all([
+        fetch(`${CONFIG.GAS_API_URL}?sheet=Pedidos`, { redirect: 'follow' }),
+        fetch(`${CONFIG.GAS_API_URL}?sheet=pedido detalle`, { redirect: 'follow' })
+      ]);
 
-    const rawOrders = resolveSheetData(ordersData, 'Pedidos');
-    const rawItems = resolveSheetData(itemsData, 'pedido detalle');
+      const [ordersData, itemsData] = await Promise.all([
+        ordersRes.json(),
+        itemsRes.json()
+      ]);
 
-    const itemsMap = {};
-    rawItems.forEach(item => {
-      const pid = getRobustProp(item, 'ID_Pedido');
-      if (pid) {
-        if (!itemsMap[pid]) itemsMap[pid] = [];
-        itemsMap[pid].push(item);
-      }
-    });
+      rawOrders = resolveSheetData(ordersData, 'Pedidos');
+      rawItems = resolveSheetData(itemsData, 'pedido detalle');
+    }
 
-    const result = rawOrders
-      .filter(order => {
-        // 🚫 FILTRO ANTI-FANTASMA: descartar filas vacías o corrompidas de Sheets
-        const rawId = getRobustProp(order, 'ID_Pedido') || getRobustProp(order, 'ID_Orden');
-        const hasId = rawId && String(rawId).trim() !== '' && String(rawId).trim() !== '-';
-        const hasCliente = !!(getRobustProp(order, 'Cliente') || getRobustProp(order, 'NombreUser') || getRobustProp(order, 'Email'));
-        const hasTotal = parseFloat(getRobustProp(order, 'Total') || 0) > 0;
-        const hasItems = !!(getRobustProp(order, 'Pedido_Items'));
-        // Requiere al minimum un ID real + algún dato de cliente, total o items
-        if (!hasId || (!hasCliente && !hasTotal && !hasItems)) {
-          return false;
-        }
-        return true;
-      })
-      .filter(order => {
-        const excelStatus = getRobustProp(order, 'Estado') || getRobustProp(order, 'estado pedido') || '';
-        const status = STATUS_MAP.fromExcel(excelStatus);
-        
-        const orderDate = getRobustProp(order, 'Fecha') || '';
-        const todayStr = new Date().toLocaleDateString();
-        // ⚠️ 'on_the_way' must NOT be here — in-transit orders are still ACTIVE
-        const isCompleted = ['delivered', 'entregado', 'completed'].includes(status);
-        // 🚫 Pedidos cancelados nunca deben aparecer como activos (pedidos fantasma)
-        const isCancelled = ['cancelled', 'cancelado_cliente'].includes(status);
-        
-        // Mostrar todas las activas. Para el historial, solo mostrar las procesadas hoy.
-        // Si no tiene fecha, permitir pero con precaución.
-        if (isCancelled) {
-            return false;
-        }
-
-        if (isCompleted && orderDate && orderDate !== todayStr) {
-            return false;
-        }
-
-        return true;
-      })
-      .map(order => {
-        const mapped = mapOrderData(order, itemsMap);
-        
-        // Bloqueo de Race Condition (Blindaje de 10s)
-        const lockKey = mapped.id ? String(mapped.id).split('.')[0].trim() : null;
-        if (lockKey && pendingUpdates[lockKey]) {
-            const update = pendingUpdates[lockKey];
-            const elapsed = Date.now() - update.time;
-            if (elapsed < UPDATE_LOCK_MS) {
-                // Forzar el estado local mientras el lock esté activo
-                mapped.estado = update.status;
-                mapped.Estado = STATUS_MAP.toExcel(update.status);
-            } else {
-                delete pendingUpdates[lockKey];
-            }
-        }
-        return mapped;
-      });
+    const result = processKitchenOrders(rawOrders, rawItems);
       
       apiCache.kitchenOrders = { data: result, timestamp: now };
       return result;
@@ -1180,18 +1204,24 @@ export const fetchKitchenOrders = async () => {
  */
 export const fetchOrders = async () => {
   try {
-    const [ordersRes, itemsRes] = await Promise.all([
-      fetch(`${CONFIG.GAS_API_URL}?sheet=pedidos`, { redirect: 'follow' }),
-      fetch(`${CONFIG.GAS_API_URL}?sheet=pedido detalle`, { redirect: 'follow' })
-    ]);
+    const wholeData = await fetchWholeData(false, false);
+    let rawOrders = wholeData ? resolveSheetData(wholeData, 'pedidos') : [];
+    let rawItems = wholeData ? resolveSheetData(wholeData, 'pedido detalle') : [];
 
-    const [ordersData, itemsData] = await Promise.all([
-      ordersRes.json(),
-      itemsRes.json()
-    ]);
+    if (!rawOrders || rawOrders.length === 0) {
+      const [ordersRes, itemsRes] = await Promise.all([
+        fetch(`${CONFIG.GAS_API_URL}?sheet=pedidos`, { redirect: 'follow' }),
+        fetch(`${CONFIG.GAS_API_URL}?sheet=pedido detalle`, { redirect: 'follow' })
+      ]);
 
-    const rawOrders = resolveSheetData(ordersData, 'pedidos');
-    const rawItems = resolveSheetData(itemsData, 'pedido detalle');
+      const [ordersData, itemsData] = await Promise.all([
+        ordersRes.json(),
+        itemsRes.json()
+      ]);
+
+      rawOrders = resolveSheetData(ordersData, 'pedidos');
+      rawItems = resolveSheetData(itemsData, 'pedido detalle');
+    }
 
     const itemsMap = {};
     rawItems.forEach(item => {
@@ -1268,18 +1298,24 @@ export const pickupOrder = async (orderId, riderId) => {
 /**
  * Fetch rider orders
  */
-export const fetchRiderOrders = async (riderId) => {
+export const fetchRiderOrders = async (riderId, forceRefresh = false) => {
   try {
-    const [ordersRes, itemsRes] = await Promise.all([
-      fetch(`${CONFIG.GAS_API_URL}?sheet=pedidos`, { redirect: 'follow' }),
-      fetch(`${CONFIG.GAS_API_URL}?sheet=pedido detalle`, { redirect: 'follow' })
-    ]);
+    const wholeData = await fetchWholeData(forceRefresh, false);
+    let rawOrders = wholeData ? resolveSheetData(wholeData, 'pedidos') : [];
+    let rawItems = wholeData ? resolveSheetData(wholeData, 'pedido detalle') : [];
 
-    const ordersData = await ordersRes.json();
-    const itemsData = await itemsRes.json();
+    if (!rawOrders || rawOrders.length === 0) {
+      const [ordersRes, itemsRes] = await Promise.all([
+        fetch(`${CONFIG.GAS_API_URL}?sheet=pedidos`, { redirect: 'follow' }),
+        fetch(`${CONFIG.GAS_API_URL}?sheet=pedido detalle`, { redirect: 'follow' })
+      ]);
 
-    const rawOrders = resolveSheetData(ordersData, 'pedidos');
-    const rawItems = resolveSheetData(itemsData, 'pedido detalle');
+      const ordersData = await ordersRes.json();
+      const itemsData = await itemsRes.json();
+
+      rawOrders = resolveSheetData(ordersData, 'pedidos');
+      rawItems = resolveSheetData(itemsData, 'pedido detalle');
+    }
 
     const itemsMap = {};
     rawItems.forEach(item => {
@@ -1472,9 +1508,17 @@ export const fetchAllUsers = async () => {
     if (apiCache.users.data.length > 0 && (now - apiCache.users.timestamp) < API_TTL_MS) {
       return apiCache.users.data;
     }
+    const data = await fetchWholeData(false, false);
+    if (data) {
+      const result = resolveSheetData(data, 'Usuarios');
+      if (result.length > 0) {
+        apiCache.users = { data: result, timestamp: now };
+        return result;
+      }
+    }
     const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=Usuarios`, { redirect: 'follow' });
-    const data = await response.json();
-    const result = resolveSheetData(data, 'Usuarios');
+    const responseData = await response.json();
+    const result = resolveSheetData(responseData, 'Usuarios');
     apiCache.users = { data: result, timestamp: now };
     return result;
   } catch (error) {
@@ -1516,9 +1560,8 @@ export const formatPrice = (price, currency = 'DOP') => {
 
 export const fetchUserRoleByEmail = async (email) => {
   try {
-    const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=Usuarios`, { redirect: 'follow' });
-    const data = await response.json();
-    const users = resolveSheetData(data, 'Usuarios');
+    // Use cached users instead of raw fetch (faster, avoids redundant API calls)
+    const users = await fetchAllUsers();
     console.log('[DEBUG API] Buscando email:', email);
     console.log('[DEBUG API] Total usuarios en hoja:', users.length);
     if (users.length > 0) console.log('[DEBUG API] Columnas detectadas en Usuarios:', Object.keys(users[0]));
@@ -1548,6 +1591,7 @@ export const fetchUserRoleByEmail = async (email) => {
       telefono: getRobustProp(user, 'TelefonoUser') || getRobustProp(user, 'Telefono') || '',
       activo: getRobustProp(user, 'activo?') === 'TRUE' || getRobustProp(user, 'activo?') === true || getRobustProp(user, 'Activo?') === 'TRUE',
       online: getRobustProp(user, 'Online?') === 'TRUE' || getRobustProp(user, 'Online?') === true,
+      metodos_pago: getRobustProp(user, 'Metodos_Pago') || '',
       roleCounts: roleCounts // Pasamos los conteos al contexto
     };
   } catch (error) {
@@ -1566,11 +1610,24 @@ export const fetchDeliveries = async () => {
       return apiCache.deliveries.data;
     }
 
-    const sheetsToTry = ['Deliverys', 'Delivery', 'Repartidores'];
     let raw = [];
     let foundSheet = 'Deliverys';
 
-    for (const sheetName of sheetsToTry) {
+    const wholeData = await fetchWholeData(false, false);
+    if (wholeData) {
+      const sheetNames = ['Deliverys', 'Delivery', 'Repartidores'];
+      for (const name of sheetNames) {
+        raw = resolveSheetData(wholeData, name);
+        if (raw && raw.length > 0) {
+          foundSheet = name;
+          break;
+        }
+      }
+    }
+
+    if (!raw || raw.length === 0) {
+      const sheetsToTry = ['Deliverys', 'Delivery', 'Repartidores'];
+      for (const sheetName of sheetsToTry) {
         try {
           const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=${sheetName}`, { redirect: 'follow' });
           const data = await response.json();
@@ -1582,11 +1639,8 @@ export const fetchDeliveries = async () => {
         } catch (e) {
           console.warn(`Error trying sheet ${sheetName}:`, e);
         }
-    }
-    
-    cachedDeliverySheet = foundSheet;
-    
-    if (!raw || raw.length === 0) {
+      }
+      if (!raw || raw.length === 0) {
         try {
           const response = await fetch(`${CONFIG.GAS_API_URL}`, { redirect: 'follow' });
           const data = await response.json();
@@ -1595,7 +1649,10 @@ export const fetchDeliveries = async () => {
         } catch (e) {
           console.error('Final fallback fetch failed:', e);
         }
+      }
     }
+    
+    cachedDeliverySheet = foundSheet;
     
     if (!raw || !Array.isArray(raw)) return [];
 
@@ -1642,9 +1699,12 @@ export const fetchDeliveries = async () => {
     });
 
     try {
-      const usuariosResp = await fetch(`${CONFIG.GAS_API_URL}?sheet=Usuarios`, { redirect: 'follow' });
-      const usuariosData = await usuariosResp.json();
-      const usuarios = resolveSheetData(usuariosData, 'Usuarios');
+      let usuarios = wholeData ? resolveSheetData(wholeData, 'Usuarios') : [];
+      if (!usuarios || usuarios.length === 0) {
+        const usuariosResp = await fetch(`${CONFIG.GAS_API_URL}?sheet=Usuarios`, { redirect: 'follow' });
+        const usuariosData = await usuariosResp.json();
+        usuarios = resolveSheetData(usuariosData, 'Usuarios');
+      }
 
       const parseStatus = (raw) =>
         raw === null || raw === '' ? null : (String(raw).toUpperCase() === 'TRUE' || raw === true);
@@ -1849,9 +1909,16 @@ export const setOffline = async (riderId, firebaseUid = null, name = null, email
  */
 export const fetchAlmacen = async () => {
   try {
-    const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=Almacen`, { redirect: 'follow' });
-    const data = await response.json();
-    const raw = resolveSheetData(data, 'Almacen');
+    const wholeData = await fetchWholeData(false, false);
+    let raw = null;
+    if (wholeData) {
+      raw = resolveSheetData(wholeData, 'Almacen');
+    }
+    if (!raw || raw.length === 0) {
+      const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=Almacen`, { redirect: 'follow' });
+      const data = await response.json();
+      raw = resolveSheetData(data, 'Almacen');
+    }
     
     return raw.filter(item => getRobustProp(item, 'IDmp') || getRobustProp(item, 'Materia prima'))
       .map(item => ({
@@ -1908,6 +1975,11 @@ export const updateAlmacenItem = async (itemId, updateData) => {
  */
 export const fetchRecetas = async () => {
   try {
+    const wholeData = await fetchWholeData(false, false);
+    if (wholeData) {
+      const result = resolveSheetData(wholeData, 'Recetas');
+      if (result.length > 0) return result;
+    }
     const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=Recetas`, { redirect: 'follow' });
     const data = await response.json();
     return resolveSheetData(data, 'Recetas');
@@ -1991,7 +2063,7 @@ export const setUserOnlineStatus = async (correctUserId, isOnline, email = null,
     
     return { success: result.success, result };
   } catch (e) {
-    console.error(`[USER_PRESENCE] ❌ Error crítico en setUserOnlineStatus:`, e);
+    console.warn(`[USER_PRESENCE] No se pudo actualizar estado online:`, e.message);
     return { success: false, error: e.message };
   }
 };
@@ -2027,9 +2099,16 @@ export const fetchTables = async () => {
     if (apiCache.tables.data.length > 0 && (now - apiCache.tables.timestamp) < API_TTL_MS) {
       return apiCache.tables.data;
     }
-    const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=Mesas`, { redirect: 'follow' });
-    const data = await response.json();
-    const raw = resolveSheetData(data, 'Mesas');
+    const wholeData = await fetchWholeData(false, false);
+    let raw = null;
+    if (wholeData) {
+      raw = resolveSheetData(wholeData, 'Mesas');
+    }
+    if (!raw || raw.length === 0) {
+      const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=Mesas`, { redirect: 'follow' });
+      const data = await response.json();
+      raw = resolveSheetData(data, 'Mesas');
+    }
     
     const result = raw
       .filter(m => getRobustProp(m, 'ID_Mesa') || getRobustProp(m, 'Nombre'))
@@ -2369,7 +2448,8 @@ export const saveUser = async (userData) => {
         'Area_Trabajo': userData.area_trabajo || userData.Area_Trabajo || 'Global',
         'Fecha': new Date().toLocaleDateString('es-DO'),
         'DireccionUser': userData.direccion || userData.DireccionUser || '',
-        'TelefonoUser': userData.telefono || userData.TelefonoUser || ''
+        'TelefonoUser': userData.telefono || userData.TelefonoUser || '',
+        'Metodos_Pago': userData.metodos_pago || userData.Metodos_Pago || ''
       }
     };
     
@@ -2599,16 +2679,22 @@ export const fetchReviews = async (productId) => {
  */
 export const fetchOrderDetails = async (orderId) => {
   try {
-    const [ordersRes, itemsRes] = await Promise.all([
-      fetch(`${CONFIG.GAS_API_URL}?sheet=pedidos`, { redirect: 'follow' }),
-      fetch(`${CONFIG.GAS_API_URL}?sheet=pedido detalle`, { redirect: 'follow' })
-    ]);
+    const wholeData = await fetchWholeData(false, false);
+    let rawOrders = wholeData ? resolveSheetData(wholeData, 'pedidos') : [];
+    let rawItems = wholeData ? resolveSheetData(wholeData, 'pedido detalle') : [];
 
-    const ordersData = await ordersRes.json();
-    const itemsData = await itemsRes.json();
+    if (!rawOrders || rawOrders.length === 0) {
+      const [ordersRes, itemsRes] = await Promise.all([
+        fetch(`${CONFIG.GAS_API_URL}?sheet=pedidos`, { redirect: 'follow' }),
+        fetch(`${CONFIG.GAS_API_URL}?sheet=pedido detalle`, { redirect: 'follow' })
+      ]);
 
-    const rawOrders = resolveSheetData(ordersData, 'pedidos');
-    const rawItems = resolveSheetData(itemsData, 'pedido detalle');
+      const ordersData = await ordersRes.json();
+      const itemsData = await itemsRes.json();
+
+      rawOrders = resolveSheetData(ordersData, 'pedidos');
+      rawItems = resolveSheetData(itemsData, 'pedido detalle');
+    }
 
     const order = rawOrders.find(o => String(getRobustProp(o, 'ID_Pedido')) === String(orderId));
     
@@ -2668,6 +2754,12 @@ export const fetchOrderDetails = async (orderId) => {
         status: finalStatus,
         tipo: getRobustProp(order, 'Tipo') || getRobustProp(order, 'tipo') || 'Domicilio',
         cliente: getRobustProp(order, 'Cliente') || 'Invitado',
+        nombre: getRobustProp(order, 'Nombre') || getRobustProp(order, 'NombreUser') || '',
+        apellido: getRobustProp(order, 'Apellido') || '',
+        vehiculo: getRobustProp(order, 'Vehiculo') || '',
+        telefono: getRobustProp(order, 'Telefono') || '',
+        whatsapp: getRobustProp(order, 'WhatsApp') || '',
+        riderId: getRobustProp(order, 'ID_Rider') || getRobustProp(order, 'Delivery') || getRobustProp(order, 'id_repartidor') || '',
         total: parseFloat(getRobustProp(order, 'Total')) || 0,
         estimatedTime: '20-30 min',
         direccion: getRobustProp(order, 'Direccion') || getRobustProp(order, 'direccion') || getRobustProp(order, 'Dirección') || getRobustProp(order, 'Ubicacion') || getRobustProp(order, 'Ubicación') || '',
@@ -3226,6 +3318,226 @@ export const restoreProductsFromFirestore = async () => {
   }
 };
 
+// ─── Sistema de Calificaciones / Reputación ──────────────────────────────
+
+/**
+ * Submit an order rating (client → rider/waiter or staff → client)
+ * @param {Object} ratingData
+ * @param {string} ratingData.pedidoId - Order ID
+ * @param {string} ratingData.deUsuario - ID of the user giving the rating
+ * @param {string} ratingData.paraUsuario - ID of the user receiving the rating
+ * @param {number} ratingData.estrellas - 1-5 stars
+ * @param {string} ratingData.comentario - Optional comment
+ * @param {boolean} ratingData.automatica - true if auto-generated (skip)
+ * @param {string} ratingData.tipoCalificacion - 'rapidez' | 'servicio' | 'honestidad' | 'general'
+ */
+export const submitOrderRating = async (ratingData) => {
+  try {
+    const existing = await hasUserRatedOrder(ratingData.pedidoId, ratingData.deUsuario);
+    if (existing) {
+      console.warn('[Rating] Ya existe una calificación para este pedido de este usuario');
+      return { success: false, reason: 'already_rated' };
+    }
+
+    const payload = {
+      action: 'INSERT',
+      sheet: 'Calificaciones',
+      data: {
+        ID_Pedido:     String(ratingData.pedidoId),
+        De_Usuario:    String(ratingData.deUsuario),
+        Para_Usuario:  String(ratingData.paraUsuario),
+        Estrellas:     Math.min(5, Math.max(1, Math.round(ratingData.estrellas))),
+        Comentario:    ratingData.comentario || '',
+        Automatica:    ratingData.automatica ? 'TRUE' : 'FALSE',
+        Tipo_Calificacion: ratingData.tipoCalificacion || 'general',
+        Fecha:         new Date().toLocaleDateString('es-DO'),
+        Hora:          new Date().toLocaleTimeString('es-DO'),
+      }
+    };
+
+    const result = await gasPost(payload);
+    console.log('[Rating] Calificación enviada:', ratingData.pedidoId, ratingData.estrellas, '★');
+    return { success: true, result };
+  } catch (error) {
+    console.error('[Rating] Error enviando calificación:', error);
+    return { success: false, reason: 'error' };
+  }
+};
+
+/**
+ * Check if a user already rated a specific order (prevent duplicates)
+ */
+export const hasUserRatedOrder = async (pedidoId, usuarioId) => {
+  try {
+    const wholeData = await fetchWholeData(false, false);
+    const ratings = wholeData ? resolveSheetData(wholeData, 'Calificaciones') : [];
+
+    if (!ratings || ratings.length === 0) return false;
+
+    return ratings.some(r => {
+      const pid = String(getRobustProp(r, 'ID_Pedido') || '').trim();
+      const uid = String(getRobustProp(r, 'De_Usuario') || '').trim();
+      return pid === String(pedidoId).trim() && uid === String(usuarioId).trim();
+    });
+  } catch (error) {
+    console.error('[Rating] Error verificando calificación existente:', error);
+    return false;
+  }
+};
+
+/**
+ * Fetch ratings received by a user (for profile display)
+ * @param {string} userId - The user being rated
+ * @returns {Object} { promedio, cantidad, calificaciones: [], distribucion: {1:0,2:0,3:0,4:0,5:0} }
+ */
+export const fetchUserRatings = async (userId) => {
+  try {
+    const wholeData = await fetchWholeData(false, false);
+    const ratings = wholeData ? resolveSheetData(wholeData, 'Calificaciones') : [];
+
+    if (!ratings || ratings.length === 0) {
+      return { promedio: 0, cantidad: 0, calificaciones: [], distribucion: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } };
+    }
+
+    const userRatings = ratings.filter(r => {
+      const para = String(getRobustProp(r, 'Para_Usuario') || '').trim().toLowerCase();
+      return para === String(userId).trim().toLowerCase();
+    });
+
+    if (userRatings.length === 0) {
+      return { promedio: 0, cantidad: 0, calificaciones: [], distribucion: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } };
+    }
+
+    let suma = 0;
+    const distribucion = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+
+    const mapped = userRatings.map(r => {
+      const estrellas = parseInt(String(getRobustProp(r, 'Estrellas') || 5));
+      suma += estrellas;
+      distribucion[Math.min(5, Math.max(1, estrellas))]++;
+      return {
+        estrellas,
+        comentario: getRobustProp(r, 'Comentario') || '',
+        automatica: String(getRobustProp(r, 'Automatica') || '').toUpperCase() === 'TRUE',
+        deUsuario: getRobustProp(r, 'De_Usuario') || '',
+        fecha: getRobustProp(r, 'Fecha') || '',
+      };
+    }).sort((a, b) => b.fecha.localeCompare(a.fecha));
+
+    return {
+      promedio: Math.round((suma / userRatings.length) * 10) / 10,
+      cantidad: userRatings.length,
+      calificaciones: mapped.slice(0, 20),
+      distribucion,
+    };
+  } catch (error) {
+    console.error('[Rating] Error fetching user ratings:', error);
+    return { promedio: 0, cantidad: 0, calificaciones: [], distribucion: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } };
+  }
+};
+
+/**
+ * Recalculate a rider's rating fields in the Deliverys sheet
+ * Averages all 'rapidez', 'servicio', 'honestidad' ratings received
+ */
+export const recalculateUserRatings = async (userId) => {
+  try {
+    const wholeData = await fetchWholeData(true, false);
+    const ratings = wholeData ? resolveSheetData(wholeData, 'Calificaciones') : [];
+    const deliveries = wholeData ? resolveSheetData(wholeData, 'Deliverys') : [];
+
+    if (!ratings || ratings.length === 0) return;
+
+    const userRatings = ratings.filter(r => {
+      const para = String(getRobustProp(r, 'Para_Usuario') || '').trim().toLowerCase();
+      return para === String(userId).trim().toLowerCase();
+    });
+
+    if (userRatings.length === 0) return;
+
+    let rapidezSum = 0, rapidezCount = 0;
+    let servicioSum = 0, servicioCount = 0;
+    let honestidadSum = 0, honestidadCount = 0;
+
+    userRatings.forEach(r => {
+      const estrellas = parseInt(String(getRobustProp(r, 'Estrellas') || 5));
+      const tipo = String(getRobustProp(r, 'Tipo_Calificacion') || 'general').toLowerCase();
+
+      switch (tipo) {
+        case 'rapidez':
+          rapidezSum += estrellas;
+          rapidezCount++;
+          break;
+        case 'servicio':
+          servicioSum += estrellas;
+          servicioCount++;
+          break;
+        case 'honestidad':
+          honestidadSum += estrellas;
+          honestidadCount++;
+          break;
+        default:
+          // 'general' counts for all three
+          rapidezSum += estrellas;
+          rapidezCount++;
+          servicioSum += estrellas;
+          servicioCount++;
+          honestidadSum += estrellas;
+          honestidadCount++;
+      }
+    });
+
+    const newRapidez = rapidezCount > 0 ? Math.round((rapidezSum / rapidezCount) * 10) / 10 : 5.0;
+    const newServicio = servicioCount > 0 ? Math.round((servicioSum / servicioCount) * 10) / 10 : 5.0;
+    const newHonestidad = honestidadCount > 0 ? Math.round((honestidadSum / honestidadCount) * 10) / 10 : 5.0;
+
+    // Find the rider in the Deliverys sheet
+    const rider = deliveries.find(d => {
+      const did = String(getRobustProp(d, 'ID_UserType') || getRobustProp(d, 'ID_Delivery') || getRobustProp(d, 'id_delivery') || '').trim().toLowerCase();
+      return did === String(userId).trim().toLowerCase();
+    });
+
+    if (rider) {
+      const fullData = {};
+      Object.keys(rider).forEach(k => { fullData[k] = rider[k]; });
+      fullData.id_delivery = userId;
+      fullData.rapidez = newRapidez;
+      fullData.servicio = newServicio;
+      fullData.honestidad = newHonestidad;
+      await updateDelivery(fullData);
+      console.log(`[Rating] Ratings actualizados para ${userId}: rapidez=${newRapidez}, servicio=${newServicio}, honestidad=${newHonestidad}`);
+    }
+  } catch (error) {
+    console.error('[Rating] Error recalculando ratings:', error);
+  }
+};
+
+/**
+ * Calculate a trust score combining multiple factors
+ * @param {Object} params
+ * @param {number} params.promedio - Average rating
+ * @param {number} params.cantidad - Number of ratings
+ * @param {number} params.pedidosCompletados - Total completed orders
+ * @param {number} params.tasaAceptacion - 0-100 percentage
+ * @returns {Object} { score, nivel, color }
+ */
+export const calculateTrustScore = ({ promedio = 0, cantidad = 0, pedidosCompletados = 0, tasaAceptacion = 100 }) => {
+  // Weight: 50% avg rating, 25% volume, 25% acceptance rate
+  const ratingScore = (promedio / 5) * 50;
+  const volumeScore = Math.min(pedidosCompletados / 500, 1) * 25;
+  const acceptanceScore = (tasaAceptacion / 100) * 25;
+  const totalScore = Math.round(ratingScore + volumeScore + acceptanceScore);
+
+  let nivel, color;
+  if (totalScore >= 90) { nivel = 'Leyenda'; color = '#FFD700'; }
+  else if (totalScore >= 75) { nivel = 'Elite'; color = '#E63946'; }
+  else if (totalScore >= 60) { nivel = 'Experto'; color = '#457B9D'; }
+  else if (totalScore >= 40) { nivel = 'Confiable'; color = '#2A9D8F'; }
+  else { nivel = 'Novato'; color = '#999'; }
+
+  return { score: totalScore, nivel, color };
+};
+
 export default {
   fetchProducts,
   mapProductData,
@@ -3260,5 +3572,10 @@ export default {
   processInventoryDeduction,
   backupProductsToFirestore,
   backupSingleProductToFirestore,
-  restoreProductsFromFirestore
+  restoreProductsFromFirestore,
+  submitOrderRating,
+  hasUserRatedOrder,
+  fetchUserRatings,
+  recalculateUserRatings,
+  calculateTrustScore
 };

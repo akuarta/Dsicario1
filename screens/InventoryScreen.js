@@ -306,7 +306,7 @@ const InventoryScreen = ({ navigation }) => {
                 />
               </View>
               <View style={styles.nameContainer}>
-                <Text style={[styles.itemName, { color: colors.text }]}>{item.nombre}</Text>
+                <Text style={[styles.itemName, { color: colors.text.primary }]}>{item.nombre}</Text>
                 <Text style={[styles.itemSub, { color: colors.textSecondary }]}>
                   {item.tipoEmpaque}: {item.unidadesPorEmpaque} {item.tipoMedida || 'und'}
                 </Text>
@@ -321,19 +321,19 @@ const InventoryScreen = ({ navigation }) => {
             <View style={styles.cardContent}>
               <View style={styles.statBox}>
                 <Text style={[styles.statLabel, { color: colors.textSecondary }]}>ALMACÉN</Text>
-                <Text style={[styles.statValue, { color: isLowStock ? '#FF4444' : colors.text }]}>
+                <Text style={[styles.statValue, { color: isLowStock ? '#FF4444' : colors.text.primary }]}>
                   {item.stockActual}
                 </Text>
               </View>
               <View style={styles.statBox}>
                 <Text style={[styles.statLabel, { color: colors.textSecondary }]}>PORCIONES</Text>
-                <Text style={[styles.statValue, { color: colors.text }]}>
+                <Text style={[styles.statValue, { color: colors.text.primary }]}>
                   {item.cantidadPorciones}
                 </Text>
               </View>
               <View style={styles.statBox}>
                 <Text style={[styles.statLabel, { color: colors.textSecondary }]}>COSTE UNIT.</Text>
-                <Text style={[styles.statValue, { color: colors.text }]}>
+                <Text style={[styles.statValue, { color: colors.text.primary }]}>
                   {formatPrice(item.costoUnitario)}
                 </Text>
               </View>
@@ -392,9 +392,9 @@ const InventoryScreen = ({ navigation }) => {
             onPress={() => navigation.goBack()} 
             style={styles.backButton}
           >
-            <FontAwesome5 name="arrow-left" size={20} color={colors.text} />
+            <FontAwesome5 name="arrow-left" size={20} color={colors.text.primary} />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Inventario</Text>
+          <Text style={[styles.headerTitle, { color: colors.text.primary }]}>Inventario</Text>
           <TouchableOpacity 
             onPress={() => setIsRecipesDrawerVisible(true)} 
             style={styles.backButton}
@@ -407,7 +407,7 @@ const InventoryScreen = ({ navigation }) => {
           <GlassPanel style={styles.searchBar}>
             <FontAwesome5 name="search" size={16} color={colors.primary} style={{ marginRight: 10 }} />
             <TextInput
-              style={[styles.searchInput, { color: colors.text }]}
+              style={[styles.searchInput, { color: colors.text.primary }]}
               placeholder="Buscar materia prima..."
               placeholderTextColor={colors.textSecondary}
               value={searchTerm}
@@ -460,7 +460,7 @@ const InventoryScreen = ({ navigation }) => {
                 style={styles.modalGradient}
               >
               <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>Detalle de Insumo</Text>
+                <Text style={[styles.modalTitle, { color: colors.text.primary }]}>Detalle de Insumo</Text>
                 <TouchableOpacity onPress={() => setIsModalVisible(false)} style={styles.closeButton}>
                   <FontAwesome5 name="times" size={20} color={colors.textSecondary} />
                 </TouchableOpacity>
@@ -479,22 +479,22 @@ const InventoryScreen = ({ navigation }) => {
                         color={colors.primary} 
                       />
                     </View>
-                    <Text style={[styles.modalItemName, { color: colors.text }]}>{selectedItem.nombre}</Text>
+                    <Text style={[styles.modalItemName, { color: colors.text.primary }]}>{selectedItem.nombre}</Text>
                     <Text style={[styles.modalItemId, { color: colors.textSecondary }]}>ID: {selectedItem.id}</Text>
                   </View>
 
                   <View style={styles.modalStatsGrid}>
                     <View style={[styles.modalStatItem, { backgroundColor: 'rgba(255,255,255,0.05)' }]}>
                       <Text style={[styles.modalStatLabel, { color: colors.textSecondary }]}>STOCK ACTUAL</Text>
-                      <Text style={[styles.modalStatValue, { color: colors.text }]}>{selectedItem.stockActual} {selectedItem.tipoEmpaque}</Text>
+                      <Text style={[styles.modalStatValue, { color: colors.text.primary }]}>{selectedItem.stockActual} {selectedItem.tipoEmpaque}</Text>
                     </View>
                     <View style={[styles.modalStatItem, { backgroundColor: 'rgba(255,255,255,0.05)' }]}>
                       <Text style={[styles.modalStatLabel, { color: colors.textSecondary }]}>PORCIONES</Text>
-                      <Text style={[styles.modalStatValue, { color: colors.text }]}>{selectedItem.cantidadPorciones} {selectedItem.tipoMedida}</Text>
+                      <Text style={[styles.modalStatValue, { color: colors.text.primary }]}>{selectedItem.cantidadPorciones} {selectedItem.tipoMedida}</Text>
                     </View>
                     <View style={[styles.modalStatItem, { backgroundColor: 'rgba(255,255,255,0.05)' }]}>
                       <Text style={[styles.modalStatLabel, { color: colors.textSecondary }]}>COSTE UNIT.</Text>
-                      <Text style={[styles.modalStatValue, { color: colors.text }]}>{formatPrice(selectedItem.costoUnitario)}</Text>
+                      <Text style={[styles.modalStatValue, { color: colors.text.primary }]}>{formatPrice(selectedItem.costoUnitario)}</Text>
                     </View>
                     <View style={styles.modalRow}>
                       <View style={[styles.modalStatItem, { backgroundColor: 'rgba(255,255,255,0.05)' }]}>
@@ -527,11 +527,11 @@ const InventoryScreen = ({ navigation }) => {
                   <View style={styles.detailsList}>
                     <View style={styles.detailRow}>
                       <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>Empaque:</Text>
-                      <Text style={[styles.detailValue, { color: colors.text }]}>{selectedItem.tipoEmpaque} ({selectedItem.unidadesPorEmpaque} unds)</Text>
+                      <Text style={[styles.detailValue, { color: colors.text.primary }]}>{selectedItem.tipoEmpaque} ({selectedItem.unidadesPorEmpaque} unds)</Text>
                     </View>
                     <View style={styles.detailRow}>
                       <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>Porción por unidad:</Text>
-                      <Text style={[styles.detailValue, { color: colors.text }]}>{selectedItem.porcionesPorUnidad} {selectedItem.tipoMedida}</Text>
+                      <Text style={[styles.detailValue, { color: colors.text.primary }]}>{selectedItem.porcionesPorUnidad} {selectedItem.tipoMedida}</Text>
                     </View>
                     <View style={styles.detailRow}>
                       <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>Entradas totales:</Text>
@@ -570,7 +570,7 @@ const InventoryScreen = ({ navigation }) => {
             >
               <View style={styles.modalHeader}>
                 <View>
-                  <Text style={[styles.modalTitle, { color: colors.text, fontSize: 18 }]}>Libro de Recetas</Text>
+                  <Text style={[styles.modalTitle, { color: colors.text.primary, fontSize: 18 }]}>Libro de Recetas</Text>
                   <Text style={{ color: colors.textSecondary, fontSize: 10 }}>Ingredientes por Producto</Text>
                 </View>
                 <TouchableOpacity onPress={() => setIsRecipesDrawerVisible(false)} style={styles.closeButton}>
@@ -585,7 +585,7 @@ const InventoryScreen = ({ navigation }) => {
                       <View style={{ backgroundColor: colors.primary + '20', padding: 8, borderRadius: 10 }}>
                         <FontAwesome5 name="hamburger" size={14} color={colors.primary} />
                       </View>
-                      <Text style={[styles.recipeName, { color: colors.text }]}>{recipe.name}</Text>
+                      <Text style={[styles.recipeName, { color: colors.text.primary }]}>{recipe.name}</Text>
                     </View>
                     <View style={styles.ingredientsList}>
                       {recipe.ingredients.map((ing, iidx) => {
@@ -610,7 +610,7 @@ const InventoryScreen = ({ navigation }) => {
                         return (
                           <View key={iidx} style={styles.ingredientRow}>
                             <Text style={[styles.ingName, { color: colors.textSecondary }]}>• {ingName}</Text>
-                            <Text style={[styles.ingQty, { color: colors.text }]}>{ingQty} {ingUnit}</Text>
+                            <Text style={[styles.ingQty, { color: colors.text.primary }]}>{ingQty} {ingUnit}</Text>
                           </View>
                         );
                       })}
@@ -652,7 +652,7 @@ const InventoryScreen = ({ navigation }) => {
                 style={styles.modalGradient}
               >
               <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>Nueva Materia Prima</Text>
+                <Text style={[styles.modalTitle, { color: colors.text.primary }]}>Nueva Materia Prima</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <TouchableOpacity 
                     onPress={handleAddMaterial} 
@@ -682,7 +682,7 @@ const InventoryScreen = ({ navigation }) => {
                   <TextInput
                     style={[
                       styles.modalInput, 
-                      { color: colors.text, borderColor: nameExists ? '#FF6B6B' : colors.border },
+                      { color: colors.text.primary, borderColor: nameExists ? '#FF6B6B' : colors.border },
                       nameExists && { backgroundColor: 'rgba(255, 107, 107, 0.05)' }
                     ]}
                     placeholder="Ej. Harina de Trigo"
@@ -730,7 +730,7 @@ const InventoryScreen = ({ navigation }) => {
                       })}
                     >
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: newItem.tipoEmpaque ? colors.text : colors.textSecondary }}>
+                        <Text style={{ color: newItem.tipoEmpaque ? colors.text.primary : colors.textSecondary }}>
                           {newItem.tipoEmpaque || 'Seleccionar...'}
                         </Text>
                         <MaterialCommunityIcons name="chevron-down" size={18} color={colors.textSecondary} />
@@ -740,7 +740,7 @@ const InventoryScreen = ({ navigation }) => {
                   <View style={[styles.formGroup, { flex: 1 }]}>
                     <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>UNDS X EMP.</Text>
                     <TextInput
-                      style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]}
+                      style={[styles.modalInput, { color: colors.text.primary, borderColor: colors.border }]}
                       keyboardType="numeric"
                       value={newItem.unidadesPorEmpaque}
                       onChangeText={(val) => {
@@ -768,7 +768,7 @@ const InventoryScreen = ({ navigation }) => {
                   <View style={[styles.formGroup, { flex: 1 }]}>
                     <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>CANT. EMPAQUE</Text>
                     <TextInput
-                      style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]}
+                      style={[styles.modalInput, { color: colors.text.primary, borderColor: colors.border }]}
                       keyboardType="numeric"
                       value={newItem.cantidadEmpaque}
                       onChangeText={(val) => {
@@ -788,7 +788,7 @@ const InventoryScreen = ({ navigation }) => {
                   <View style={[styles.formGroup, { flex: 1 }]}>
                     <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>TOTAL UNIDADES</Text>
                     <TextInput
-                      style={[styles.modalInput, { color: colors.text, borderColor: colors.border, backgroundColor: 'rgba(255,255,255,0.05)' }]}
+                      style={[styles.modalInput, { color: colors.text.primary, borderColor: colors.border, backgroundColor: 'rgba(255,255,255,0.05)' }]}
                       keyboardType="numeric"
                       editable={false}
                       value={newItem.cantDeUnd}
@@ -808,7 +808,7 @@ const InventoryScreen = ({ navigation }) => {
                       })}
                     >
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: newItem.tipoMedida ? colors.text : colors.textSecondary }}>
+                        <Text style={{ color: newItem.tipoMedida ? colors.text.primary : colors.textSecondary }}>
                           {newItem.tipoMedida || 'Seleccionar...'}
                         </Text>
                         <MaterialCommunityIcons name="chevron-down" size={18} color={colors.textSecondary} />
@@ -826,7 +826,7 @@ const InventoryScreen = ({ navigation }) => {
                       })}
                     >
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: newItem.tipoPorcion ? colors.text : colors.textSecondary }}>
+                        <Text style={{ color: newItem.tipoPorcion ? colors.text.primary : colors.textSecondary }}>
                           {newItem.tipoPorcion || 'Seleccionar...'}
                         </Text>
                         <MaterialCommunityIcons name="chevron-down" size={18} color={colors.textSecondary} />
@@ -839,7 +839,7 @@ const InventoryScreen = ({ navigation }) => {
                   <View style={[styles.formGroup, { flex: 1 }]}>
                     <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>PORCION X UND</Text>
                     <TextInput
-                      style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]}
+                      style={[styles.modalInput, { color: colors.text.primary, borderColor: colors.border }]}
                       keyboardType="numeric"
                       value={newItem.porcionesPorUnidad}
                       onChangeText={(val) => {
@@ -852,7 +852,7 @@ const InventoryScreen = ({ navigation }) => {
                   <View style={[styles.formGroup, { flex: 1 }]}>
                     <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>TOTAL PORCIONES</Text>
                     <TextInput
-                      style={[styles.modalInput, { color: colors.text, borderColor: colors.border, backgroundColor: 'rgba(255,255,255,0.05)' }]}
+                      style={[styles.modalInput, { color: colors.text.primary, borderColor: colors.border, backgroundColor: 'rgba(255,255,255,0.05)' }]}
                       keyboardType="numeric"
                       editable={false}
                       value={newItem.cantPorcion}
@@ -864,7 +864,7 @@ const InventoryScreen = ({ navigation }) => {
                   <View style={[styles.formGroup, { flex: 1 }]}>
                     <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>COSTO EMPAQUE (RD$)</Text>
                     <TextInput
-                      style={[styles.modalInput, { color: colors.text, borderColor: colors.border, backgroundColor: 'rgba(78, 205, 196, 0.05)' }]}
+                      style={[styles.modalInput, { color: colors.text.primary, borderColor: colors.border, backgroundColor: 'rgba(78, 205, 196, 0.05)' }]}
                       keyboardType="numeric"
                       placeholder="0.00"
                       value={newItem.costoPorEmpaque}
@@ -884,7 +884,7 @@ const InventoryScreen = ({ navigation }) => {
                   <View style={[styles.formGroup, { flex: 1 }]}>
                     <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>COSTO UNITARIO (RD$)</Text>
                     <TextInput
-                      style={[styles.modalInput, { color: colors.text, borderColor: colors.border, backgroundColor: 'rgba(255,255,255,0.05)' }]}
+                      style={[styles.modalInput, { color: colors.text.primary, borderColor: colors.border, backgroundColor: 'rgba(255,255,255,0.05)' }]}
                       keyboardType="numeric"
                       editable={false}
                       value={newItem.costoUnitario}
@@ -934,7 +934,7 @@ const InventoryScreen = ({ navigation }) => {
                   <View style={[styles.formGroup, { flex: 1 }]}>
                     <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>ENTRADAS</Text>
                     <TextInput
-                      style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]}
+                      style={[styles.modalInput, { color: colors.text.primary, borderColor: colors.border }]}
                       keyboardType="numeric"
                       value={newItem.cantEntrada}
                       onChangeText={(val) => setNewItem({...newItem, cantEntrada: val})}
@@ -943,7 +943,7 @@ const InventoryScreen = ({ navigation }) => {
                   <View style={[styles.formGroup, { flex: 1 }]}>
                     <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>SALIDAS</Text>
                     <TextInput
-                      style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]}
+                      style={[styles.modalInput, { color: colors.text.primary, borderColor: colors.border }]}
                       keyboardType="numeric"
                       value={newItem.cantSalida}
                       onChangeText={(val) => setNewItem({...newItem, cantSalida: val})}
@@ -976,20 +976,20 @@ const InventoryScreen = ({ navigation }) => {
                 style={styles.modalGradient}
               >
               <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>Registrar Compra</Text>
+                <Text style={[styles.modalTitle, { color: colors.text.primary }]}>Registrar Compra</Text>
                 <TouchableOpacity onPress={() => setIsRestockModalVisible(false)} style={styles.closeButton}>
                   <FontAwesome5 name="times" size={20} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
 
               <Text style={{ color: colors.textSecondary, marginBottom: 20, textAlign: 'center' }}>
-                Añadiendo stock para: <Text style={{ color: colors.text, fontWeight: 'bold' }}>{selectedItem?.nombre}</Text>
+                Añadiendo stock para: <Text style={{ color: colors.text.primary, fontWeight: 'bold' }}>{selectedItem?.nombre}</Text>
               </Text>
 
               <View style={styles.formGroup}>
                 <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>CANTIDAD A AÑADIR ({selectedItem?.tipoEmpaque})</Text>
                 <TextInput
-                  style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]}
+                  style={[styles.modalInput, { color: colors.text.primary, borderColor: colors.border }]}
                   keyboardType="numeric"
                   value={restockData.cantidad}
                   onChangeText={(val) => setRestockData({...restockData, cantidad: val})}
@@ -1000,7 +1000,7 @@ const InventoryScreen = ({ navigation }) => {
               <View style={styles.formGroup}>
                 <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>NUEVO PRECIO DE COMPRA (RD$)</Text>
                 <TextInput
-                  style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]}
+                  style={[styles.modalInput, { color: colors.text.primary, borderColor: colors.border }]}
                   keyboardType="numeric"
                   placeholder="0.00"
                   value={restockData.precio}

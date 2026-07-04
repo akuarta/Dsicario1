@@ -13,7 +13,7 @@ const AccessDeniedScreen = ({ navigation, message }) => {
   const { role } = useUser();
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle="light-content" />
       <LinearGradient colors={[colors.primary, colors.primary + 'DD']} style={styles.header}>
         <View style={styles.headerRow}>
