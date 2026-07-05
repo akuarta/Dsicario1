@@ -2,6 +2,7 @@ import { db } from '../config/firebaseConfig';
 import { doc, getDoc } from 'firebase/firestore';
 import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
+import * as IntentLauncher from 'expo-intent-launcher';
 import NotificationService from './notificationService';
 import { Alert, Platform } from 'react-native';
 
@@ -64,9 +65,21 @@ export const UpdateService = {
       const buttons = [
         {
           text: 'Actualizar Ahora',
-          onPress: () => {
+          onPress: async () => {
             if (data.download_url) {
-              Linking.openURL(data.download_url);
+              try {
+                if (Platform.OS === 'android') {
+                  await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+                    data: data.download_url,
+                    mimeType: 'application/vnd.android.package-archive',
+                  });
+                } else {
+                  Linking.openURL(data.download_url);
+                }
+              } catch (e) {
+                console.warn('[UpdateService] Intent falló, abriendo navegador:', e);
+                Linking.openURL(data.download_url);
+              }
             } else {
               Alert.alert('Error', 'No se encontró el enlace de descarga.');
             }
