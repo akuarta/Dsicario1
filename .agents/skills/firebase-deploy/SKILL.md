@@ -2,7 +2,7 @@
 
 Build, upload, and distribute APK updates for DSicario.
 
-## Flujo completo de actualización
+## Flujo completo de actualización (automatizado)
 
 ### 1. Commit
 ```bash
@@ -22,34 +22,31 @@ $date = Get-Date -Format "yyyy-MM-dd_HH-mm"
 Copy-Item "C:\Hairo\Dsicario1\android\app\build\outputs\apk\release\app-release.apk" "C:\Hairo\Actualizacion\DSicario_$date.apk"
 ```
 
-### 4. Subir a Firebase App Distribution
+### 4. Crear GitHub Release
+```bash
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+git tag -a v$version -m "v$version - notas"
+git push origin v$version
+gh release create v$version "C:\Hairo\Actualizacion\DSicario_$date.apk" --title "v$version" --notes "notas"
+gh release edit v$version --draft=false
+```
+
+### 5. Subir a Firebase App Distribution
 ```bash
 npx firebase appdistribution:distribute "C:\Hairo\Actualizacion\DSicario_$date.apk" --app "1:758740272138:android:c375b77acc20d7081d8bf3" --testers "hairoman28@gmail.com"
 ```
 
-### 5. Subir APK a Firebase Storage (URL permanente)
+### 6. Actualizar Firestore (AUTOMÁTICO)
 ```bash
-# Usar Firebase Console o gsutil:
-gsutil cp "C:\Hairo\Actualizacion\DSicario_$date.apk" gs://dsicario-cd723.firebasestorage.app/
+node updateFirestore.js "$version" "https://github.com/akuarta/Dsicario1/releases/download/v$version/DSicario_$date.apk" "release notes"
 ```
+Esto actualiza `app_config/version_control` con:
+- `latest_version`
+- `download_url` (GitHub release URL)
+- `release_notes`
+- `force_update`
 
-### 6. Actualizar Firestore version_control
-**Firebase Console** → Firestore Database → `app_config/version_control`:
-
-| Campo | Valor |
-|-------|-------|
-| `latest_version` | Nueva versión (ej: `1.1.1`) |
-| `download_url` | URL del APK en Firebase Storage |
-| `release_notes` | Descripción de los cambios |
-| `force_update` | `false` (o `true` si es obligatoria) |
-
-**Importante**: `latest_version` debe ser MAYOR que `Constants.expoConfig.version` en `app.json` para que la app detecte la actualización.
-
-### 7. Versión en app.json
-Después de cada release, actualizar la versión en `app.json`:
-```json
-"version": "1.1.1"
-```
+**Importante**: La versión en `app.json` DEBE ser la misma que se pasa al script.
 
 ## Configuración del proyecto
 - **Firebase Project**: `dsicario-cd723`
@@ -57,9 +54,14 @@ Después de cada release, actualizar la versión en `app.json`:
 - **Storage Bucket**: `dsicario-cd723.firebasestorage.app`
 - **Tester**: `hairoman28@gmail.com`
 - **Update folder**: `C:\Hairo\Actualizacion\`
+- **Service Account**: `config/firebaseServiceAccount.json` (en .gitignore)
 
 ## UpdateService.js
 La app detecta actualizaciones consultando Firestore `app_config/version_control`:
 - Compara `latest_version` con `Constants.expoConfig.version`
 - Si hay nueva versión → muestra alerta con opción de descargar
-- `download_url` → abre en navegador para descargar APK
+- `download_url` → usa Android download manager (IntentLauncher)
+
+## Archivos importantes
+- `updateFirestore.js` — script para actualizar Firestore automáticamente
+- `config/firebaseServiceAccount.json` — credenciales (NO subir a git)
