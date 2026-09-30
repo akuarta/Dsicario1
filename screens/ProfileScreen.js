@@ -4,11 +4,12 @@ import {
   Text, 
   TouchableOpacity, 
   StyleSheet, 
-  SafeAreaView,
   ScrollView,
   Alert,
-  Switch
+  Switch,
+  Image
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useUser } from '../contexts/UserContext';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useCart } from '../contexts/AppContext';
@@ -24,7 +25,7 @@ const ProfileScreen = ({ navigation }) => {
   const globalStyles = useGlobalStyles(colors);
   
   const { clearCart, getTotalItems } = useCart();
-  const { username, email, role, isClientMode, setIsClientMode } = useUser();
+  const { username, email, role, userTypeId, isClientMode, setIsClientMode } = useUser();
   const totalItems = getTotalItems();
 
   const isOwner = email?.toLowerCase()?.trim() === 'hairoman28@gmail.com';
@@ -84,14 +85,14 @@ const ProfileScreen = ({ navigation }) => {
       title: 'Historial de Compras',
       subtitle: 'Ver compras anteriores',
       icon: 'history',
-      onPress: () => navigation.navigate('PurchaseHistory'),
+      onPress: () => navigation.navigate('Historial'),
     },
     {
       id: 3,
       title: 'Favoritos',
       subtitle: 'Productos guardados',
       icon: 'heart',
-      onPress: () => navigation.navigate('Favorites'),
+      onPress: () => navigation.navigate('Favoritos'),
     },
     {
       id: 4,
@@ -329,40 +330,51 @@ const ProfileScreen = ({ navigation }) => {
           </TouchableOpacity>
           <View style={styles.profileInfo}>
             <View style={styles.avatarContainer}>
-              <FontAwesome5 name="user" size={32} color={colors.text.white} />
+              <Image 
+                source={require('../assets/logo.png')} 
+                style={{ width: 56, height: 56, borderRadius: 28 }} 
+                resizeMode="contain" 
+              />
             </View>
             <View style={styles.userInfo}>
               <Text style={styles.userName}>{username || 'Usuario'}</Text>
-              <Text style={styles.userEmail}>{email || 'usuario@dsicario.com'}</Text>
+              <Text style={styles.userEmail}>{userTypeId ? `Código: ${userTypeId}` : email}</Text>
             </View>
           </View>
         </View>
 
         {/* Admin/Staff Mode Toggle */}
         {isStaff && (
-          <View style={{
-            backgroundColor: colors.surface || colors.background,
-            margin: spacing.md,
-            padding: spacing.md,
-            borderRadius: borders.radius.md,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            borderWidth: 1,
-            borderColor: colors.border
-          }}>
-            <View>
-              <Text style={{ fontSize: 16, fontWeight: 'bold', color: colors.text.primary }}>Modo Cliente</Text>
-              <Text style={{ fontSize: 12, color: colors.text.light }}>
-                {isClientMode ? 'Viendo como cliente' : 'Viendo como personal'}
+          <View style={{ marginHorizontal: spacing.md, marginTop: spacing.md, marginBottom: spacing.xs }}>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => setIsClientMode(!isClientMode)}
+              style={{
+                backgroundColor: isClientMode ? '#1E293B' : colors.primary,
+                borderRadius: 16,
+                paddingVertical: 14,
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'row',
+                gap: 10,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.15,
+                shadowRadius: 8,
+                elevation: 4,
+                borderWidth: 1,
+                borderColor: isClientMode ? '#334155' : 'transparent',
+              }}
+            >
+              <FontAwesome5 
+                name={isClientMode ? "user-shield" : "user"} 
+                size={16} 
+                color="#FFF" 
+              />
+              <Text style={{ color: '#FFF', fontSize: 15, fontWeight: '800', letterSpacing: 0.5 }}>
+                {isClientMode ? 'CAMBIAR A MODO PERSONAL' : 'CAMBIAR A MODO CLIENTE'}
               </Text>
-            </View>
-            <Switch
-              value={isClientMode}
-              onValueChange={setIsClientMode}
-              trackColor={{ false: '#767577', true: colors.primary + '80' }}
-              thumbColor={isClientMode ? colors.primary : '#f4f3f4'}
-            />
+            </TouchableOpacity>
           </View>
         )}
         <View style={styles.menuContainer}>

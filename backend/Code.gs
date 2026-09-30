@@ -3,10 +3,24 @@ const SETTINGS = { DEFAULT_BUSINESS_NAME: "D'SICARIO" };
 function doGet(e) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const params = e?.parameter || {};
-  if (params.action === 'getReviews') return handleGetReviews(ss, params.id);
+  const action = (params.action || "").toUpperCase();
+  
+  if (action === 'GETREVIEWS') return handleGetReviews(ss, params.id);
+  if (action === 'GET_ROUTE') return handleGetRoute(params.origin, params.destination, params.key);
+  
   const result = { success: true };
   let targetSheetName = params.sheet;
-  let sheets = targetSheetName ? [ss.getSheetByName(targetSheetName)] : ss.getSheets();
+  let sheets;
+  if (targetSheetName) {
+    let sheet = ss.getSheetByName(targetSheetName);
+    if (!sheet) {
+      const sheetsList = ss.getSheets();
+      sheet = sheetsList.find(s => s.getName().toLowerCase().trim() === targetSheetName.toLowerCase().trim());
+    }
+    sheets = sheet ? [sheet] : [null];
+  } else {
+    sheets = ss.getSheets();
+  }
 
   sheets.forEach(s => {
     if (!s) return;
@@ -43,11 +57,157 @@ function doPost(e) {
     const sheetName = body.sheet;
     const data = body.data || body.item || body;
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName || "Data");
     
-    if (body.action === "GENERATE_PDF") return generateRealPDF(body);
+    // Handle specific actions that don't require a target data sheet first
+    if (action === "GENERATE_PDF") return generateRealPDF(body);
+    if (action === "GET_ROUTE") {
+      const routeData = body.data || body;
+      return handleGetRoute(routeData.origin, routeData.destination, routeData.key);
+    }
+    if (action === "CREATE_SHEET") {
+      const newName = body.sheet || body.name;
+      if (!newName) return createJsonResponse({ success: false, message: "Nombre de hoja no proporcionado" });
+      if (ss.getSheetByName(newName)) return createJsonResponse({ success: false, message: "La hoja '" + newName + "' ya existe" });
+      ss.insertSheet(newName);
+      return createJsonResponse({ success: true, message: "Hoja '" + newName + "' creada correctamente" });
+    }
+    if (action === "DELETE_SHEET") {
+      const target = ss.getSheetByName(body.sheet);
+      if (!target) return createJsonResponse({ success: false, message: "Hoja no encontrada" });
+      if (ss.getSheets().length <= 1) return createJsonResponse({ success: false, message: "No puedes eliminar la única hoja" });
+      ss.deleteSheet(target);
+      return createJsonResponse({ success: true, message: "Hoja eliminada" });
+    }
 
-    // Validación mandataria para la hoja USUARIOS: requiere ID_User y NombreUser
+    if (action === "SET_PROPERTY") {
+      const propKey = body.key;
+      const propValue = body.value;
+      if (!propKey) return createJsonResponse({ success: false, message: "Property key required" });
+      PropertiesService.getScriptProperties().setProperty(propKey, propValue);
+      return createJsonResponse({ success: true, message: "Property '" + propKey + "' saved" });
+    }
+
+    if (action === "GET_PROPERTY") {
+      const propKey = body.key;
+      if (!propKey) return createJsonResponse({ success: false, message: "Property key required" });
+      const value = PropertiesService.getScriptProperties().getProperty(propKey);
+      return createJsonResponse({ success: true, key: propKey, value: value || null });
+    }
+
+    if (action === "SEND_FCM") {
+      const rawToken = body.token || '';
+      const title = body.title || 'DSicario';
+      const msgBody = body.body || '';
+      const dataPayload = body.data || {};
+      const fcmToken = rawToken.replace(/^\{FCM\}/, '');
+      try {
+        var result = sendFcmV1_(fcmToken, title, msgBody, dataPayload);
+        return createJsonResponse({ success: result.success, fcmResponse: result.response });
+      } catch (err) {
+        return createJsonResponse({ success: false, message: err.message });
+      }
+    }
+
+    if (action === "SEND_EXPO_PUSH") {
+      const rawToken = body.token || '';
+      const title = body.title || 'DSicario';
+      const msgBody = body.body || '';
+      const dataPayload = body.data || {};
+      try {
+        const payload = [{
+          to: rawToken,
+          sound: 'default',
+          title: title,
+          body: msgBody,
+          data: dataPayload,
+          priority: 'high',
+          channelId: 'rider-orders',
+          badge: 1,
+        }];
+        const options = {
+          method: 'post',
+          contentType: 'application/json',
+          payload: JSON.stringify(payload),
+          muteHttpExceptions: true
+        };
+        const response = UrlFetchApp.fetch('https://exp.host/--/api/v2/push/send', options);
+        const result = JSON.parse(response.getContentText());
+        
+        let success = false;
+        let errorMessage = "Unknown error";
+        
+        // El resultado normal para un array es: { data: [{ status: 'ok' }] } o { data: [{ status: 'error', message: '...' }] }
+        if (result && result.data && Array.isArray(result.data) && result.data[0]) {
+          success = result.data[0].status === 'ok';
+          if (!success) {
+            errorMessage = result.data[0].message || JSON.stringify(result.data[0].details);
+          }
+        } else if (result && result.errors) {
+          errorMessage = JSON.stringify(result.errors);
+        }
+        
+        return createJsonResponse({ 
+          success: success, 
+          expoResponse: result,
+          errorMessage: errorMessage
+        });
+      } catch (err) {
+        return createJsonResponse({ success: false, message: err.message });
+      }
+    }
+
+    if (action === "UPLOAD_IMAGE") {
+      try {
+        const base64Data = body.base64Data || body.data;
+        const fileName = body.fileName || ("Upload_" + Date.now() + ".jpg");
+        if (!base64Data) {
+          return createJsonResponse({ success: false, message: "No se proporcionaron datos de imagen" });
+        }
+        const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
+        const decoded = Utilities.base64Decode(cleanBase64);
+        const blob = Utilities.newBlob(decoded, "image/jpeg", fileName);
+        
+        let folder;
+        const folders = DriveApp.getFoldersByName("Dsicario_Vouchers");
+        if (folders.hasNext()) {
+          folder = folders.next();
+        } else {
+          folder = DriveApp.createFolder("Dsicario_Vouchers");
+        }
+        
+        const file = folder.createFile(blob);
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        
+        // Direct download URL format
+        const downloadUrl = "https://docs.google.com/uc?export=download&id=" + file.getId();
+        return createJsonResponse({ 
+          success: true, 
+          url: downloadUrl,
+          fileId: file.getId()
+        });
+      } catch (err) {
+        return createJsonResponse({ success: false, message: "Error al guardar en Google Drive: " + err.message });
+      }
+    }
+
+    // Determine the target sheet for CRUD operations
+    let sheet = null;
+    if (sheetName) {
+      sheet = ss.getSheetByName(sheetName);
+      if (!sheet) {
+        const sheetsList = ss.getSheets();
+        sheet = sheetsList.find(s => s.getName().toLowerCase().trim() === sheetName.toLowerCase().trim());
+      }
+    }
+    if (!sheet) {
+      if (!sheetName || sheetName === "Data") {
+        sheet = ss.getSheetByName("Data") || ss.insertSheet("Data");
+      } else {
+        sheet = ss.insertSheet(sheetName);
+      }
+    }
+    
+    // Mandatory validation for USUARIOS sheet
     if (sheetName && sheetName.toUpperCase() === "USUARIOS" && (action === "UPSERT" || action === "ADD")) {
       const hasId = data.ID_User || data.id_user || data.id;
       const hasName = data.NombreUser || data.nombreuser || data.username;
@@ -59,18 +219,50 @@ function doPost(e) {
         });
       }
     }
-
-    const headers = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0];
-    if (headers[0] === "" && Object.keys(data).length > 0) sheet.appendRow(Object.keys(data));
     
-    const lowerHeaders = headers.map(h => String(h).toLowerCase().trim());
+    let headers = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0];
+    if (headers[0] === "" && Object.keys(data).length > 0) {
+      headers = Object.keys(data);
+      sheet.appendRow(headers);
+    }
+    
+    let lowerHeaders = headers.map(h => String(h).toLowerCase().trim());
+
+    // --- ACCIONES DE ADMINISTRACIÓN DE ESTRUCTURA ---
+    
+    if (action === "DELETE_COLUMN") {
+      const colName = body.columnName || body.column;
+      const headers = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0];
+      const colIdx = headers.indexOf(colName);
+      if (colIdx === -1) return createJsonResponse({ success: false, message: "Columna '" + colName + "' no encontrada" });
+      sheet.deleteColumn(colIdx + 1);
+      return createJsonResponse({ success: true, message: "Columna eliminada" });
+    }
+
+    if (action === "LIST_SHEETS") {
+      const names = ss.getSheets().map(s => s.getName());
+      return createJsonResponse({ success: true, sheets: names });
+    }
+
+    // --- ACCIONES DE DATOS (UPSERT, ADD, UPDATE, DELETE) ---
 
     if (action === "UPSERT" || action === "ADD") {
+      for (let k in data) {
+        const kl = k.toLowerCase().trim();
+        if (!lowerHeaders.includes(kl)) {
+          const nextCol = sheet.getLastColumn() + 1;
+          sheet.getRange(1, nextCol).setValue(k);
+          headers.push(k);
+          lowerHeaders.push(kl);
+        }
+      }
+
       const idField = (body.idField || "ID_Pedido").toLowerCase().trim();
       const idToFind = data[body.idField] || data["ID_Pedido"] || data.id || data.orderId;
       const lastRow = getSafeLastRow(sheet);
       let foundIndex = -1;
       const idCol = lowerHeaders.indexOf(idField);
+      let oldEstado = null;
 
       if (idCol !== -1 && lastRow >= 2) {
         const vals = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
@@ -84,20 +276,21 @@ function doPost(e) {
       }
 
       if (foundIndex !== -1) {
+        // Leer estado anterior antes de sobreescribir
+        const estadoCol = lowerHeaders.indexOf('estado');
+        if (estadoCol !== -1) {
+          oldEstado = sheet.getRange(foundIndex, estadoCol + 1).getValue();
+        }
         headers.forEach((h, ci) => {
           const hl = h.toLowerCase().trim();
           for (let k in data) { if (k.toLowerCase().trim() === hl) { sheet.getRange(foundIndex, ci + 1).setValue(data[k]); break; } }
         });
-        
-        // AUTO-CREAR COLUMNAS FALTANTES
-        for (let k in data) {
-          const kl = k.toLowerCase().trim();
-          if (!lowerHeaders.includes(kl)) {
-            const nextCol = headers.length + 1;
-            sheet.getRange(1, nextCol).setValue(k);
-            sheet.getRange(foundIndex, nextCol).setValue(data[k]);
-            headers.push(k);
-            lowerHeaders.push(kl);
+        // Notificar cambio de estado (solo si realmente cambió)
+        if (oldEstado !== null && data.estado && String(oldEstado).toLowerCase() !== String(data.estado).toLowerCase()) {
+          try {
+            notifyOrderStatusChange_(ss, data, oldEstado, sheetName);
+          } catch (notifErr) {
+            console.error('Error notificando cambio estado:', notifErr.message);
           }
         }
         return createJsonResponse({ success: true, message: "OK" });
@@ -113,12 +306,12 @@ function doPost(e) {
     }
 
     if (action === "UPDATE") {
-      // Buscar el ID del pedido para actualizar la fila correspondiente
       const idField = (body.idField || "ID_Pedido").toLowerCase().trim();
       const idToFind = data[body.idField] || data["ID_Pedido"] || data.id;
       const lastRow = getSafeLastRow(sheet);
       const idCol = lowerHeaders.indexOf(idField);
       let foundIndex = -1;
+      let oldEstado = null;
 
       if (idCol !== -1 && lastRow >= 2) {
         const vals = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
@@ -132,16 +325,26 @@ function doPost(e) {
       }
 
       if (foundIndex !== -1) {
-        // Escribir TODOS los campos enviados, incluyendo los vacíos (para limpiar celdas)
+        const estadoCol = lowerHeaders.indexOf('estado');
+        if (estadoCol !== -1) {
+          oldEstado = sheet.getRange(foundIndex, estadoCol + 1).getValue();
+        }
         headers.forEach((h, ci) => {
           const hl = h.toLowerCase().trim();
           for (let k in data) {
             if (k.toLowerCase().trim() === hl) {
-              sheet.getRange(foundIndex, ci + 1).setValue(data[k]); // Escribe "" si está vacío
+              sheet.getRange(foundIndex, ci + 1).setValue(data[k]);
               break;
             }
           }
         });
+        if (oldEstado !== null && data.estado && String(oldEstado).toLowerCase() !== String(data.estado).toLowerCase()) {
+          try {
+            notifyOrderStatusChange_(ss, data, oldEstado, sheetName);
+          } catch (notifErr) {
+            console.error('Error notificando cambio estado:', notifErr.message);
+          }
+        }
         return createJsonResponse({ success: true, updated: foundIndex });
       } else {
         return createJsonResponse({ success: false, message: "Fila no encontrada para UPDATE" });
@@ -171,6 +374,296 @@ function doPost(e) {
   } catch (err) { return createJsonResponse({ success: false, message: err.message }); }
 }
 
+// ─────────────────────────────────────────────
+// 🔐 FCM v1 — Service Account JWT + OAuth2
+// ─────────────────────────────────────────────
+
+/**
+ * Obtiene la cuenta de servicio almacenada en Script Properties.
+ * El JSON se guarda con la propiedad "FCM_SERVICE_ACCOUNT".
+ */
+function _getServiceAccount_() {
+  var jsonStr = PropertiesService.getScriptProperties().getProperty('FCM_SERVICE_ACCOUNT');
+  if (!jsonStr) return null;
+  try { return JSON.parse(jsonStr); } catch (e) { return null; }
+}
+
+/**
+ * Genera un JWT firmado con RSA-SHA256 y lo canjea por un access token
+ * para usar con la API FCM v1.
+ */
+function _getFcmAccessToken_() {
+  var sa = _getServiceAccount_();
+  if (!sa) throw new Error('FCM_SERVICE_ACCOUNT no configurada');
+
+  var now = Math.floor(Date.now() / 1000);
+  var header = { alg: 'RS256', typ: 'JWT' };
+  var claim = {
+    iss: sa.client_email,
+    scope: 'https://www.googleapis.com/auth/firebase.messaging',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now,
+  };
+
+  function b64(str) { return Utilities.base64EncodeWebSafe(Utilities.newBlob(JSON.stringify(str)).getBytes()).replace(/=+$/, ''); }
+  function b64str(s) { return Utilities.base64EncodeWebSafe(Utilities.newBlob(s).getBytes()).replace(/=+$/, ''); }
+
+  var toSign = b64(header) + '.' + b64(claim);
+  var sigBytes = Utilities.computeRsaSha256Signature(toSign, sa.private_key);
+  var signed = Utilities.base64EncodeWebSafe(sigBytes).replace(/=+$/, '');
+  var jwt = toSign + '.' + signed;
+
+  var resp = UrlFetchApp.fetch('https://oauth2.googleapis.com/token', {
+    method: 'post',
+    payload: {
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt,
+    },
+    muteHttpExceptions: true,
+  });
+  var data = JSON.parse(resp.getContentText());
+  if (!data.access_token) throw new Error('Error obteniendo token: ' + JSON.stringify(data));
+  return data.access_token;
+}
+
+/**
+ * Envía una notificación FCM v1 a un dispositivo individual.
+ */
+function sendFcmV1_(token, title, body, dataPayload) {
+  var projectId = 'dsicario-cd723';
+  var accessToken = _getFcmAccessToken_();
+
+  var msg = {
+    message: {
+      token: token,
+      notification: { title: title, body: body },
+      data: {},
+      android: { priority: 'high', ttl: '86400s' },
+      apns: { headers: { 'apns-priority': '10' } },
+      webpush: { headers: { Urgency: 'high' } },
+    },
+  };
+
+  // Pasar dataPayload como string properties para FCM
+  if (dataPayload && typeof dataPayload === 'object') {
+    for (var k in dataPayload) {
+      if (dataPayload.hasOwnProperty(k)) {
+        msg.message.data[k] = String(dataPayload[k]);
+      }
+    }
+  }
+
+  var opts = {
+    method: 'post',
+    headers: {
+      Authorization: 'Bearer ' + accessToken,
+      'Content-Type': 'application/json',
+    },
+    payload: JSON.stringify(msg),
+    muteHttpExceptions: true,
+  };
+
+  var response = UrlFetchApp.fetch(
+    'https://fcm.googleapis.com/v1/projects/' + projectId + '/messages:send',
+    opts
+  );
+  var result = JSON.parse(response.getContentText());
+  var success = !!result.name;
+  if (!success) {
+    console.error('[FCMv1] Error: ' + JSON.stringify(result));
+  }
+  return { success: success, response: result };
+}
+
+/**
+ * Envía una notificación Expo Push desde GAS (sin restricciones CORS).
+ * Soporta tokens múltiples separados por coma.
+ */
+function sendExpoPushToUser_(rawTokens, title, body, dataPayload) {
+  if (!rawTokens) return false;
+  var tokenList = String(rawTokens).split(',').map(function(t) { return t.trim(); }).filter(Boolean);
+  if (tokenList.length === 0) return false;
+
+  var payload = tokenList.map(function(token) {
+    return {
+      to: token,
+      sound: 'default',
+      title: title,
+      body: body,
+      data: dataPayload || {},
+      priority: 'high',
+      channelId: 'default',
+      badge: 1,
+    };
+  });
+
+  try {
+    var options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+    var response = UrlFetchApp.fetch('https://exp.host/--/api/v2/push/send', options);
+    var result = JSON.parse(response.getContentText());
+    var allOk = result && result.data && result.data.every(function(r) { return r.status === 'ok'; });
+    if (!allOk) console.warn('[GAS_ExpoPush] Respuesta parcial/error:', JSON.stringify(result));
+    return allOk;
+  } catch (e) {
+    console.error('[GAS_ExpoPush] Error: ' + e.message);
+    return false;
+  }
+}
+
+/**
+ * Notifica al rider Y al cliente cuando cambia el estado de un pedido.
+ * Se ejecuta desde el handler UPSERT/UPDATE si detecta cambio de estado.
+ */
+function notifyOrderStatusChange_(ss, orderData, oldEstado, sheetName) {
+  const newEstado = (orderData.estado || '').toLowerCase().trim();
+  const estadosNotificables = ['accepted', 'aceptado', 'on_the_way', 'en camino', 'ready', 'listo', 'delivered', 'entregado', 'cancelled', 'cancelado', 'pending', 'pendiente', 'preparing', 'preparando'];
+  if (!estadosNotificables.includes(newEstado)) return;
+
+  const orderId = String(orderData.ID_Pedido || orderData.id || '');
+  var sa = _getServiceAccount_();
+
+  // ─────────────────────────────────
+  // 1. NOTIFICAR AL RIDER
+  // ─────────────────────────────────
+  const riderId = orderData.ID_Rider || orderData.id_rider || orderData.riderId || '';
+  if (riderId) {
+    const deliverysSheet = ss.getSheetByName('Deliverys');
+    if (deliverysSheet) {
+      const dHeaders = deliverysSheet.getRange(1, 1, 1, deliverysSheet.getLastColumn()).getValues()[0];
+      const dLower = dHeaders.map(function(h) { return String(h).toLowerCase().trim(); });
+      const dIdCol = dLower.indexOf('id_delivery');
+      const dPushCol = dLower.indexOf('pushtoken');
+      const dWpCol = dLower.indexOf('whatsapp');
+      const dKeyCol = dLower.indexOf('callmebotkey');
+
+      var riderData = null;
+      var lastRow = deliverysSheet.getLastRow();
+      if (lastRow >= 2 && dIdCol !== -1) {
+        var vals = deliverysSheet.getRange(2, 1, lastRow - 1, deliverysSheet.getLastColumn()).getValues();
+        for (var i = 0; i < vals.length; i++) {
+          if (String(vals[i][dIdCol]).trim().toLowerCase() === String(riderId).trim().toLowerCase()) {
+            riderData = vals[i];
+            break;
+          }
+        }
+      }
+
+      if (riderData) {
+        var riderToken = dPushCol !== -1 ? String(riderData[dPushCol] || '') : '';
+        var whatsapp = dWpCol !== -1 ? String(riderData[dWpCol] || '') : '';
+        var callmebotKey = dKeyCol !== -1 ? String(riderData[dKeyCol] || '') : '';
+
+        var riderTitulos = {
+          accepted: '✅ Pedido Aceptado', aceptado: '✅ Pedido Aceptado',
+          on_the_way: '🛵 Pedido en Camino', 'en camino': '🛵 Pedido en Camino',
+          ready: '🍽️ Pedido Listo', listo: '🍽️ Pedido Listo',
+          delivered: '🎉 Pedido Entregado', entregado: '🎉 Pedido Entregado',
+          cancelled: '❌ Pedido Cancelado', cancelado: '❌ Pedido Cancelado',
+        };
+        var riderTitulo = riderTitulos[newEstado] || '🔔 Estado del Pedido';
+        var riderCuerpo = 'Pedido #' + orderId.slice(-6) + ': ' + (orderData.cliente || orderData.Nombre || 'Cliente');
+
+        if (riderToken && sa) {
+          var rawToken = riderToken.replace(/^\{FCM\}/, '');
+          try {
+            var fcmResult = sendFcmV1_(rawToken, riderTitulo, riderCuerpo, { orderId: orderId, screen: 'RiderScreen' });
+            if (fcmResult.success) console.log('[GAS_FCM] ✅ Rider notificado: ' + riderId);
+            else console.warn('[GAS_FCM] ⚠️ Error rider: ' + JSON.stringify(fcmResult.response));
+          } catch (e) { console.error('[GAS_FCM] Error: ' + e.message); }
+        } else if (riderToken) {
+          sendExpoPushToUser_(riderToken, riderTitulo, riderCuerpo, { orderId: orderId, screen: 'RiderScreen' });
+        }
+
+        var estadosWhatsApp = ['accepted', 'aceptado', 'cancelled', 'cancelado'];
+        if (estadosWhatsApp.includes(newEstado) && whatsapp && callmebotKey) {
+          var waBody = encodeURIComponent(riderTitulo + '\n\n📦 Pedido: #' + orderId.slice(-6) + '\n👤 Cliente: ' + (orderData.cliente || 'Desconocido') + '\n💰 Total: $' + (orderData.total || 0));
+          try {
+            UrlFetchApp.fetch('https://api.callmebot.com/whatsapp.php?phone=' + encodeURIComponent(whatsapp) + '&text=' + waBody + '&apikey=' + encodeURIComponent(callmebotKey));
+            console.log('[GAS_WA] WhatsApp enviado a rider ' + riderId);
+          } catch (e) { console.error('[GAS_WA] Error: ' + e.message); }
+        }
+      }
+    }
+  }
+
+  // ─────────────────────────────────
+  // 2. NOTIFICAR AL CLIENTE
+  // ─────────────────────────────────
+  const clientId = orderData.ID_User || orderData.id_user || orderData.userId || '';
+  // Solo notificar al cliente en estados que le importan a él
+  const estadosCliente = ['pending', 'pendiente', 'preparing', 'preparando', 'ready', 'listo', 'on_the_way', 'en camino', 'delivered', 'entregado', 'cancelled', 'cancelado', 'accepted', 'aceptado'];
+  if (!clientId || !estadosCliente.includes(newEstado)) return;
+
+  const usuariosSheet = ss.getSheetByName('Usuarios');
+  if (!usuariosSheet) return;
+
+  const uHeaders = usuariosSheet.getRange(1, 1, 1, usuariosSheet.getLastColumn()).getValues()[0];
+  const uLower = uHeaders.map(function(h) { return String(h).toLowerCase().trim(); });
+  const uIdCol = uLower.indexOf('id_user');
+  const uPushCol = uLower.indexOf('pushtoken');
+  if (uIdCol === -1 || uPushCol === -1) return;
+
+  var clientData = null;
+  var uLastRow = usuariosSheet.getLastRow();
+  if (uLastRow >= 2) {
+    var uVals = usuariosSheet.getRange(2, 1, uLastRow - 1, usuariosSheet.getLastColumn()).getValues();
+    for (var j = 0; j < uVals.length; j++) {
+      if (String(uVals[j][uIdCol]).trim().toLowerCase() === String(clientId).trim().toLowerCase()) {
+        clientData = uVals[j];
+        break;
+      }
+    }
+  }
+  if (!clientData) return;
+
+  var clientToken = String(clientData[uPushCol] || '').trim();
+  if (!clientToken) {
+    console.log('[GAS_Client] Usuario ' + clientId + ' no tiene PushToken, se omite.');
+    return;
+  }
+
+  var clientTitulos = {
+    pending: '📋 ¡Pedido Recibido!', pendiente: '📋 ¡Pedido Recibido!',
+    preparing: '🍳 Preparando tu pedido', preparando: '🍳 Preparando tu pedido',
+    ready: '✅ ¡Tu pedido está listo!', listo: '✅ ¡Tu pedido está listo!',
+    on_the_way: '🛵 Tu pedido va en camino', 'en camino': '🛵 Tu pedido va en camino',
+    delivered: '🎉 ¡Pedido entregado!', entregado: '🎉 ¡Pedido entregado!',
+    cancelled: '❌ Tu pedido fue cancelado', cancelado: '❌ Tu pedido fue cancelado',
+    accepted: '✅ ¡Repartidor aceptó!', aceptado: '✅ ¡Repartidor aceptó!',
+  };
+  var clientCuerpos = {
+    pending: 'Tu pedido #' + orderId.slice(-6) + ' fue recibido correctamente.',
+    pendiente: 'Tu pedido #' + orderId.slice(-6) + ' fue recibido correctamente.',
+    preparing: 'Estamos preparando tu pedido #' + orderId.slice(-6) + ' con cariño.',
+    preparando: 'Estamos preparando tu pedido #' + orderId.slice(-6) + ' con cariño.',
+    ready: '¡Tu pedido #' + orderId.slice(-6) + ' está listo para entregar!',
+    listo: '¡Tu pedido #' + orderId.slice(-6) + ' está listo para entregar!',
+    on_the_way: 'Tu pedido #' + orderId.slice(-6) + ' ya va en camino hacia ti.',
+    'en camino': 'Tu pedido #' + orderId.slice(-6) + ' ya va en camino hacia ti.',
+    delivered: '¡Tu pedido #' + orderId.slice(-6) + ' fue entregado! Disfrútalo. 😊',
+    entregado: '¡Tu pedido #' + orderId.slice(-6) + ' fue entregado! Disfrútalo. 😊',
+    cancelled: 'Tu pedido #' + orderId.slice(-6) + ' ha sido cancelado.',
+    cancelado: 'Tu pedido #' + orderId.slice(-6) + ' ha sido cancelado.',
+    accepted: 'Un repartidor aceptó tu pedido #' + orderId.slice(-6) + '.',
+    aceptado: 'Un repartidor aceptó tu pedido #' + orderId.slice(-6) + '.',
+  };
+
+  var cTitulo = clientTitulos[newEstado] || '🔔 DSicario';
+  var cCuerpo = clientCuerpos[newEstado] || 'El estado de tu pedido #' + orderId.slice(-6) + ' cambió a: ' + newEstado;
+
+  var sent = sendExpoPushToUser_(clientToken, cTitulo, cCuerpo, {
+    orderId: orderId, status: newEstado, screen: 'OrdersScreen'
+  });
+  if (sent) console.log('[GAS_Client] ✅ Cliente ' + clientId + ' notificado: ' + cTitulo);
+  else console.warn('[GAS_Client] ⚠️ No se pudo notificar al cliente ' + clientId);
+}
+
 function getSafeLastRow(s) {
   const d = s.getDataRange().getValues();
   for (let i = d.length - 1; i >= 0; i--) { if (d[i].some(c => c !== "")) return i + 1; }
@@ -178,7 +671,10 @@ function getSafeLastRow(s) {
 }
 
 function handleGetReviews(ss, pid) {
-  const s = ss.getSheetByName("Valoraciones");
+  let s = ss.getSheetByName("Valoraciones");
+  if (!s) {
+    s = ss.getSheets().find(sh => sh.getName().toLowerCase().trim() === "valoraciones");
+  }
   if (!s) return createJsonResponse({ success: true, reviews: [] });
   const d = s.getDataRange().getValues();
   const h = d[0];
@@ -186,6 +682,33 @@ function handleGetReviews(ss, pid) {
   return createJsonResponse({ success: true, reviews: d.slice(1).filter(r => String(r[ci]) === String(pid)).map(r => {
     let o = {}; h.forEach((sh, i) => o[sh] = r[i]); return o;
   })});
+}
+
+function handleGetRoute(origin, destination, key) {
+  try {
+    if (!origin || !destination || !key) {
+      return createJsonResponse({ success: false, message: "Missing origin, destination, or key." });
+    }
+    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&key=${key}&mode=driving`;
+    const response = UrlFetchApp.fetch(url);
+    const data = JSON.parse(response.getContentText());
+    if (data.status !== 'OK') {
+      return createJsonResponse({ success: false, message: data.status + ' - ' + (data.error_message || '') });
+    }
+    const route = data.routes[0];
+    const leg = route.legs[0];
+    return createJsonResponse({
+      success: true,
+      distance: leg.distance.text,
+      distanceValue: leg.distance.value,
+      duration: leg.duration.text,
+      durationValue: leg.duration.value,
+      polyline: route.overview_polyline.points,
+      bounds: route.bounds
+    });
+  } catch(err) {
+    return createJsonResponse({ success: false, message: err.message });
+  }
 }
 
 function createJsonResponse(d) { return ContentService.createTextOutput(JSON.stringify(d)).setMimeType(ContentService.MimeType.JSON); }

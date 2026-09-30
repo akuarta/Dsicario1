@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, FlatList } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import ProductItem from '../components/ProductItem';
 import { CustomHeader } from '../components/CustomHeader';
@@ -47,6 +48,7 @@ const SectionProductsScreen = ({ route, navigation }) => {
         keyExtractor={(item, index) => (item.id || index).toString()}
         contentContainerStyle={{
           padding: 16,
+          paddingBottom: 120,
         }}
         numColumns={2}
         columnWrapperStyle={{ justifyContent: 'space-between' }}

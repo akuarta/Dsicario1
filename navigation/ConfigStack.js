@@ -2,7 +2,8 @@ import React from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
 import { useTheme } from '../contexts/ThemeContext';
 import ConfigScreen from '../screens/ConfigScreen';
-import AdminDeliveryScreen from '../screens/AdminDeliveryScreen';
+import ConfigPersonalDataScreen from '../screens/ConfigPersonalDataScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
 
 const Stack = createStackNavigator();
 
@@ -12,24 +13,19 @@ const ConfigStack = () => {
   return (
     <Stack.Navigator>
       <Stack.Screen
-        name="ConfigScreen"
+        name="Config"
         component={ConfigScreen}
-        options={{
-          title: 'Configuración',
-          headerStyle: { backgroundColor: colors.primary },
-          headerTintColor: '#FFFFFF',
-          headerTitleStyle: { fontWeight: 'bold' },
-        }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
-        name="AdminDeliveryScreen"
-        component={AdminDeliveryScreen}
-        options={{
-          title: 'Administrar Repartidores',
-          headerStyle: { backgroundColor: colors.primary },
-          headerTintColor: '#FFFFFF',
-          headerTitleStyle: { fontWeight: 'bold' },
-        }}
+        name="ConfigPersonalData"
+        component={ConfigPersonalDataScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="Notifications"
+        component={NotificationsScreen}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );

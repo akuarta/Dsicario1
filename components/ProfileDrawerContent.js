@@ -1,36 +1,37 @@
+import { showAlert } from '../utils/showAlert';
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, Alert, Platform, Switch } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, Switch, Image } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useUser } from '../contexts/UserContext';
 import { useCart } from '../contexts/AppContext';
+import { CONFIG } from '../constants/Config';
 
 const ProfileDrawerContent = (props) => {
   const { colors } = useTheme();
   const { signOut } = useAuth();
-  const { username, email, role, isClientMode, setIsClientMode, userId } = useUser();
-  const { clearCart, getTotalItems } = useCart();
+  const { username, email, role, isClientMode, setIsClientMode, userId, userTypeId, firebaseUid } = useUser();
+  const { clearCart, getTotalItems, activeStaffMode, setActiveStaffMode } = useCart();
   const totalItems = getTotalItems();
   
   const roleLow = role ? role.toLowerCase() : '';
-  const isAdmin = roleLow.includes('admin');
+  const isAdmin = roleLow.includes('admin') || roleLow === 'owner';
   const isDelivery = roleLow.includes('delivery') || roleLow.includes('repartidor');
   const isCocina = roleLow.includes('cocina') || roleLow.includes('cosina');
   const isMesero = roleLow.includes('mesero');
   
-  const isOwner = email?.toLowerCase()?.trim() === 'hairoman28@gmail.com';
+  const isOwner = email?.toLowerCase()?.trim() === CONFIG.OWNER_EMAIL?.toLowerCase()?.trim();
   // Temporalmente habilitamos el switch para más gente si algo falla
   const isStaff = isCocina || isDelivery || isMesero || isAdmin || isOwner;
-
-  const showAlert = (title, message) => Alert.alert(title, message);
 
   const handleClearCart = () => {
     if (totalItems === 0) {
       showAlert('Carrito vacío', 'No hay productos en el carrito');
       return;
     }
-    Alert.alert(
+    showAlert(
       'Vaciar carrito',
       '¿Estás seguro de que quieres vaciar todo el carrito?',
       [
@@ -47,43 +48,20 @@ const ProfileDrawerContent = (props) => {
     );
   };
 
+  const navigate = (screen) => {
+    props.navigation.closeDrawer();
+    setTimeout(() => {
+      props.navigation.navigate('MainTabs', { screen });
+    }, 350);
+  };
+
+  // Log de depuración para ver cambios de modo en tiempo real
+  React.useEffect(() => {
+    console.log('[DRAWER] Estado de Modo Personal:', activeStaffMode);
+  }, [activeStaffMode]);
+
   const menuItems = [
-    // --- SECCIÓN ADMIN / STAFF (Solo si NO está en modo cliente) ---
-    {
-      id: 7,
-      title: 'Monitor de Cocina',
-      icon: 'utensils',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'CocinaAdmin' }),
-      visible: (isAdmin || isCocina) && !isClientMode,
-    },
-    {
-      id: 11,
-      title: 'Panel de Servicio',
-      icon: 'walking',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'WaiterHome' }),
-      visible: (isAdmin || isMesero) && !isClientMode,
-    },
-    {
-      id: 12,
-      title: 'Vista de Repartidor',
-      icon: 'biking',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'RiderView' }),
-      visible: isAdmin && !isClientMode,
-    },
-    {
-      id: 8,
-      title: 'Administrar Repartidores',
-      icon: 'motorcycle',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'RiderAdmin' }),
-      visible: isAdmin && !isClientMode,
-    },
-    {
-      id: 9,
-      title: 'Gestión de Personal',
-      icon: 'users-cog',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'AdminStaff' }),
-      visible: isAdmin && !isClientMode,
-    },
+    // --- SECCIÓN CLIENTE (PARA TODOS O SI ESTÁ EN MODO CLIENTE) ---
     {
       id: 10,
       title: 'Centro de Pedidos',
@@ -91,14 +69,12 @@ const ProfileDrawerContent = (props) => {
       onPress: () => props.navigation.navigate('MainTabs', { screen: 'OrderCenter' }),
       visible: (isAdmin || isCocina || isDelivery) && !isClientMode,
     },
-    
-    // --- SECCIÓN CLIENTE (PARA TODOS O SI ESTÁ EN MODO CLIENTE) ---
     {
       id: 1,
       title: 'Comprar / Menú',
       icon: 'store',
       onPress: () => props.navigation.navigate('MainTabs', { screen: 'InicioTab' }),
-      visible: isClientMode || !isStaff || isAdmin // 👈 Admin siempre lo ve
+      visible: isClientMode || !isStaff || isAdmin
     },
     {
       id: 13,
@@ -107,7 +83,7 @@ const ProfileDrawerContent = (props) => {
       onPress: () => props.navigation.navigate('MainTabs', { screen: 'CarritoTab' }),
       showBadge: totalItems > 0,
       badgeCount: totalItems,
-      visible: isClientMode || isAdmin // 👈 Admin siempre lo ve
+      visible: isClientMode || isAdmin
     },
     {
       id: 2,
@@ -125,12 +101,19 @@ const ProfileDrawerContent = (props) => {
     },
     {
       id: 4,
+      title: 'Inventario Inteligente',
+      icon: 'boxes',
+      onPress: () => props.navigation.navigate('Inventory'),
+      visible: isAdmin
+    },
+    {
+      id: 5,
       title: 'Configuraciones',
       icon: 'cog',
       onPress: () => props.navigation.navigate('MainTabs', { screen: 'Configuracion' }),
     },
     {
-      id: 5,
+      id: 6,
       title: 'Vaciar Carrito',
       icon: 'trash',
       onPress: handleClearCart,
@@ -138,7 +121,7 @@ const ProfileDrawerContent = (props) => {
       visible: isClientMode && totalItems > 0
     },
     {
-      id: 6,
+      id: 7,
       title: 'Acerca de',
       icon: 'info-circle',
       onPress: () => showAlert('DSicario v1.0', 'Aplicación de e-commerce desarrollada con React Native\n\n© 2024 DSicario'),
@@ -169,27 +152,37 @@ const ProfileDrawerContent = (props) => {
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <FontAwesome5 name="user-shield" size={48} color="#fff" />
+          <Image 
+            source={require('../assets/logo.png')} 
+            style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: 'rgba(255,255,255,0.2)' }} 
+            resizeMode="contain" 
+          />
           <Text style={styles.userName}>{username}</Text>
           <Text style={styles.userEmail}>{email}</Text>
           <View style={{ flexDirection: 'row', gap: 5 }}>
             <Text style={styles.userRole}>{role?.toUpperCase() || 'CLIENTE'}</Text>
-            <Text style={[styles.userRole, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>ID: {userId || 'N/A'}</Text>
+            <Text style={[styles.userRole, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>ID: {userTypeId || 'Cargando...'}</Text>
           </View>
         </View>
+
+
+
         {isStaff && (
-          <View style={[styles.modeSection, { backgroundColor: colors.primary + '15', marginTop: 10, borderBottomWidth: 0, borderRadius: 15, marginHorizontal: 10 }]}>
-            <View>
-              <Text style={styles.modeText}>CONTROL DE MODO</Text>
-              <Text style={styles.modeSub}>{isClientMode ? 'Viendo como cliente' : 'Viendo como personal'}</Text>
+          <TouchableOpacity 
+            style={[styles.modeSection, { backgroundColor: colors.primary + '15', marginTop: 10, borderBottomWidth: 0, borderRadius: 15, marginHorizontal: 10 }]}
+            onPress={() => props.navigation.navigate('MainTabs', { screen: 'StaffModeTab' })}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+              <View style={{ backgroundColor: colors.primary, padding: 8, borderRadius: 10, marginRight: 12 }}>
+                <FontAwesome5 name="user-shield" size={16} color="#FFF" />
+              </View>
+              <View>
+                <Text style={styles.modeText}>MODO EMPLEADO</Text>
+                <Text style={styles.modeSub}>{isClientMode ? 'Modo Cliente activo' : 'Modo Personal activo'}</Text>
+              </View>
             </View>
-            <Switch
-              value={isClientMode}
-              onValueChange={setIsClientMode}
-              trackColor={{ false: '#767577', true: colors.primary + '80' }}
-              thumbColor={isClientMode ? colors.primary : '#f4f3f4'}
-            />
-          </View>
+            <FontAwesome5 name="chevron-right" size={14} color={colors.primary} />
+          </TouchableOpacity>
         )}
         <View style={styles.menuContainer}>
           {menuItems.map(item => {
@@ -221,27 +214,75 @@ const ProfileDrawerContent = (props) => {
         <TouchableOpacity 
           style={[styles.menuItem, { marginTop: 20, borderTopWidth: 1, borderTopColor: colors.border || '#eee' }]}
           onPress={() => {
+            const handleLogout = async () => {
+              console.log(`[USER_PRESENCE] 🔴 CIERRE DE SESIÓN INICIADO para UID: ${firebaseUid}`);
+              try {
+                const { setOffline } = require('../utils/api');
+                if ((userId && userId !== 'N/A') || firebaseUid) {
+                  console.log(`[USER_PRESENCE] 🔴 Enviando estado OFFLINE al servidor para UID: ${firebaseUid}, DeliveryID: ${userId}, Name: ${username}`);
+                  await setOffline(userId, firebaseUid, username, email);
+                }
+              } catch (e) {
+                console.warn('[USER_PRESENCE] Error marcando offline al salir:', e);
+              }
+              console.log(`[USER_PRESENCE] 🔴 Cerrando sesión en Firebase...`);
+              signOut();
+            };
+
             if (Platform.OS === 'web') {
               const confirm = window.confirm('¿Estás seguro de que quieres salir?');
               if (confirm) {
-                signOut();
+                handleLogout();
               }
             } else {
-              Alert.alert(
+              showAlert(
                 "Cerrar Sesión",
                 "¿Estás seguro de que quieres salir?",
                 [
                   { text: "Cancelar", style: "cancel" },
-                  { text: "Salir", onPress: signOut, style: "destructive" }
+                  { text: "Salir", onPress: handleLogout, style: "destructive" }
                 ]
               );
             }
           }}
         >
-          <FontAwesome5 name="sign-out-alt" size={20} color="#666" style={{ marginRight: 16 }} />
-          <Text style={[styles.menuItemTitle, { color: '#666' }]}>Cerrar Sesión</Text>
+          <FontAwesome5 name="sign-out-alt" size={20} color={colors.text?.secondary || '#666'} style={{ marginRight: 16 }} />
+          <Text style={[styles.menuItemTitle, { color: colors.text?.secondary || '#666' }]}>Cerrar Sesión</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Botón Estilo InDrive fijo en la parte inferior */}
+      {isStaff && (
+        <View style={{ padding: 16, backgroundColor: colors.background, borderTopWidth: 1, borderTopColor: colors.border || '#eee' }}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => setIsClientMode(!isClientMode)}
+            style={{
+              backgroundColor: isClientMode ? '#A3E635' : '#1E293B', // InDrive lime green or dark mode
+              borderRadius: 24,
+              paddingVertical: 18,
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexDirection: 'row',
+              gap: 12,
+              shadowColor: isClientMode ? '#A3E635' : '#000',
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: 0.3,
+              shadowRadius: 10,
+              elevation: 6,
+            }}
+          >
+            <FontAwesome5 
+              name={isClientMode ? "user-shield" : "user"} 
+              size={20} 
+              color={isClientMode ? '#111' : '#FFF'} 
+            />
+            <Text style={{ color: isClientMode ? '#111' : '#FFF', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 }}>
+              {isClientMode ? 'MODO PERSONAL' : 'MODO CLIENTE'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </SafeAreaView>
   );
 };

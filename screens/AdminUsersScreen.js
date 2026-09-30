@@ -1,9 +1,9 @@
+import { showAlert } from '../utils/showAlert';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   FlatList,
   TouchableOpacity,
   TextInput,
@@ -11,16 +11,23 @@ import {
   ActivityIndicator,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import GlassPanel from '../components/GlassPanel';
 import { fetchAllUsers, saveUser } from '../utils/api';
 import { useDataSync } from '../contexts/AppContext';
+import { useUser } from '../contexts/UserContext';
+import AccessDeniedScreen from '../components/AccessDeniedScreen';
 
 const AdminUsersScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
+  const { role } = useUser();
+  const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
+
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
 
   const { users, isSyncing, syncAllData, setUsers } = useDataSync();
   const [searchText, setSearchText] = useState('');
@@ -53,7 +60,7 @@ const AdminUsersScreen = ({ navigation }) => {
 
   const handleSave = async () => {
     if (!userName || !userId) {
-      Alert.alert('Error', 'ID y Nombre son obligatorios');
+      showAlert('Error', 'ID y Nombre son obligatorios');
       return;
     }
 
@@ -71,11 +78,11 @@ const AdminUsersScreen = ({ navigation }) => {
       // Update local state
       setUsers(prev => prev.map(u => u.ID_User === editingUser.ID_User ? updatedUser : u));
       
-      Alert.alert('Éxito', 'Usuario actualizado correctamente');
+      showAlert('Éxito', 'Usuario actualizado correctamente');
       setIsModalVisible(false);
       syncAllData();
     } catch (error) {
-      Alert.alert('Error', 'No se pudo actualizar el usuario');
+      showAlert('Error', 'No se pudo actualizar el usuario');
     } finally {
       setIsSaving(false);
     }
@@ -218,7 +225,7 @@ const AdminUsersScreen = ({ navigation }) => {
 
       <View style={styles.searchContainer}>
         <View style={styles.searchBar}>
-          <FontAwesome5 name="search" size={16} color="#999" />
+          <FontAwesome5 name="search" size={16} color={colors.primary} />
           <TextInput
             placeholder="Buscar por ID, nombre o email..."
             placeholderTextColor="#999"

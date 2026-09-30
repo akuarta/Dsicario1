@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { View, Platform, KeyboardAvoidingView } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -8,7 +9,7 @@ import { Home, Compass, ShoppingCart, User, ClipboardList, History, CalendarCloc
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useUser } from '../contexts/UserContext';
-import { ProductsContext } from '../contexts/AppContext';
+import { ProductsContext, useCart } from '../contexts/AppContext';
 
 import InicioStack from './InicioStack';
 import CartStack from './CartStack';
@@ -16,10 +17,11 @@ import ProfileStack from './ProfileStack';
 import PurchaseHistoryStack from './PurchaseHistoryStack';
 import FavoritesStack from './FavoritesStack';
 import ConfigStack from './ConfigStack';
+import GestionStack from './GestionStack';
+import StaffModeScreen from '../screens/StaffModeScreen';
 import ProfileDrawerContent from '../components/ProfileDrawerContent';
 import DeliveryTrackingScreen from '../screens/DeliveryTrackingScreen';
 import ProductDetailScreen from '../screens/ProductDetailScreen';
-import CheckoutScreen from '../screens/CheckoutScreen';
 import FullLoadingScreen from '../components/FullLoadingScreen';
 import { CustomTabBar } from '../components/CustomTabBar';
 import FloatingCartButton from '../components/FloatingCartButton';
@@ -28,11 +30,11 @@ import RegisterScreen from '../screens/RegisterScreen';
 import KitchenScreen from '../screens/KitchenScreen';
 import RiderScreen from '../screens/RiderScreen';
 import WaiterScreen from '../screens/WaiterScreen';
-import AdminStaffScreen from '../screens/AdminStaffScreen';
 import ProductListScreen from '../screens/ProductListScreen';
 import OrderCenterScreen from '../screens/OrderCenterScreen';
-import AdminDeliveryScreen from '../screens/AdminDeliveryScreen';
 import ProductEditorScreen from '../screens/ProductEditorScreen';
+import InventoryScreen from '../screens/InventoryScreen';
+import UpdateService from '../utils/UpdateService';
 
 const Tab = createBottomTabNavigator();
 const Drawer = createDrawerNavigator();
@@ -43,9 +45,11 @@ const ExplorarStack = () => {
   return (
     <Stack.Navigator
       screenOptions={{
-        headerStyle: { backgroundColor: colors.primary },
+        headerStyle: { backgroundColor: colors.primary, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, elevation: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },
         headerTintColor: '#FFFFFF',
         headerTitleStyle: { fontWeight: 'bold' },
+        headerTitleAlign: 'center',
+        headerBackTitleVisible: false,
       }}
     >
       <Stack.Screen 
@@ -73,9 +77,11 @@ const PreOrderStack = () => {
   return (
     <Stack.Navigator
       screenOptions={{
-        headerStyle: { backgroundColor: colors.primary },
+        headerStyle: { backgroundColor: colors.primary, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, elevation: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },
         headerTintColor: '#FFFFFF',
         headerTitleStyle: { fontWeight: 'bold' },
+        headerTitleAlign: 'center',
+        headerBackTitleVisible: false,
       }}
     >
       <Stack.Screen 
@@ -101,14 +107,48 @@ const PreOrderStack = () => {
 const MainTabs = () => {
   const { colors } = useTheme();
   const { role, isClientMode } = useUser();
+  const { activeStaffMode } = useCart();
   const roleLow = role ? role.toLowerCase() : '';
   
   const isCocina = roleLow.includes('cocina') || roleLow.includes('cosina');
   const isDelivery = roleLow.includes('delivery') || roleLow.includes('repartidor');
   const isMesero = roleLow.includes('mesero');
-  const isAdmin = roleLow.includes('admin');
+  const isAdmin = roleLow.includes('admin') || roleLow === 'owner';
+  const isStaff = isCocina || isDelivery || isMesero || isAdmin;
   
-  const showServiceScreen = !isClientMode && (isCocina || isDelivery || isMesero);
+  // La pantalla de Inicio depende del modo activo, no solo del rol
+  const getInicioScreen = () => {
+    // Bloqueo estricto: Si NO es staff, siempre InicioStack (evita heredar caché de otros usuarios)
+    if (!isStaff) return InicioStack;
+
+    if (!isClientMode) {
+      // Por modo activo (Cualquier empleado con switch)
+      if (activeStaffMode === 'cocina') return KitchenScreen;
+      if (activeStaffMode === 'mesero') return WaiterScreen;
+      if (activeStaffMode === 'repartidor') return RiderScreen;
+      
+      // Por rol (empleados sin modo admin por defecto)
+      if (isCocina && !isAdmin) return KitchenScreen;
+      if (isDelivery && !isAdmin) return RiderScreen;
+      if (isMesero && !isAdmin) return WaiterScreen;
+    }
+    return InicioStack;
+  };
+
+  const getInicioLabel = () => {
+    if (!isClientMode) {
+      if (activeStaffMode === 'cocina') return 'COCINA';
+      if (activeStaffMode === 'mesero') return 'MESAS';
+      if (activeStaffMode === 'repartidor') return 'REPARTIDOR';
+
+      if (isCocina && !isAdmin) return 'MONITOR';
+      if (isDelivery && !isAdmin) return 'ENTREGAS';
+      if (isMesero && !isAdmin) return 'SERVICIO';
+    }
+    return 'INICIO';
+  };
+
+  const InicioScreen = getInicioScreen();
 
   return (
     <Tab.Navigator
@@ -117,13 +157,27 @@ const MainTabs = () => {
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textSecondary,
+        // Indicar que el tab es flotante (absolute) para que el Navigator
+        // NO añada paddingBottom automático al contenido de las pantallas
+        tabBarStyle: { position: 'absolute' },
+        // Forzar altura en el contenedor para que el scroll funcione en web
+        // cuando el tab bar es flotante (position: absolute)
+        sceneStyle: Platform.select({
+          web: {
+            flex: 1,
+            height: '100%',
+            overflowY: 'scroll',
+            overflowX: 'hidden',
+          },
+          default: {},
+        }),
       }}
     >
       <Tab.Screen
         name="InicioTab"
-        component={showServiceScreen ? (isCocina ? KitchenScreen : (isDelivery ? RiderScreen : WaiterScreen)) : InicioStack}
+        component={InicioScreen}
         options={{
-          tabBarLabel: showServiceScreen ? (isCocina ? 'MONITOR' : (isDelivery ? 'ENTREGAS' : 'SERVICIO')) : 'INICIO',
+          tabBarLabel: getInicioLabel(),
           tabBarIcon: ({ color }) => <Home color={color} size={24} />,
         }}
       />
@@ -151,7 +205,6 @@ const MainTabs = () => {
           tabBarIcon: ({ color }) => <ClipboardList color={color} size={24} />,
         }}
       />
-      <Tab.Screen name="OrderCenter" component={OrderCenterScreen} options={{ tabBarButton: () => null }} />
       <Tab.Screen 
         name="Historial" 
         component={PurchaseHistoryStack} 
@@ -162,47 +215,59 @@ const MainTabs = () => {
       />
       <Tab.Screen name="Favoritos" component={FavoritesStack} options={{ tabBarButton: () => null }} />
       <Tab.Screen name="Configuracion" component={ConfigStack} options={{ tabBarButton: () => null }} />
-      <Tab.Screen name="DeliveryTracking" component={DeliveryTrackingScreen} options={{ tabBarButton: () => null }} />
+      <Tab.Screen name="GestionTab" component={GestionStack} options={{ tabBarButton: () => null }} />
+      <Tab.Screen name="StaffModeTab" component={StaffModeScreen} options={{ tabBarButton: () => null }} />
+      <Tab.Screen name="DeliveryTracking" component={DeliveryTrackingScreen} options={{ tabBarButton: () => null, unmountOnBlur: false }} />
       <Tab.Screen name="CarritoTab" component={CartStack} options={{ tabBarButton: () => null }} />
       
-      {(isAdmin || isCocina) && (
-        <Tab.Screen name="CocinaAdmin" component={KitchenScreen} options={{ tabBarButton: () => null }} />
-      )}
-      {(isAdmin || isMesero) && (
-        <Tab.Screen name="WaiterHome" component={WaiterScreen} options={{ tabBarButton: () => null }} />
-      )}
-      {isAdmin && (
-        <>
+      {isStaff ? (
+        <React.Fragment>
+          <Tab.Screen name="CocinaAdmin" component={KitchenScreen} options={{ tabBarButton: () => null }} />
+          <Tab.Screen name="WaiterHome" component={WaiterScreen} options={{ tabBarButton: () => null }} />
           <Tab.Screen name="RiderView" component={RiderScreen} options={{ tabBarButton: () => null }} />
-          <Tab.Screen name="RiderAdmin" component={AdminDeliveryScreen} options={{ tabBarButton: () => null }} />
-          <Tab.Screen name="AdminStaff" component={AdminStaffScreen} options={{ tabBarButton: () => null }} />
-        </>
-      )}
+        </React.Fragment>
+      ) : null}
     </Tab.Navigator>
   );
 };
 
 const DrawerNavigator = () => {
   const { colors } = useTheme();
+  const { isClientMode, role } = useUser();
+  const roleLow = role ? role.toLowerCase() : '';
+  const isAdmin = roleLow.includes('admin') || roleLow === 'owner';
+  
   return (
-    <Drawer.Navigator
-      useLegacyImplementation={false}
-      drawerContent={(props) => <ProfileDrawerContent {...props} />}
-      screenOptions={{
-        headerShown: false,
-        drawerActiveTintColor: colors.primary,
-        drawerStyle: { backgroundColor: colors.background, width: 300 },
-      }}
-    >
-      <Drawer.Screen name="MainTabs" component={MainTabs} options={{ drawerLabel: 'Inicio' }} />
-    </Drawer.Navigator>
+    <View style={{ 
+      flex: 1,
+      ...Platform.select({
+        web: {
+          height: '100%',
+          overflow: 'hidden',
+        },
+        default: {},
+      }),
+    }}>
+      <Drawer.Navigator
+        drawerContent={(props) => <ProfileDrawerContent {...props} />}
+        screenOptions={{
+          headerShown: false,
+          drawerActiveTintColor: colors.primary,
+          drawerStyle: { backgroundColor: colors.background, width: 300 },
+        }}
+      >
+        <Drawer.Screen name="MainTabs" component={MainTabs} options={{ drawerLabel: 'Inicio' }} />
+        <Drawer.Screen name="Inventory" component={InventoryScreen} options={{ drawerLabel: 'Inventario' }} />
+      </Drawer.Navigator>
+      {(isClientMode || isAdmin) && <FloatingCartButton />}
+    </View>
   );
 };
 
 const AppNavigator = () => {
   const { darkMode } = useTheme();
   const { isAuthenticated, user, loading: authLoading } = useAuth();
-  const { syncUserRole, isClientMode, role } = useUser();
+  const { syncUserRole, isClientMode, role, isSyncing } = useUser();
   const [roleReady, setRoleReady] = useState(false);
   
   // 🔑 Usar el contexto directamente SIN useProducts() para evitar re-renders
@@ -218,34 +283,47 @@ const AppNavigator = () => {
   const roleLow = role ? role.toLowerCase() : '';
   const isAdmin = roleLow.includes('admin');
 
+  // No duplicar syncUserRole — UserContext ya lo maneja en useEffect([user])
   useEffect(() => {
     if (authLoading) return;
     if (!isAuthenticated) {
       setRoleReady(true);
       return;
     }
-    syncUserRole(user?.email).finally(() => setRoleReady(true));
-  }, [authLoading, isAuthenticated, user?.email]);
+    // Mostrar la app inmediatamente — el rol se sincroniza en background
+    setRoleReady(true);
+  }, [authLoading, isAuthenticated]);
 
-  const isLoading = authLoading || !roleReady || (isAuthenticated && productsLoading);
+  const isLoading = authLoading || !roleReady;
+
+  useEffect(() => {
+    // Check for updates on mount (if not in loading state)
+    if (!isLoading) {
+      UpdateService.checkUpdate();
+    }
+  }, [isLoading]);
 
   if (isLoading) return <FullLoadingScreen />;
 
   return (
-    <NavigationContainer theme={darkMode ? DarkTheme : DefaultTheme}>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {!isAuthenticated ? (
-          <>
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="Register" component={RegisterScreen} />
-          </>
-        ) : (
-          <Stack.Screen name="Main" component={DrawerNavigator} />
-        )}
-      </Stack.Navigator>
-      {/* 🛒 Botón flotante ahora visible para Modo Cliente O para el Admin */}
-      {isAuthenticated && (isClientMode || isAdmin) && <FloatingCartButton />}
-    </NavigationContainer>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+    >
+      <NavigationContainer theme={darkMode ? DarkTheme : DefaultTheme}>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {isAuthenticated ? (
+            <Stack.Screen name="Main" component={DrawerNavigator} />
+          ) : (
+            <React.Fragment>
+              <Stack.Screen name="Login" component={LoginScreen} />
+              <Stack.Screen name="Register" component={RegisterScreen} />
+            </React.Fragment>
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+    </KeyboardAvoidingView>
   );
 };
 

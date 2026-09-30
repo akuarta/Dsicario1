@@ -1,0 +1,113 @@
+diff --git a/node_modules/react-native-maps/android/.classpath b/node_modules/react-native-maps/android/.classpath
+new file mode 100644
+index 0000000..bbe97e5
+--- /dev/null
++++ b/node_modules/react-native-maps/android/.classpath
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<classpath>
++	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-17/"/>
++	<classpathentry kind="con" path="org.eclipse.buildship.core.gradleclasspathcontainer"/>
++	<classpathentry kind="output" path="bin/default"/>
++</classpath>
+diff --git a/node_modules/react-native-maps/android/.gradle/8.14.3/checksums/checksums.lock b/node_modules/react-native-maps/android/.gradle/8.14.3/checksums/checksums.lock
+new file mode 100644
+index 0000000..49f5259
+Binary files /dev/null and b/node_modules/react-native-maps/android/.gradle/8.14.3/checksums/checksums.lock differ
+diff --git a/node_modules/react-native-maps/android/.gradle/8.14.3/executionHistory/executionHistory.lock b/node_modules/react-native-maps/android/.gradle/8.14.3/executionHistory/executionHistory.lock
+new file mode 100644
+index 0000000..aacf807
+Binary files /dev/null and b/node_modules/react-native-maps/android/.gradle/8.14.3/executionHistory/executionHistory.lock differ
+diff --git a/node_modules/react-native-maps/android/.gradle/8.14.3/fileChanges/last-build.bin b/node_modules/react-native-maps/android/.gradle/8.14.3/fileChanges/last-build.bin
+new file mode 100644
+index 0000000..f76dd23
+Binary files /dev/null and b/node_modules/react-native-maps/android/.gradle/8.14.3/fileChanges/last-build.bin differ
+diff --git a/node_modules/react-native-maps/android/.gradle/8.14.3/fileHashes/fileHashes.lock b/node_modules/react-native-maps/android/.gradle/8.14.3/fileHashes/fileHashes.lock
+new file mode 100644
+index 0000000..e15fb55
+Binary files /dev/null and b/node_modules/react-native-maps/android/.gradle/8.14.3/fileHashes/fileHashes.lock differ
+diff --git a/node_modules/react-native-maps/android/.gradle/8.14.3/gc.properties b/node_modules/react-native-maps/android/.gradle/8.14.3/gc.properties
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/react-native-maps/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock b/node_modules/react-native-maps/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock
+new file mode 100644
+index 0000000..6b472b7
+Binary files /dev/null and b/node_modules/react-native-maps/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock differ
+diff --git a/node_modules/react-native-maps/android/.gradle/buildOutputCleanup/cache.properties b/node_modules/react-native-maps/android/.gradle/buildOutputCleanup/cache.properties
+new file mode 100644
+index 0000000..679776a
+--- /dev/null
++++ b/node_modules/react-native-maps/android/.gradle/buildOutputCleanup/cache.properties
+@@ -0,0 +1,2 @@
++#Wed Apr 22 21:27:16 AST 2026
++gradle.version=8.14.3
+diff --git a/node_modules/react-native-maps/android/.gradle/vcs-1/gc.properties b/node_modules/react-native-maps/android/.gradle/vcs-1/gc.properties
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/react-native-maps/android/.project b/node_modules/react-native-maps/android/.project
+new file mode 100644
+index 0000000..30ace3a
+--- /dev/null
++++ b/node_modules/react-native-maps/android/.project
+@@ -0,0 +1,34 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<projectDescription>
++	<name>react-native-maps</name>
++	<comment>Project react-native-maps created by Buildship.</comment>
++	<projects>
++	</projects>
++	<buildSpec>
++		<buildCommand>
++			<name>org.eclipse.jdt.core.javabuilder</name>
++			<arguments>
++			</arguments>
++		</buildCommand>
++		<buildCommand>
++			<name>org.eclipse.buildship.core.gradleprojectbuilder</name>
++			<arguments>
++			</arguments>
++		</buildCommand>
++	</buildSpec>
++	<natures>
++		<nature>org.eclipse.jdt.core.javanature</nature>
++		<nature>org.eclipse.buildship.core.gradleprojectnature</nature>
++	</natures>
++	<filteredResources>
++		<filter>
++			<id>1776907162811</id>
++			<name></name>
++			<type>30</type>
++			<matcher>
++				<id>org.eclipse.core.resources.regexFilterMatcher</id>
++				<arguments>node_modules|\.git|__CREATED_BY_JAVA_LANGUAGE_SERVER__</arguments>
++			</matcher>
++		</filter>
++	</filteredResources>
++</projectDescription>
+diff --git a/node_modules/react-native-maps/android/.settings/org.eclipse.buildship.core.prefs b/node_modules/react-native-maps/android/.settings/org.eclipse.buildship.core.prefs
+new file mode 100644
+index 0000000..1675490
+--- /dev/null
++++ b/node_modules/react-native-maps/android/.settings/org.eclipse.buildship.core.prefs
+@@ -0,0 +1,2 @@
++connection.project.dir=../../../android
++eclipse.preferences.version=1
+diff --git a/node_modules/react-native-maps/android/.settings/org.eclipse.jdt.core.prefs b/node_modules/react-native-maps/android/.settings/org.eclipse.jdt.core.prefs
+new file mode 100644
+index 0000000..626e0e1
+--- /dev/null
++++ b/node_modules/react-native-maps/android/.settings/org.eclipse.jdt.core.prefs
+@@ -0,0 +1,4 @@
++eclipse.preferences.version=1
++org.eclipse.jdt.core.compiler.codegen.targetPlatform=17
++org.eclipse.jdt.core.compiler.compliance=17
++org.eclipse.jdt.core.compiler.source=17
+diff --git a/node_modules/react-native-maps/android/src/main/jni/CMakeLists.txt b/node_modules/react-native-maps/android/src/main/jni/CMakeLists.txt
+index ddb85f5..ec946ca 100644
+--- a/node_modules/react-native-maps/android/src/main/jni/CMakeLists.txt
++++ b/node_modules/react-native-maps/android/src/main/jni/CMakeLists.txt
+@@ -26,3 +26,4 @@ target_link_libraries(
+ )
+ 
+ target_compile_reactnative_options(react_codegen_RNMapsSpecs PRIVATE)
++target_compile_options(react_codegen_RNMapsSpecs PRIVATE "-w")

@@ -28,6 +28,7 @@ const SearchBar = memo(({
   showClearButton = true,
   showFilterButton = true,
   showMenuButton = true,
+  filterActive = false,
 }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
@@ -58,6 +59,9 @@ const SearchBar = memo(({
       ...shadows.small,
       borderWidth: 1,
       borderColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+      maxWidth: 800,
+      width: Platform.OS === 'web' ? '90%' : 'auto',
+      alignSelf: 'center',
     },
     menuButton: { padding: spacing.xs, marginRight: spacing.xs },
     searchIcon: { marginHorizontal: spacing.xs },
@@ -87,45 +91,49 @@ const SearchBar = memo(({
 
   return (
     <View style={[styles.container, style]}>
-      {showMenuButton && (
+      {showMenuButton ? (
         <TouchableOpacity onPress={onMenuPress} style={styles.menuButton} activeOpacity={0.7}>
-          <FontAwesome5 name="bars" size={16} color={colors.text.secondary} />
+          <FontAwesome5 name="bars" size={16} color={colors.primary} />
         </TouchableOpacity>
-      )}
-
-      <FontAwesome5 name="search" size={14} color={colors.text.secondary} style={styles.searchIcon} />
-      
+      ) : null}
+      <FontAwesome5 name="search" size={14} color={colors.primary} style={styles.searchIcon} />
       <TextInput
         ref={inputRef}
         style={styles.input}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={colors.text.secondary}
+        placeholderTextColor={colors.primary}
         autoFocus={autoFocus}
         editable={editable}
         returnKeyType="search"
+        onSubmitEditing={() => inputRef.current?.blur()}
         clearButtonMode="never"
         maxLength={100}
       />
-      
       <View style={styles.actions}>
-        {showClearButton && value && value.length > 0 && (
+        {(showClearButton && value && value.length > 0) ? (
           <Animated.View style={{ opacity: fadeAnim }}>
             <TouchableOpacity onPress={handleClear} style={styles.clearButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} activeOpacity={0.6}>
-              <FontAwesome5 name="times-circle" size={16} color={colors.text.secondary} solid />
+              <FontAwesome5 name="times-circle" size={16} color={colors.primary} solid />
             </TouchableOpacity>
           </Animated.View>
-        )}
-
-        {showFilterButton && (
+        ) : null}
+        {showFilterButton ? (
           <>
             <View style={styles.divider} />
-            <TouchableOpacity onPress={onFilterPress} style={styles.filterButton} activeOpacity={0.7}>
+            <TouchableOpacity 
+              onPress={onFilterPress} 
+              style={[
+                styles.filterButton, 
+                filterActive && { backgroundColor: colors.primary + '20', borderRadius: 8 }
+              ]} 
+              activeOpacity={0.7}
+            >
               <FontAwesome5 name="sliders-h" size={16} color={colors.primary} />
             </TouchableOpacity>
           </>
-        )}
+        ) : null}
       </View>
     </View>
   );

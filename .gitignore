@@ -24,3 +24,41 @@ ios/.xcode.env.local
 
 # Metro
 .metro-health-check*
+
+# Firebase
+config/firebaseServiceAccount.json
+# Credenciales del keystore de produccion (NO versionar)
+credentials.json
+constants/PDFs/google-services.json
+
+# Logs y artefactos de debug
+*.log
+hs_err_pid*.log
+replay_pid*.log
+netstat_output.txt
+doctor_raw.txt
+expo_doctor_output.txt
+build_info.txt
+build_log.txt
+bundle_error.txt
+bundle_test.txt
+last_log.txt
+
+# Dumps de datos de depuracion
+api_response.json
+products_debug.json
+products_debug_utf8.json
+
+# Scripts de inspeccion de una sola vez
+inspect_gas_api.js
+inspect_users.js
+inspect_users_v2.js
+tomar_capturas.js
+tomar_capturas_manual.js
+scratch/
+
+# Copias de trabajo manuales
+temp_*.js
+temp_*.txt
+test_cart_head.js
+Untitled*

@@ -11,6 +11,7 @@ export const OrderProvider = ({ children }) => {
   const loadOrderDetails = useCallback(async (orderId) => {
     if (!orderId) return;
     
+    setOrderDetails(null);
     setLoading(true);
     setError(null);
     try {

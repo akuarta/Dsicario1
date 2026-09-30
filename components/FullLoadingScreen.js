@@ -1,38 +1,39 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Image, StyleSheet, Animated, Dimensions } from 'react-native';
+import { View, StyleSheet, Animated, Dimensions } from 'react-native';
 import { getThemeColors } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
-import DsicarioLogo from '../assets/logo.png';
-const { width } = Dimensions.get('window');
+
+const { width, height } = Dimensions.get('window');
+const LOGO_SIZE = Math.min(width, height) * 0.72;
 
 const FullLoadingScreen = () => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.9)).current;
+  const scaleAnim = useRef(new Animated.Value(0.88)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 800,
+        duration: 700,
         useNativeDriver: true,
       }),
       Animated.spring(scaleAnim, {
         toValue: 1,
-        friction: 4,
+        friction: 5,
+        tension: 60,
         useNativeDriver: true,
       }),
     ]).start();
 
-    // Infinite progress bar loop
     Animated.loop(
       Animated.sequence([
         Animated.timing(progressAnim, {
           toValue: 1,
-          duration: 1500,
+          duration: 1400,
           useNativeDriver: false,
         }),
         Animated.timing(progressAnim, {
@@ -45,7 +46,8 @@ const FullLoadingScreen = () => {
   }, []);
 
   return (
-    <View style={[styles.container, { backgroundColor: darkMode ? '#000000' : '#FFFFFF' }]}>
+    <View style={[styles.container, { backgroundColor: darkMode ? '#0D0D0D' : '#F8F8F8' }]}>
+      {/* Logo centrado grande */}
       <Animated.Image
         source={darkMode ? require('../assets/logo_dark.png') : require('../assets/logo.png')}
         style={[
@@ -53,12 +55,11 @@ const FullLoadingScreen = () => {
           {
             opacity: fadeAnim,
             transform: [{ scale: scaleAnim }],
-            borderRadius: 150, // Recorte circular para quitar el fondo visualmente
-            overflow: 'hidden',
           }
         ]}
         resizeMode="contain"
       />
+      {/* Barra de carga */}
       <View style={styles.loaderContainer}>
         <Animated.View
           style={[
@@ -67,7 +68,7 @@ const FullLoadingScreen = () => {
               backgroundColor: colors.primary,
               width: progressAnim.interpolate({
                 inputRange: [0, 1],
-                outputRange: [0, width * 0.4]
+                outputRange: [0, width * 0.5]
               })
             }
           ]}
@@ -84,15 +85,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logo: {
-    width: width * 0.45,
-    height: width * 0.45,
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
+    borderRadius: 32,
+    overflow: 'hidden',
   },
   loaderContainer: {
-    width: width * 0.4,
+    width: width * 0.5,
     height: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    backgroundColor: 'rgba(128,128,128,0.15)',
     borderRadius: 2,
-    marginTop: 20,
+    marginTop: 36,
     overflow: 'hidden',
   },
   loader: {

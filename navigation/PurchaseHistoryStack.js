@@ -9,16 +9,10 @@ const PurchaseHistoryStack = () => {
   const { colors } = useTheme();
 
   return (
-    <Stack.Navigator>
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen
         name="PurchaseHistory"
         component={PurchaseHistoryScreen}
-        options={{
-          title: 'Historial de Compras',
-          headerStyle: { backgroundColor: colors.primary },
-          headerTintColor: '#FFFFFF',
-          headerTitleStyle: { fontWeight: 'bold' },
-        }}
       />
     </Stack.Navigator>
   );

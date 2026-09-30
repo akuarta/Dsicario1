@@ -19,42 +19,22 @@ const ProfileStack = () => {
       <Stack.Screen
         name="Perfil"
         component={ProfileScreen}
-        options={{
-          title: 'Mi Perfil',
-          headerStyle: { backgroundColor: colors.primary },
-          headerTintColor: '#FFFFFF',
-          headerTitleStyle: { fontWeight: 'bold' },
-        }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="PurchaseHistory"
         component={PurchaseHistoryScreen}
-        options={{
-          title: 'Historial de Compras',
-          headerStyle: { backgroundColor: colors.primary },
-          headerTintColor: '#FFFFFF',
-          headerTitleStyle: { fontWeight: 'bold' },
-        }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="Favorites"
         component={FavoritesScreen}
-        options={{
-          title: 'Favoritos',
-          headerStyle: { backgroundColor: colors.primary },
-          headerTintColor: '#FFFFFF',
-          headerTitleStyle: { fontWeight: 'bold' },
-        }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="Configuracion"
         component={ConfigScreen}
-        options={{
-          title: 'Configuración',
-          headerStyle: { backgroundColor: colors.primary },
-          headerTintColor: '#FFFFFF',
-          headerTitleStyle: { fontWeight: 'bold' },
-        }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="ProductDetail"

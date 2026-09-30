@@ -1,9 +1,9 @@
+import { showAlert } from '../utils/showAlert';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   FlatList,
   TouchableOpacity,
   TextInput,
@@ -14,12 +14,16 @@ import {
   Platform,
   StatusBar
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 import GlassPanel from '../components/GlassPanel';
 import { fetchAllUsers, saveUser, deleteUser } from '../utils/api';
 import { useDataSync } from '../contexts/AppContext';
+import { sendLocalNotification, sendRiderPushNotification, sendWhatsAppNotification } from '../utils/notifications';
+import { useUser } from '../contexts/UserContext';
+import AccessDeniedScreen from '../components/AccessDeniedScreen';
 
 const getRoleColor = (role) => {
   switch(role) {
@@ -34,6 +38,10 @@ const getRoleColor = (role) => {
 const AdminStaffScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
+  const { role } = useUser();
+  const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
+
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
 
   const { users, isSyncing, syncAllData, setUsers } = useDataSync();
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -45,12 +53,19 @@ const AdminStaffScreen = ({ navigation }) => {
   const [editingUser, setEditingUser] = useState(null);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('Mesero');
+  const [editingRole, setEditingRole] = useState('Mesero');
   const [isActive, setIsActive] = useState(true);
 
   // Registered Users Picker State
   const [isPickerVisible, setIsPickerVisible] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
+
+  const [notifModalVisible, setNotifModalVisible] = useState(false);
+  const [notifTargetUser, setNotifTargetUser] = useState(null);
+  const [notifTargetAll, setNotifTargetAll] = useState(false);
+  const [notifTitle, setNotifTitle] = useState('');
+  const [notifBody, setNotifBody] = useState('');
+  const [isSendingNotif, setIsSendingNotif] = useState(false);
 
   const roles = ['Admin', 'Mesero', 'Cocina', 'Delivery', 'Cliente'];
 
@@ -59,13 +74,13 @@ const AdminStaffScreen = ({ navigation }) => {
       setEditingUser(user);
       setUsername(user.NombreUser || user.nombreuser || user.username || '');
       setEmail(user.EmailUser || user.emailuser || user.email || '');
-      setRole(user.Rol || user.rol || user.UserType || user.usertype || user.role || 'Mesero');
+      setEditingRole(user.Rol || user.rol || user.UserType || user.usertype || user.role || 'Mesero');
       setIsActive(user.Activo !== undefined ? user.Activo : (user['activo?'] !== undefined ? user['activo?'] : (user.active !== undefined ? user.active : true)));
     } else {
       setEditingUser(null);
       setUsername('');
       setEmail('');
-      setRole('Mesero');
+      setEditingRole('Mesero');
       setIsActive(true);
     }
     setIsModalVisible(true);
@@ -121,7 +136,7 @@ const AdminStaffScreen = ({ navigation }) => {
 
   const handleSave = async () => {
     if (!username || !email) {
-      Alert.alert('Error', 'Nombre y Email son obligatorios');
+      showAlert('Error', 'Nombre y Email son obligatorios');
       return;
     }
     setIsSaving(true);
@@ -133,10 +148,10 @@ const AdminStaffScreen = ({ navigation }) => {
         nombreuser: username,
         EmailUser: email,
         emailuser: email,
-        Rol: role,
-        rol: role,
-        UserType: role,
-        usertype: role,
+        Rol: editingRole,
+        rol: editingRole,
+        UserType: editingRole,
+        usertype: editingRole,
         'Activo': isActive,
         'activo?': isActive,
         'empleado?': true,
@@ -153,11 +168,11 @@ const AdminStaffScreen = ({ navigation }) => {
         }
         return [userToSave, ...prev];
       });
-      Alert.alert('Éxito', 'Personal actualizado');
+      showAlert('Éxito', 'Personal actualizado');
       setIsModalVisible(false);
       syncAllData();
     } catch (error) {
-      Alert.alert('Error', 'No se pudo guardar el usuario');
+      showAlert('Error', 'No se pudo guardar el usuario');
     } finally {
       setIsSaving(false);
     }
@@ -166,7 +181,7 @@ const AdminStaffScreen = ({ navigation }) => {
   const handleDelete = () => {
     if (!editingUser) return;
     const staffDisplayName = editingUser.NombreUser || editingUser.nombreuser || editingUser.username || 'este usuario';
-    Alert.alert(
+    showAlert(
       '¿Quitar de Personal?',
       `¿Deseas quitar a ${staffDisplayName} como empleado? Seguirá siendo usuario (Cliente) pero ya no tendrá acceso administrativo o de staff.`,
       [
@@ -185,10 +200,10 @@ const AdminStaffScreen = ({ navigation }) => {
               };
               await saveUser(updatedUser);
               setUsers(prev => prev.map(u => (u.ID_User || u.id_user || u.id) === (editingUser.ID_User || editingUser.id_user || editingUser.id) ? updatedUser : u));
-              Alert.alert('Éxito', 'Se ha reasignado como Cliente.');
+              showAlert('Éxito', 'Se ha reasignado como Cliente.');
               setIsModalVisible(false);
             } catch (err) {
-              Alert.alert('Error', 'No se pudo actualizar el rol: ' + err.message);
+              showAlert('Error', 'No se pudo actualizar el rol: ' + err.message);
             } finally {
               setIsSaving(false);
             }
@@ -207,7 +222,7 @@ const AdminStaffScreen = ({ navigation }) => {
       paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight + 20) : 45,
       justifyContent: 'space-between',
     },
-    headerTitle: { color: colors.text.white, fontSize: 18, fontWeight: 'bold' },
+    headerTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
     backBtn: { padding: 5 },
     list: { padding: spacing.md, paddingBottom: 100 },
     userCard: {
@@ -420,6 +435,8 @@ const AdminStaffScreen = ({ navigation }) => {
     const isActiveUser = item.Activo !== undefined ? item.Activo : (item['activo?'] !== undefined ? item['activo?'] : (item.active !== undefined ? item.active : true));
     const displayName = item.NombreUser || item.nombreuser || item.username || 'Usuario';
     const displayEmail = item.EmailUser || item.emailuser || item.email || '';
+    const hasPushToken = !!(item.pushToken || item.PushToken);
+    const hasWhatsApp = !!(item.whatsapp && item.callmebotKey);
 
     return (
       <TouchableOpacity onPress={() => handleOpenModal(item)}>
@@ -428,17 +445,25 @@ const AdminStaffScreen = ({ navigation }) => {
             <FontAwesome5 
               name={userRole === 'Admin' ? 'user-shield' : 'user-tie'} 
               size={20} 
-              color={isActiveUser ? colors.primary : '#999'} 
+              color={isActiveUser ? colors.primary : colors.text.light} 
             />
           </View>
           <View style={styles.userInfo}>
             <Text style={[styles.userName, { color: colors.text.primary }]}>{displayName}</Text>
             <Text style={styles.userEmail}>{displayEmail}</Text>
-            <View style={[styles.roleBadge, { backgroundColor: getRoleColor(userRole) }]}>
-              <Text style={styles.roleText}>{userRole}</Text>
+            <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+              <View style={[styles.roleBadge, { backgroundColor: getRoleColor(userRole) }]}>
+                <Text style={styles.roleText}>{userRole}</Text>
+              </View>
+              {hasPushToken && <FontAwesome5 name="mobile-alt" size={10} color="#22c55e" />}
+              {hasWhatsApp && <FontAwesome5 name="whatsapp" size={10} color="#25D366" />}
+              {!hasPushToken && !hasWhatsApp && <FontAwesome5 name="times-circle" size={10} color={colors.text.light} />}
             </View>
           </View>
-          <FontAwesome5 name="chevron-right" size={12} color="#CCC" />
+          <TouchableOpacity onPress={() => { setNotifTargetUser(item); setNotifTargetAll(false); setNotifTitle(''); setNotifBody(''); setNotifModalVisible(true); }} style={{ marginRight: 10 }}>
+            <FontAwesome5 name="bell" size={16} color={hasPushToken || hasWhatsApp ? colors.primary : colors.text.light} />
+          </TouchableOpacity>
+          <FontAwesome5 name="chevron-right" size={12} color={colors.text.light} />
         </GlassPanel>
       </TouchableOpacity>
     );
@@ -448,33 +473,38 @@ const AdminStaffScreen = ({ navigation }) => {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { backgroundColor: colors.primary }]}>
         <TouchableOpacity 
-          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('InicioTab')} 
+          onPress={() => navigation.goBack()} 
           style={styles.backBtn}
         >
           <FontAwesome5 name="arrow-left" size={20} color="#FFF" />
         </TouchableOpacity>
         <View>
-          <Text style={styles.headerTitle}>Gestión de Personal</Text>
+          <Text style={styles.headerTitle}>Gestión de Usuarios</Text>
           <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10 }}>Total: {users.length} usuarios</Text>
         </View>
-        <TouchableOpacity onPress={syncAllData}>
-          <FontAwesome5 name="sync" size={18} color="#FFF" />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 15 }}>
+          <TouchableOpacity onPress={() => { setNotifTargetAll(true); setNotifTargetUser(null); setNotifTitle(''); setNotifBody(''); setNotifModalVisible(true); }}>
+            <FontAwesome5 name="bell" size={18} color="#FFF" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={syncAllData}>
+            <FontAwesome5 name="sync" size={18} color="#FFF" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.searchContainer}>
         <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <FontAwesome5 name="search" size={14} color="#999" style={{ marginRight: 10 }} />
+          <FontAwesome5 name="search" size={14} color={colors.primary} style={{ marginRight: 10 }} />
           <TextInput
             placeholder="Buscar por nombre o email..."
-            placeholderTextColor="#999"
+            placeholderTextColor={colors.text.light}
             style={[styles.searchInput, { color: colors.text.primary }]}
             value={searchText}
             onChangeText={setSearchText}
           />
           {searchText ? (
             <TouchableOpacity onPress={() => setSearchText('')}>
-              <FontAwesome5 name="times-circle" size={16} color="#999" />
+              <FontAwesome5 name="times-circle" size={16} color={colors.text.light} />
             </TouchableOpacity>
           ) : null}
         </View>
@@ -548,7 +578,7 @@ const AdminStaffScreen = ({ navigation }) => {
             <TextInput
               style={[styles.input, { color: colors.text.primary, borderColor: colors.border }]}
               placeholder="Nombre Completo"
-              placeholderTextColor="#999"
+              placeholderTextColor={colors.text.light}
               value={username}
               onChangeText={setUsername}
             />
@@ -556,7 +586,7 @@ const AdminStaffScreen = ({ navigation }) => {
             <TextInput
               style={[styles.input, { color: colors.text.primary, borderColor: colors.border }]}
               placeholder="Email (Gmail sugerido)"
-              placeholderTextColor="#999"
+              placeholderTextColor={colors.text.light}
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -572,11 +602,11 @@ const AdminStaffScreen = ({ navigation }) => {
                   style={[
                     styles.roleOption, 
                     { borderColor: colors.border },
-                    role === r && { backgroundColor: getRoleColor(r), borderColor: getRoleColor(r) }
+                    editingRole === r && { backgroundColor: getRoleColor(r), borderColor: getRoleColor(r) }
                   ]}
-                  onPress={() => setRole(r)}
+                  onPress={() => setEditingRole(r)}
                 >
-                  <Text style={[styles.roleOptionText, role === r && { color: '#FFF' }]}>{r}</Text>
+                  <Text style={[styles.roleOptionText, editingRole === r && { color: '#FFF' }]}>{r}</Text>
                 </TouchableOpacity>
               ) || null)}
             </View>
@@ -626,10 +656,10 @@ const AdminStaffScreen = ({ navigation }) => {
             </View>
 
             <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.border, marginVertical: 15 }]}>
-              <FontAwesome5 name="search" size={12} color="#999" style={{ marginRight: 8 }} />
+              <FontAwesome5 name="search" size={12} color={colors.primary} style={{ marginRight: 8 }} />
               <TextInput
                 placeholder="Buscar usuario..."
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.text.light}
                 style={[styles.searchInput, { color: colors.text.primary, fontSize: 14 }]}
                 value={pickerSearch}
                 onChangeText={setPickerSearch}
@@ -665,6 +695,153 @@ const AdminStaffScreen = ({ navigation }) => {
                 <Text style={styles.emptyPickerText}>No se encontraron usuarios registrados.</Text>
               }
             />
+          </GlassPanel>
+        </View>
+      </Modal>
+
+      {/* Notification Modal */}
+      <Modal visible={notifModalVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <GlassPanel intensity={40} style={styles.modalContent}>
+            <Text style={[styles.modalTitle, { color: colors.text.primary }]}>
+              {notifTargetAll ? 'Notificar a Todo el Personal' : `Notificar a ${notifTargetUser?.NombreUser || notifTargetUser?.nombreuser || notifTargetUser?.username || 'Usuario'}`}
+            </Text>
+
+            {!notifTargetAll && notifTargetUser && (
+              <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'center', marginBottom: 15 }}>
+                <Text style={{ fontSize: 11, color: notifTargetUser.pushToken || notifTargetUser.PushToken ? '#22c55e' : '#999' }}>
+                  Push {notifTargetUser.pushToken || notifTargetUser.PushToken ? 'SI' : 'NO'}
+                </Text>
+                <Text style={{ fontSize: 11, color: notifTargetUser.whatsapp && notifTargetUser.callmebotKey ? '#25D366' : '#999' }}>
+                  WhatsApp {notifTargetUser.whatsapp && notifTargetUser.callmebotKey ? 'SI' : 'NO'}
+                </Text>
+              </View>
+            )}
+
+            <TextInput
+              style={[styles.input, { color: colors.text.primary, borderColor: colors.border }]}
+              placeholder="Título de la notificación"
+              placeholderTextColor={colors.text.light}
+              value={notifTitle}
+              onChangeText={setNotifTitle}
+            />
+
+            <TextInput
+              style={[styles.input, { color: colors.text.primary, borderColor: colors.border, minHeight: 80, textAlignVertical: 'top' }]}
+              placeholder="Mensaje de la notificación"
+              placeholderTextColor={colors.text.light}
+              value={notifBody}
+              onChangeText={setNotifBody}
+              multiline
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: colors.border }]}
+                onPress={() => { setNotifModalVisible(false); setNotifTargetAll(false); setNotifTargetUser(null); }}
+              >
+                <Text style={{ color: colors.text.primary }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: '#2A9D8F' }]}
+                onPress={async () => {
+                  const title = '🔔 Notificación de Prueba';
+                  const body = 'Esta es una notificación de prueba desde Gestión de Personal.';
+                  const target = notifTargetAll ? 'todos' : (notifTargetUser?.NombreUser || notifTargetUser?.nombreuser || notifTargetUser?.username || 'Usuario');
+                  console.log(`[AdminNotif] Test rápido para ${target}: "${title}"`);
+                  setIsSendingNotif(true);
+                  try {
+                    if (notifTargetAll) {
+                      let sent = 0;
+                      for (const user of filteredUsers) {
+                        const name = user.NombreUser || user.nombreuser || user.username || 'Usuario';
+                        const token = user.pushToken || user.PushToken;
+                        if (token) { await sendRiderPushNotification(token, { customTitle: title, customBody: body, cliente: name, orderId: 'test', total: 0, direccion: 'Test administrativo' }); sent++; }
+                        else if (user.whatsapp && user.callmebotKey) { await sendWhatsAppNotification(user.whatsapp, user.callmebotKey, { customBody: `*${title}*\n${body}`, orderId: 'test', cliente: name, total: 0, direccion: 'Test administrativo' }); sent++; }
+                      }
+                      showAlert('Test rápido', `Notificación enviada a ${sent} empleados`);
+                    } else if (notifTargetUser) {
+                      const name = notifTargetUser.NombreUser || notifTargetUser.nombreuser || notifTargetUser.username || 'Usuario';
+                      const token = notifTargetUser.pushToken || notifTargetUser.PushToken;
+                      if (token) { await sendRiderPushNotification(token, { customTitle: title, customBody: body, cliente: name, orderId: 'test', total: 0, direccion: 'Test administrativo' }); showAlert('Test rápido', `Notificación enviada a ${name}`); }
+                      else if (notifTargetUser.whatsapp && notifTargetUser.callmebotKey) { await sendWhatsAppNotification(notifTargetUser.whatsapp, notifTargetUser.callmebotKey, { customBody: `*${title}*\n${body}`, orderId: 'test', cliente: name, total: 0, direccion: 'Test administrativo' }); showAlert('Test rápido', `Notificación enviada a ${name}`); }
+                      else { showAlert('Sin canal', `${name} no tiene PushToken ni WhatsApp. Debe abrir la app para generar su token.`); }
+                    }
+                    setNotifModalVisible(false);
+                  } catch (e) {
+                    console.error('[AdminNotif] Error test rápido:', e);
+                    showAlert('Error', 'Falló el test: ' + (e?.message || e));
+                  } finally {
+                    setIsSendingNotif(false);
+                  }
+                }}
+              >
+                <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 12 }}>Test rápido</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: colors.primary }]}
+                onPress={async () => {
+                  if (!notifTitle.trim() || !notifBody.trim()) {
+                    showAlert('Error', 'Título y mensaje son obligatorios');
+                    return;
+                  }
+                  setIsSendingNotif(true);
+                  try {
+                    if (notifTargetAll) {
+                      const targets = filteredUsers;
+                      let sentCount = 0;
+                      let channelsUsed = [];
+                      for (const user of targets) {
+                        const targetName = user.NombreUser || user.nombreuser || user.username || 'Usuario';
+                        const token = user.pushToken || user.PushToken;
+                        if (token) {
+                          await sendRiderPushNotification(token, { customTitle: notifTitle, customBody: notifBody, cliente: targetName, orderId: 'test', total: 0, direccion: 'Mensaje administrativo' });
+                          channelsUsed.push('Push');
+                          sentCount++;
+                        } else if (user.whatsapp && user.callmebotKey) {
+                          await sendWhatsAppNotification(user.whatsapp, user.callmebotKey, { customBody: `*${notifTitle}*\n${notifBody}`, orderId: 'test', cliente: targetName, total: 0, direccion: 'Mensaje administrativo' });
+                          channelsUsed.push('WhatsApp');
+                          sentCount++;
+                        }
+                      }
+                      const noChannel = filteredUsers.filter(u => !(u.pushToken || u.PushToken) && !(u.whatsapp && u.callmebotKey)).length;
+                      const channel = [...new Set(channelsUsed)].join(' + ') || 'ninguno';
+                      console.log(`[AdminNotif] Enviado a ${sentCount} usuarios vía ${channel}. Sin canal: ${noChannel}`);
+                      showAlert('Éxito', `Notificación enviada a ${sentCount} empleados (vía ${channel})${noChannel ? `\n${noChannel} sin canal configurado` : ''}`);
+                    } else if (notifTargetUser) {
+                      const targetName = notifTargetUser.NombreUser || notifTargetUser.nombreuser || notifTargetUser.username || 'Usuario';
+                      let channelsUsed = [];
+                      const token = notifTargetUser.pushToken || notifTargetUser.PushToken;
+                      if (token) {
+                        await sendRiderPushNotification(token, { customTitle: notifTitle, customBody: notifBody, cliente: targetName, orderId: 'test', total: 0, direccion: 'Mensaje administrativo' });
+                        channelsUsed.push('Push');
+                      } else if (notifTargetUser.whatsapp && notifTargetUser.callmebotKey) {
+                        await sendWhatsAppNotification(notifTargetUser.whatsapp, notifTargetUser.callmebotKey, { customBody: `*${notifTitle}*\n${notifBody}`, orderId: 'test', cliente: targetName, total: 0, direccion: 'Mensaje administrativo' });
+                        channelsUsed.push('WhatsApp');
+                      }
+                      const channel = channelsUsed.join(' + ') || 'ninguno';
+                      console.log(`[AdminNotif] Enviado a ${targetName} vía ${channel}: "${notifTitle} - ${notifBody}"`);
+                      if (channelsUsed.length > 0) {
+                        showAlert('Éxito', `Notificación enviada a ${targetName} (vía ${channel})`);
+                      } else {
+                        showAlert('Sin canal', `${targetName} no tiene PushToken ni WhatsApp. Debe abrir la app para generar su token.`);
+                      }
+                    }
+                    setNotifModalVisible(false);
+                    setNotifTargetAll(false);
+                    setNotifTargetUser(null);
+                  } catch (e) {
+                    console.error('[AdminNotif] Error:', e);
+                    showAlert('Error', 'No se pudo enviar la notificación: ' + (e?.message || e));
+                  } finally {
+                    setIsSendingNotif(false);
+                  }
+                }}
+                disabled={isSendingNotif}
+              >
+                {isSendingNotif ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Enviar</Text>}
+              </TouchableOpacity>
+            </View>
           </GlassPanel>
         </View>
       </Modal>

@@ -1,6 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+// ✅ Importar logger al inicio para monkey-patch console.log
+// antes de cualquier otro módulo, para capturar todos los logs.
+import './utils/logger';
+// ✅ Importar notificaciones al inicio para registrar setNotificationHandler
+// antes de que cualquier pantalla o contexto monte.
+import './utils/notifications';
 import { ProductsProvider, CartProvider, DataSyncProvider } from './contexts/AppContext';
 import { OrderProvider } from './contexts/OrderContext';
 import AppNavigator from './navigation/AppNavigator';
@@ -11,6 +17,8 @@ import { FavoritesProvider } from './contexts/FavoritesContext';
 import { getThemeColors } from './theme/theme';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import RiderProposalOverlay from './components/RiderProposalOverlay';
+import BrowserNotificationBanner from './components/BrowserNotificationBanner';
+import OnboardingTutorial, { hasSeenOnboarding } from './components/OnboardingTutorial';
 
 // Reanimated 3 Web fix
 if (Platform.OS === 'web') {
@@ -20,6 +28,21 @@ if (Platform.OS === 'web') {
 const AppContent = () => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
+  const [showOnboarding, setShowOnboarding] = useState(null);
+
+  useEffect(() => {
+    hasSeenOnboarding().then(seen => setShowOnboarding(!seen));
+  }, []);
+
+  if (showOnboarding === null) return null; // Loading
+
+  if (showOnboarding) {
+    return (
+      <SafeAreaProvider>
+        <OnboardingTutorial onComplete={() => setShowOnboarding(false)} />
+      </SafeAreaProvider>
+    );
+  }
   
   return (
     <SafeAreaProvider>
@@ -33,6 +56,7 @@ const AppContent = () => {
                     <StatusBar style={darkMode ? "light" : "dark"} backgroundColor={colors.primary} />
                     <AppNavigator />
                     <RiderProposalOverlay />
+                    <BrowserNotificationBanner />
                   </OrderProvider>
                 </CartProvider>
               </ProductsProvider>

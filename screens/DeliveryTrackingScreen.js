@@ -1,3 +1,4 @@
+import { showAlert } from '../utils/showAlert';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   View, 
@@ -7,34 +8,221 @@ import {
   ScrollView, 
   Dimensions, 
   Image,
-  SafeAreaView,
   Animated,
   Platform,
   Linking,
   ActivityIndicator,
-  Modal,
-  Alert
+  Modal
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { updateOrderStatus } from '../utils/api';
+import { updateOrderStatus, getRouteDetails, fetchUserRatings, hasUserRatedOrder } from '../utils/api';
+import { subscribeToRiderLocation } from '../utils/locationService';
+import { getDistance, getDistanceMeters } from '../utils/mathUtils';
+import RatingModal from '../components/RatingModal';
+
+// Importar expo-location solo en native
+let Location = null;
+if (Platform.OS !== 'web') {
+  try {
+    Location = require('expo-location');
+  } catch (e) {
+    console.warn('expo-location not available:', e);
+  }
+}
 
 import { FontAwesome5 } from '@expo/vector-icons';
 import GlassPanel from '../components/GlassPanel';
 import DeliveryMap from '../components/DeliveryMap';
+import ScannerModal from '../components/ScannerModal';
 import { useDataSync } from '../contexts/AppContext';
 import { useThemeMode } from '../contexts/ThemeContext';
+import { CONFIG } from '../constants/Config';
 import { useOrder } from '../contexts/OrderContext';
+import { useUser } from '../contexts/UserContext';
 import { getThemeColors, shadows, glass } from '../theme/theme';
+import AccessDeniedScreen from '../components/AccessDeniedScreen';
 
 const { height, width } = Dimensions.get('window');
 
 const DeliveryTrackingScreen = ({ navigation, route }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
+  const { isAutoSyncEnabled } = useDataSync();
+  const { role, username, userId, email } = useUser();
+
+  const isStaff = useMemo(() => {
+    const currentRole = role || '';
+    return ['admin', 'staff', 'waiter', 'owner', 'delivery', 'repartidor'].includes(currentRole.toLowerCase());
+  }, [role]);
   
   const orderId = route.params?.orderId || "DS-" + Math.random().toString(36).substr(2, 6).toUpperCase();
   const { orderDetails, loading, loadOrderDetails, refreshOrder } = useOrder();
-  const { isAutoSyncEnabled } = useDataSync();
+  
+  const isAuthorized = useMemo(() => {
+    if (loading || !orderDetails) return true; // Wait for loading
+    if (isStaff) return true;
+    
+    // Check ownership
+    const orderEmail = (orderDetails.email || orderDetails.Email || '').toLowerCase().trim();
+    const myEmail = (email || '').toLowerCase().trim();
+    if (orderEmail && myEmail && orderEmail === myEmail) return true;
+    
+    if (orderDetails.userId && userId && String(orderDetails.userId) === String(userId)) return true;
+    
+    return false;
+  }, [loading, orderDetails, isStaff, email, userId]);
+
+  const [routeData, setRouteData] = useState(null);
+  const [fetchingRoute, setFetchingRoute] = useState(false);
+  const [deviceLocation, setDeviceLocation] = useState(null);
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [ratedAlready, setRatedAlready] = useState(false);
+  const [riderRatingData, setRiderRatingData] = useState(null);
+
+  // Ubicaciones
+  const storeLocation = CONFIG.STORE_LOCATION;
+  
+  const tipoEntrega = (orderDetails?.tipo || 'Domicilio').toLowerCase();
+  const isDelivery = tipoEntrega === 'domicilio' || tipoEntrega === 'delivery' || tipoEntrega === 'envio' || tipoEntrega === 'envío';
+
+  const clientLocation = useMemo(() => {
+    // Para pedidos pickup/local, usar la ubicación del dispositivo si está disponible
+    if (!isDelivery && deviceLocation) {
+      console.log('[DeliveryTracking] Using device location for pickup:', deviceLocation);
+      return deviceLocation;
+    }
+    
+    let loc = orderDetails?.location || { 
+      latitude: route.params?.lat || CONFIG.STORE_LOCATION.latitude, 
+      longitude: route.params?.lng || CONFIG.STORE_LOCATION.longitude 
+    };
+
+    if (typeof loc === 'string') {
+      try {
+        const [lat, lng] = loc.split(',').map(n => parseFloat(n.trim()));
+        loc = { latitude: lat, longitude: lng };
+      } catch (e) {
+        console.error("Error parsing location string:", loc, e);
+      }
+    }
+    
+    const result = {
+      latitude: Number(loc.latitude) || CONFIG.STORE_LOCATION.latitude,
+      longitude: Number(loc.longitude) || CONFIG.STORE_LOCATION.longitude
+    };
+    
+    console.log('[DeliveryTracking] clientLocation:', {
+      fromOrder: !!orderDetails?.location,
+      fromParams: !!(route.params?.lat && route.params?.lng),
+      fromDevice: !isDelivery && !!deviceLocation,
+      result
+    });
+    
+    return result;
+  }, [orderDetails, route.params, isDelivery, deviceLocation]);
+
+  // Cargar ruta real de Google
+  useEffect(() => {
+    if (!orderDetails) return;
+    
+    const fetchRealRoute = async () => {
+      // Para pickup/local, SOLO usar ubicación del dispositivo (GPS)
+      // orderDetails.location es la dirección del cliente (casa), no sirve para recogida
+      if (!isDelivery && !deviceLocation) {
+        console.log('[DeliveryTracking] Pickup sin GPS aún, esperando...');
+        return;
+      }
+      
+      const currentClientLocation = (!isDelivery && deviceLocation) ? deviceLocation : clientLocation;
+      
+      if (!currentClientLocation || !storeLocation) return;
+      
+      // Para delivery: store → client. Para pickup: client → store
+      const origin = isDelivery ? storeLocation : currentClientLocation;
+      const destination = isDelivery ? currentClientLocation : storeLocation;
+      
+      const originDistMeters = getDistanceMeters(origin.latitude, origin.longitude, destination.latitude, destination.longitude);
+      
+      // Si origen y destino son casi iguales, no fetcheear
+      if (originDistMeters < 10) {
+        console.log('[DeliveryTracking] Origin and destination too close:', Math.round(originDistMeters) + ' m');
+        return;
+      }
+      
+      console.log('[DeliveryTracking] Fetching route:', { origin, destination, isDelivery, originDist: Math.round(originDistMeters) + ' m', hasDeviceLocation: !!deviceLocation });
+      setFetchingRoute(true);
+      const data = await getRouteDetails(origin, destination);
+      console.log('[DeliveryTracking] Route data:', data ? { distance: data.distance, duration: data.duration, hasPolyline: !!data.polyline } : 'null');
+      if (data) {
+        setRouteData(data);
+      }
+      setFetchingRoute(false);
+    };
+
+    fetchRealRoute();
+  }, [orderDetails, clientLocation, isDelivery, deviceLocation]);
+
+  // Obtener ubicación del dispositivo para pedidos pickup/local
+  useEffect(() => {
+    const getDeviceLocation = async () => {
+      if (isDelivery) return;
+      
+      if (Platform.OS === 'web') {
+        if (!navigator.geolocation) {
+          console.log('[DeliveryTracking] Geolocation not available on web');
+          return;
+        }
+        
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            if (position.coords.accuracy > 1000) {
+              console.warn('[DeliveryTracking] GPS accuracy too low:', position.coords.accuracy, 'm — skipping device location');
+              return;
+            }
+            setDeviceLocation({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            });
+            console.log('[DeliveryTracking] Web device location:', position.coords);
+          },
+          (error) => {
+            console.error('[DeliveryTracking] Web geolocation error:', error);
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+        return;
+      }
+
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          console.log('[DeliveryTracking] Permiso de ubicación denegado');
+          return;
+        }
+        
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        
+        setDeviceLocation({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
+        
+        console.log('[DeliveryTracking] Device location:', location.coords);
+      } catch (error) {
+        console.error('[DeliveryTracking] Error getting device location:', error);
+      }
+    };
+    
+    getDeviceLocation();
+  }, [isDelivery]);
+
+  const distance = useMemo(() =>
+    routeData?.distance || getDistance(storeLocation.latitude, storeLocation.longitude, clientLocation.latitude, clientLocation.longitude),
+    [clientLocation, routeData]
+  );
   
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(height)).current;
@@ -44,13 +232,15 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
   const [isScannerVisible, setIsScannerVisible] = useState(false);
   const [isProcessingQR, setIsProcessingQR] = useState(false);
   const [scanned, setScanned] = useState(false);
+  const [riderLocation, setRiderLocation] = useState(null);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     floatingHeader: {
       position: 'absolute',
-      top: Platform.OS === 'ios' ? 50 : 20,
+      top: Platform.OS === 'ios' ? 50 : 40,
       left: 0,
       right: 0,
       zIndex: 10,
@@ -77,12 +267,12 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     },
     headerOrderId: { fontSize: 14, fontWeight: 'bold', color: colors.text.primary },
     mapWrapper: {
-      height: height * 0.55,
+      height: Platform.OS === 'web' && width > 768 ? height : height * 0.45,
       width: '100%',
     },
     etaSection: {
       position: 'absolute',
-      top: 100,
+      top: 110,
       alignSelf: 'center',
       zIndex: 5,
     },
@@ -102,14 +292,18 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     etaLabel: { fontSize: 10, letterSpacing: 1.5, fontWeight: '700', color: colors.text.secondary },
     etaTime: { fontSize: 24, fontWeight: '900', marginTop: 2, color: colors.primary },
     infoSheet: {
-      flex: 1,
-      borderTopLeftRadius: 35,
-      borderTopRightRadius: 35,
-      marginTop: -40,
-      paddingHorizontal: 24,
-      paddingTop: 16,
+      flex: Platform.OS === 'web' && width > 768 ? 0 : 1,
+      width: Platform.OS === 'web' && width > 768 ? 450 : '100%',
+      height: Platform.OS === 'web' && width > 768 ? height - 100 : 'auto',
+      position: Platform.OS === 'web' && width > 768 ? 'absolute' : 'relative',
+      top: Platform.OS === 'web' && width > 768 ? 50 : 0,
+      right: Platform.OS === 'web' && width > 768 ? 50 : 0,
+      borderRadius: 25,
+      paddingHorizontal: 20,
+      paddingTop: 15,
       ...shadows.large,
-      backgroundColor: darkMode ? 'rgba(30, 30, 30, 0.9)' : 'rgba(255, 255, 255, 0.9)',
+      backgroundColor: darkMode ? 'rgba(30, 30, 30, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+      backdropFilter: Platform.OS === 'web' ? 'blur(10px)' : 'none',
     },
     dragHandle: {
       width: 40,
@@ -119,14 +313,14 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
       alignSelf: 'center',
       marginBottom: 20,
     },
-    deliveryStatusContainer: { marginBottom: 30 },
-    statusTitle: { fontSize: 24, fontWeight: 'bold', marginBottom: 8, color: colors.text.primary },
-    deliveryAddress: { fontSize: 14, lineHeight: 20, color: colors.text.secondary },
+    deliveryStatusContainer: { marginBottom: 15 },
+    statusTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 4, color: colors.text.primary },
+    deliveryAddress: { fontSize: 13, lineHeight: 18, color: colors.text.secondary },
     stepsContainer: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: 35,
+      marginBottom: 20,
       paddingHorizontal: 10,
     },
     stepItem: { alignItems: 'center', zIndex: 2 },
@@ -143,8 +337,8 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     stepText: { fontSize: 11, textAlign: 'center' },
     stepConnector: {
       flex: 1,
-      height: 4,
-      borderRadius: 2,
+      height: 3,
+      borderRadius: 1.5,
       marginHorizontal: -15,
       marginTop: -25,
       zIndex: 1,
@@ -152,14 +346,14 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     riderCard: {
       flexDirection: 'row',
       alignItems: 'center',
-      padding: 18,
-      borderRadius: 30,
-      marginBottom: 25,
+      padding: 8,
+      borderRadius: 20,
+      marginBottom: 10,
       borderWidth: 1,
       borderColor: colors.border
     },
-    riderAvatarContainer: { position: 'relative', marginRight: 15 },
-    riderAvatar: { width: 65, height: 65, borderRadius: 32.5 },
+    riderAvatarContainer: { position: 'relative', marginRight: 12 },
+    riderAvatar: { width: 50, height: 50, borderRadius: 25 },
     riderStatusDot: {
       position: 'absolute',
       bottom: 2,
@@ -178,16 +372,18 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
       flexDirection: 'row',
       alignItems: 'center',
       marginTop: 10,
-      backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+      backgroundColor: darkMode ? 'rgba(255,215,0,0.1)' : 'rgba(255,215,0,0.15)',
       alignSelf: 'flex-start',
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 15,
+      borderWidth: 1,
+      borderColor: 'rgba(255,215,0,0.3)',
     },
     premiumRatingItem: { flexDirection: 'row', alignItems: 'center' },
-    premiumRatingText: { fontSize: 12, fontWeight: '700', marginLeft: 4, color: colors.text.primary },
-    ratingSeparator: { width: 1, height: 12, marginHorizontal: 8, backgroundColor: colors.border },
-    deliveriesText: { fontSize: 11, fontWeight: '500', color: colors.text.light },
+    premiumRatingText: { fontSize: 13, fontWeight: '900', marginLeft: 6, color: colors.text.primary },
+    ratingSeparator: { width: 1, height: 12, marginHorizontal: 10, backgroundColor: 'rgba(0,0,0,0.1)' },
+    deliveriesText: { fontSize: 11, fontWeight: '700', color: colors.text.secondary, textTransform: 'uppercase' },
     riderVehiculo: { fontSize: 13, fontWeight: '500', color: colors.text.secondary, marginLeft: 6 },
     riderActions: { alignItems: 'center', justifyContent: 'center', paddingLeft: 10 },
     actionButton: {
@@ -220,87 +416,20 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
       gap: 12,
       ...shadows.medium,
     },
-    receiveBtnText: { color: '#FFF', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
-    scannerContainer: { flex: 1, backgroundColor: '#000' },
-    scannerHeader: { 
-      position: 'absolute', 
-      top: 40, 
-      left: 0, 
-      right: 0, 
-      zIndex: 20, 
-      flexDirection: 'row', 
-      alignItems: 'center', 
-      paddingHorizontal: 20 
-    },
-    closeScannerBtn: { 
-      width: 44, 
-      height: 44, 
-      borderRadius: 22, 
-      backgroundColor: 'rgba(0,0,0,0.5)', 
-      justifyContent: 'center', 
-      alignItems: 'center' 
-    },
-    scannerTitle: { 
-      color: '#FFF', 
-      fontSize: 16, 
-      fontWeight: 'bold', 
-      marginLeft: 20,
-      ...Platform.select({
-        web: {
-          textShadow: '1px 1px 5px rgba(0,0,0,0.75)'
-        },
-        default: {
-          textShadowColor: 'rgba(0,0,0,0.75)',
-          textShadowOffset: { width: 1, height: 1 },
-          textShadowRadius: 5
-        }
-      })
-    },
-    scannerOverlay: { 
-      flex: 1, 
-      justifyContent: 'center', 
-      alignItems: 'center', 
-      zIndex: 10 
-    },
-    scannerFrame: { 
-      width: 250, 
-      height: 250, 
-      borderWidth: 4, 
-      borderColor: colors.primary, 
-      borderRadius: 30,
-      backgroundColor: 'transparent'
-    },
-    scannerHint: { 
-      color: '#FFF', 
-      marginTop: 30, 
-      fontSize: 14, 
-      fontWeight: '600',
-      backgroundColor: 'rgba(0,0,0,0.6)',
-      paddingHorizontal: 20,
-      paddingVertical: 10,
-      borderRadius: 20
-    },
-    processingOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      justifyContent: 'center',
-      alignItems: 'center',
-      zIndex: 30
-    },
-    processingText: { color: '#FFF', marginTop: 20, fontSize: 18, fontWeight: 'bold' }
+    receiveBtnText: { color: '#FFF', fontSize: 18, fontWeight: '900', letterSpacing: 1 }
   }), [colors, darkMode]);
 
   useEffect(() => {
     loadOrderDetails(orderId);
     Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.1, duration: 1000, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1.1, duration: 1000, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: Platform.OS !== 'web' }),
       ])
     ).start();
     Animated.parallel([
-      Animated.spring(slideAnim, { toValue: 0, tension: 20, friction: 7, useNativeDriver: true }),
-      Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true })
+      Animated.spring(slideAnim, { toValue: 0, tension: 20, friction: 7, useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: Platform.OS !== 'web' })
     ]).start();
     let interval = null;
     if (isAutoSyncEnabled) {
@@ -314,6 +443,33 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
       openScanner();
     }
   }, [route.params?.autoOpenScanner]);
+
+  // Load rider rating data when order is delivered
+  useEffect(() => {
+    if (!orderDetails) return;
+    const status = (orderDetails.estado || '').toLowerCase();
+    const riderId = orderDetails.riderId || orderDetails.id_repartidor || '';
+    const isDelivered = status === 'delivered' || status === 'entregado';
+
+    if (isDelivered && riderId) {
+      fetchUserRatings(riderId).then(data => setRiderRatingData(data)).catch(() => {});
+      if (userId) {
+        hasUserRatedOrder(orderId, userId).then(rated => setRatedAlready(rated)).catch(() => {});
+      }
+    }
+  }, [orderDetails?.estado, orderId, userId]);
+
+  // Show rating modal for delivered orders (client only, not staff)
+  useEffect(() => {
+    if (!orderDetails || isStaff) return;
+    const status = (orderDetails.estado || '').toLowerCase();
+    const isDelivered = status === 'delivered' || status === 'entregado';
+    if (isDelivered && !ratedAlready && !showRatingModal) {
+      // Small delay so the user sees the "delivered" state first
+      const t = setTimeout(() => setShowRatingModal(true), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [orderDetails?.estado, ratedAlready, isStaff]);
 
   const handleBarCodeScanned = async ({ type, data }) => {
     if (scanned || isProcessingQR) return;
@@ -333,14 +489,16 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
         const isCash = payload.paymentMethod?.toLowerCase().includes('efectivo');
         const message = isCash ? '¡RECIBIDO Y PAGADO ✅! Gracias por tu preferencia.' : '¡RECIBIDO ✅! Esperamos que disfrutes tu pedido.';
         
-        Alert.alert('Éxito', message);
+        showAlert('Éxito', message);
+        // Show rating modal after a short delay
+        setTimeout(() => setShowRatingModal(true), 2000);
       } else {
-        Alert.alert('Error', 'Este código no corresponde a tu pedido actual.');
+        showAlert('Error', 'Este código no corresponde a tu pedido actual.');
         setScanned(false);
       }
     } catch (error) {
       console.error("Error scanning QR:", error);
-      Alert.alert('Error', 'Código no válido.');
+      showAlert('Error', 'Código no válido.');
       setScanned(false);
     } finally {
       setIsProcessingQR(false);
@@ -351,7 +509,7 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     if (!permission || !permission.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
-        Alert.alert('Permiso denegado', 'Necesitamos acceso a la cámara para confirmar la entrega.');
+        showAlert('Permiso denegado', 'Necesitamos acceso a la cámara para confirmar la entrega.');
         return;
       }
     }
@@ -359,15 +517,18 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
     setIsScannerVisible(true);
   };
 
-  const steps = [
+
+
+  const steps = useMemo(() => [
     { key: 'preparing', label: 'Cocinando', icon: 'utensils' },
-    { key: 'on_the_way', label: 'En camino', icon: 'motorcycle' },
-    { key: 'delivered', label: '¡Aquí está!', icon: 'check-circle' },
-  ];
+    { key: 'on_the_way', label: isDelivery ? 'En camino' : 'Listo para retirar', icon: isDelivery ? 'motorcycle' : 'store' },
+    { key: 'delivered', label: isDelivery ? '¡Aquí está!' : '¡Retirado!', icon: 'check-circle' },
+  ], [isDelivery]);
 
   const getStatusIndex = (status) => {
     switch(status) {
       case 'preparing': return 0;
+      case 'ready':
       case 'on_the_way': return 1;
       case 'delivered': return 2;
       default: return 0;
@@ -376,7 +537,11 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
 
   const currentStepIndex = getStatusIndex(orderDetails?.estado);
 
-  if (loading && !orderDetails) {
+  if (!loading && !isAuthorized) {
+    return <AccessDeniedScreen navigation={navigation} message={`No tienes permiso para ver o rastrear el pedido ${orderId}.`} />;
+  }
+
+  if (loading || !orderDetails) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
@@ -384,6 +549,19 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
       </View>
     );
   }
+
+  // Verificar propiedad: clientes solo pueden ver sus propios pedidos
+  if (!isStaff) {
+    const orderUserId = orderDetails.id_user || orderDetails.ID_Usuario || '';
+    const currentUserId = userId || email || '';
+    const isOwner = orderUserId && currentUserId &&
+      (String(orderUserId).toLowerCase() === String(currentUserId).toLowerCase());
+    if (!isOwner) {
+      return <AccessDeniedScreen navigation={navigation} message="No tienes permiso para ver los detalles de este pedido." />;
+    }
+  }
+
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -394,23 +572,44 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
         <GlassPanel intensity={10} style={styles.headerBadge}>
           <Text style={styles.headerOrderId}>Orden {orderId}</Text>
         </GlassPanel>
-        <View style={{ width: 44 }} />
+        <TouchableOpacity 
+          onPress={() => refreshOrder(orderId)} 
+          style={[styles.backButton, { backgroundColor: colors.primary + '20' }]}
+        >
+          <FontAwesome5 name="sync-alt" size={16} color={colors.primary} />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.mapWrapper}>
-        <DeliveryMap darkMode={darkMode} colors={colors} pulseAnim={pulseAnim} progreso={orderDetails?.progreso || 0.4} />
-        <Animated.View style={[styles.etaSection, { opacity: fadeAnim, transform: [{ scale: fadeAnim }] }]}>
-          <GlassPanel intensity={35} style={styles.etaContainer}>
-            <View style={{ alignItems: 'center' }}>
-              <Text style={styles.etaLabel}>LLEGADA ESTIMADA</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                <FontAwesome5 name="clock" size={16} color={colors.primary} style={{ marginRight: 8 }} />
-                <Text style={styles.etaTime}>{orderDetails?.eta || '20 min'}</Text>
+          <DeliveryMap 
+            darkMode={darkMode} 
+            colors={colors} 
+            origin={isDelivery ? CONFIG.STORE_LOCATION : (deviceLocation || CONFIG.STORE_LOCATION)}
+            destination={isDelivery ? clientLocation : CONFIG.STORE_LOCATION}
+            routeData={routeData}
+            isPickup={!isDelivery}
+            pulseAnim={pulseAnim} 
+            progreso={orderDetails?.progreso || 0.4} 
+          />
+          <Animated.View style={[styles.etaSection, { opacity: fadeAnim, transform: [{ scale: fadeAnim }, { translateY: pulseAnim.interpolate({ inputRange: [1, 1.1], outputRange: [0, -5] }) }] }]}>
+            <GlassPanel intensity={40} style={styles.etaContainer}>
+              <View style={{ alignItems: 'center' }}>
+                <Text style={[styles.etaLabel, { color: colors.primary, fontWeight: '900' }]}>
+                  {isDelivery ? 'LLEGADA ESTIMADA' : !isDelivery ? 'RECOGIDA ESTIMADA' : 'UBICACIÓN DEL LOCAL'}
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+                  <FontAwesome5 name="clock" size={20} color={colors.primary} style={{ marginRight: 10 }} />
+                  <Text style={[styles.etaTime, { fontSize: 28 }]}>{routeData?.duration || orderDetails?.eta || '20 min'}</Text>
+                </View>
+                {routeData?.distance && (
+                   <Text style={{ fontSize: 12, color: colors.text.secondary, marginTop: 4, fontWeight: '600' }}>
+                     A {routeData.distance} de distancia
+                   </Text>
+                )}
               </View>
-            </View>
-          </GlassPanel>
-        </Animated.View>
-      </View>
+            </GlassPanel>
+          </Animated.View>
+        </View>
 
       <Animated.View style={[styles.infoSheet, { transform: [{ translateY: slideAnim }] }]}>
         <View style={styles.dragHandle} />
@@ -420,7 +619,7 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
               {currentStepIndex === 1 ? '¡Tu pedido está volando!' : currentStepIndex === 2 ? '¡Pedido entregado con éxito!' : 'Estamos preparando tu delicia'}
             </Text>
             <Text style={styles.deliveryAddress}>
-              <FontAwesome5 name="map-marker-alt" color={colors.error} /> {orderDetails?.direccion || 'Buscando dirección...'}
+              <FontAwesome5 name="map-marker-alt" color={colors.error} /> {String(orderDetails?.direccion || '').split('|').pop().trim() || 'Buscando dirección...'}
             </Text>
           </View>
           <View style={styles.stepsContainer}>
@@ -442,33 +641,40 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
               );
             })}
           </View>
-          <GlassPanel intensity={20} style={styles.riderCard}>
-            <View style={styles.riderAvatarContainer}>
-              <Image source={{ uri: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?auto=format&fit=crop&w=150&q=80' }} style={styles.riderAvatar} />
-              <View style={[styles.riderStatusDot, { backgroundColor: colors.success }]} />
-            </View>
-            <View style={styles.riderInfo}>
-              <Text style={styles.riderLabel}>TU REPARTIDOR</Text>
-              <Text style={styles.riderName}>{orderDetails?.nombre || 'Juan'} {orderDetails?.apellido || 'Pérez'}</Text>
-              <View style={styles.riderPhoneRow}>
-                <FontAwesome5 name="motorcycle" size={12} color={colors.text.secondary} />
-                <Text style={styles.riderVehiculo}>{orderDetails?.vehiculo || 'Honda Super Cub'}</Text>
+          {isDelivery && (
+            <GlassPanel intensity={20} style={styles.riderCard}>
+              <View style={styles.riderAvatarContainer}>
+                <Image source={{ uri: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?auto=format&fit=crop&w=150&q=80' }} style={styles.riderAvatar} />
+                <View style={[styles.riderStatusDot, { backgroundColor: colors.success }]} />
               </View>
-              <View style={styles.premiumRatingRow}>
-                <View style={styles.premiumRatingItem}>
-                  <FontAwesome5 name="star" size={10} color={colors.warning} solid /><Text style={styles.premiumRatingText}>4.9</Text>
+              <View style={styles.riderInfo}>
+                <Text style={styles.riderLabel}>TU REPARTIDOR</Text>
+                <Text style={styles.riderName}>{orderDetails?.nombre || 'Juan'} {orderDetails?.apellido || 'Pérez'}</Text>
+                <View style={styles.riderPhoneRow}>
+                  <FontAwesome5 name="motorcycle" size={12} color={colors.text.secondary} />
+                  <Text style={styles.riderVehiculo}>{orderDetails?.vehiculo || 'Honda Super Cub'}</Text>
                 </View>
-                <View style={styles.ratingSeparator} />
-                <Text style={styles.deliveriesText}>1.2k pedidos</Text>
+                <View style={styles.premiumRatingRow}>
+                  <View style={styles.premiumRatingItem}>
+                    <FontAwesome5 name="star" size={10} color={colors.warning} solid />
+                    <Text style={styles.premiumRatingText}>
+                      {riderRatingData?.promedio ? riderRatingData.promedio.toFixed(1) : '—'}
+                    </Text>
+                  </View>
+                  <View style={styles.ratingSeparator} />
+                  <Text style={styles.deliveriesText}>
+                    {riderRatingData?.cantidad ? `${riderRatingData.cantidad} pedidos` : 'Nuevo'}
+                  </Text>
+                </View>
               </View>
-            </View>
-            <View style={styles.riderActions}>
-              <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.primary }]} onPress={() => Linking.openURL(`tel:${orderDetails?.telefono}`)} activeOpacity={0.7}><FontAwesome5 name="phone" size={16} color="#FFF" /></TouchableOpacity>
-              <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#25D366', marginTop: 12 }]} onPress={() => Linking.openURL(`https://wa.me/${orderDetails?.whatsapp?.replace(/\D/g,'')}`)} activeOpacity={0.7}><FontAwesome5 name="whatsapp" size={18} color="#FFF" /></TouchableOpacity>
-            </View>
-          </GlassPanel>
+              <View style={styles.riderActions}>
+                <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.primary }]} onPress={() => Linking.openURL(`tel:${orderDetails?.telefono}`)} activeOpacity={0.7}><FontAwesome5 name="phone" size={16} color="#FFF" /></TouchableOpacity>
+                <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#25D366', marginTop: 12 }]} onPress={() => Linking.openURL(`https://wa.me/${orderDetails?.whatsapp?.replace(/\D/g,'')}`)} activeOpacity={0.7}><FontAwesome5 name="whatsapp" size={18} color="#FFF" /></TouchableOpacity>
+              </View>
+            </GlassPanel>
+          )}
           
-          {currentStepIndex === 1 && (
+          {currentStepIndex === 1 && isDelivery && (
             <TouchableOpacity 
               style={[styles.receiveBtn, { backgroundColor: colors.success }]} 
               onPress={openScanner}
@@ -478,41 +684,150 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
             </TouchableOpacity>
           )}
 
-          <TouchableOpacity style={styles.detailsBtn} onPress={() => navigation.navigate('Config')}><Text style={styles.detailsBtnText}>Detalles de la Factura</Text><FontAwesome5 name="chevron-right" size={12} color={colors.text.light} /></TouchableOpacity>
+          {currentStepIndex === 1 && !isDelivery && isStaff && (
+            <TouchableOpacity 
+              style={[styles.receiveBtn, { backgroundColor: colors.success }]} 
+              onPress={async () => {
+                setIsProcessingQR(true);
+                try {
+                  await updateOrderStatus(orderId, 'delivered', { 
+                    entregadoPor: username || 'Empleado' 
+                  });
+                  await refreshOrder(orderId);
+                  showAlert('Éxito', 'Pedido entregado en local correctamente.');
+                } catch (e) {
+                  showAlert('Error', 'No se pudo confirmar la entrega.');
+                } finally {
+                  setIsProcessingQR(false);
+                }
+              }}
+            >
+              <FontAwesome5 name="check-circle" size={18} color="#FFF" />
+              <Text style={styles.receiveBtnText}>ENTREGAR PEDIDO</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity style={styles.detailsBtn} onPress={() => setShowInvoiceModal(true)}><Text style={styles.detailsBtnText}>Detalles de la Factura</Text><FontAwesome5 name="chevron-right" size={12} color={colors.text.light} /></TouchableOpacity>
         </ScrollView>
       </Animated.View>
 
-      {/* 📸 MODAL DE ESCÁNER QR PARA EL CLIENTE */}
-      <Modal visible={isScannerVisible} animationType="slide" onRequestClose={() => setIsScannerVisible(false)}>
-        <SafeAreaView style={styles.scannerContainer}>
-          <View style={styles.scannerHeader}>
-            <TouchableOpacity onPress={() => setIsScannerVisible(false)} style={styles.closeScannerBtn}>
-              <FontAwesome5 name="times" size={24} color="#FFF" />
-            </TouchableOpacity>
-            <Text style={styles.scannerTitle}>ESCANEAR PARA CONFIRMAR</Text>
-          </View>
-          
-          <CameraView
-            onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
-            barcodeScannerSettings={{
-              barcodeTypes: ["qr"],
-            }}
-            style={StyleSheet.absoluteFillObject}
-          />
-
-          <View style={styles.scannerOverlay}>
-            <View style={styles.scannerFrame} />
-            <Text style={styles.scannerHint}>Enfoca el código QR del repartidor</Text>
-          </View>
-          
-          {isProcessingQR && (
-            <View style={styles.processingOverlay}>
-              <ActivityIndicator size="large" color={colors.primary} />
-              <Text style={styles.processingText}>Confirmando entrega...</Text>
+      {/* 🧾 MODAL DE DETALLE DE FACTURA */}
+      <Modal visible={showInvoiceModal} transparent animationType="slide" onRequestClose={() => setShowInvoiceModal(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ 
+            backgroundColor: colors.surface, 
+            borderTopLeftRadius: 24, 
+            borderTopRightRadius: 24, 
+            maxHeight: '85%',
+            paddingTop: 20,
+          }}>
+            {/* Header */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 15 }}>
+              <Text style={{ fontSize: 20, fontWeight: 'bold', color: colors.text.primary }}>Resumen del Pedido</Text>
+              <TouchableOpacity onPress={() => setShowInvoiceModal(false)} style={{ padding: 8 }}>
+                <FontAwesome5 name="times" size={20} color={colors.text.secondary} />
+              </TouchableOpacity>
             </View>
-          )}
-        </SafeAreaView>
+
+            <ScrollView style={{ paddingHorizontal: 20, paddingBottom: 30 }}>
+              {/* ID y Estado */}
+              <View style={{ backgroundColor: colors.background, borderRadius: 12, padding: 15, marginBottom: 15 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 14, color: colors.text.secondary }}>Pedido</Text>
+                  <Text style={{ fontSize: 16, fontWeight: 'bold', color: colors.primary }}>#{orderDetails?.id || orderId}</Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                  <Text style={{ fontSize: 14, color: colors.text.secondary }}>Estado</Text>
+                  <View style={{ backgroundColor: colors.primary + '20', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                    <Text style={{ fontSize: 12, fontWeight: 'bold', color: colors.primary }}>{orderDetails?.estado || 'En proceso'}</Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                  <Text style={{ fontSize: 14, color: colors.text.secondary }}>Hora</Text>
+                  <Text style={{ fontSize: 14, color: colors.text.primary }}>{orderDetails?.hora || 'N/A'}</Text>
+                </View>
+              </View>
+
+              {/* Cliente */}
+              <View style={{ backgroundColor: colors.background, borderRadius: 12, padding: 15, marginBottom: 15 }}>
+                <Text style={{ fontSize: 14, color: colors.text.secondary, marginBottom: 8 }}>Cliente</Text>
+                <Text style={{ fontSize: 16, fontWeight: 'bold', color: colors.text.primary }}>{orderDetails?.cliente || 'Invitado'}</Text>
+                <Text style={{ fontSize: 13, color: colors.text.secondary, marginTop: 4 }}>
+                  {String(orderDetails?.direccion || '').split('|').pop().trim() || 'Sin dirección'}
+                </Text>
+              </View>
+
+              {/* Tipo de Entrega */}
+              <View style={{ backgroundColor: colors.background, borderRadius: 12, padding: 15, marginBottom: 15 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 14, color: colors.text.secondary }}>Tipo de Entrega</Text>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text.primary }}>
+                    {orderDetails?.tipo === 'delivery' || orderDetails?.tipo === 'domicilio' ? '🏠 Domicilio' : 
+                     orderDetails?.tipo === 'pickup' ? '🏪 Recogida' : '🍽️ En Local'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Items */}
+              {orderDetails?.items && orderDetails.items.length > 0 && (
+                <View style={{ backgroundColor: colors.background, borderRadius: 12, padding: 15, marginBottom: 15 }}>
+                  <Text style={{ fontSize: 14, color: colors.text.secondary, marginBottom: 12 }}>Productos</Text>
+                  {orderDetails.items.map((item, index) => (
+                    <View key={index} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: index < orderDetails.items.length - 1 ? 1 : 0, borderBottomColor: colors.border }}>
+                      <View style={{ flex: 1, marginRight: 10 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text.primary }}>
+                          {item.nombre || item.name || 'Producto'}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: colors.text.secondary }}>
+                          Cant: {item.cantidad || item.quantity || 1}
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 14, fontWeight: 'bold', color: colors.text.primary }}>
+                        RD$ {((item.precio || item.price || 0) * (item.cantidad || item.quantity || 1)).toFixed(2)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* Total */}
+              <View style={{ backgroundColor: colors.primary + '10', borderRadius: 12, padding: 15, marginBottom: 20, borderWidth: 1, borderColor: colors.primary + '30' }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 18, fontWeight: 'bold', color: colors.text.primary }}>Total</Text>
+                  <Text style={{ fontSize: 22, fontWeight: '900', color: colors.primary }}>RD$ {(orderDetails?.total || 0).toFixed(2)}</Text>
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
+
+      {/* 📸 MODAL DE ESCÁNER QR MODULARIZADO */}
+      <ScannerModal 
+        visible={isScannerVisible}
+        onClose={() => setIsScannerVisible(false)}
+        onScan={handleBarCodeScanned}
+        scanned={scanned}
+        isProcessing={isProcessingQR}
+        colors={colors}
+      />
+
+      {/* ⭐ MODAL DE VALORACIÓN POST-ENTREGA */}
+      <RatingModal
+        visible={showRatingModal}
+        pedidoId={orderId}
+        paraUsuario={orderDetails?.riderId || orderDetails?.id_repartidor || ''}
+        paraNombre={orderDetails?.nombre || orderDetails?.Nombre || 'Empleado'}
+        tipoPedido={isDelivery ? 'delivery' : 'local'}
+        onRated={() => {
+          setShowRatingModal(false);
+          setRatedAlready(true);
+        }}
+        onSkip={() => {
+          setShowRatingModal(false);
+          setRatedAlready(true);
+        }}
+      />
     </SafeAreaView>
   );
 };

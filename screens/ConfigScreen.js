@@ -1,44 +1,115 @@
-import React, { useState, useMemo } from 'react';
+import { showAlert } from '../utils/showAlert';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   View, 
   Text, 
   StyleSheet, 
-  SafeAreaView, 
   ScrollView, 
   TouchableOpacity, 
   Switch, 
-  Alert 
+  Alert,
+  Platform
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useUser } from '../contexts/UserContext';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { useCart } from '../contexts/AppContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
-import { TextInput, Modal } from 'react-native';
+import { TextInput, Modal, ActivityIndicator } from 'react-native';
+import { saveUser } from '../utils/api';
+import Constants from 'expo-constants';
+import UpdateService from '../utils/UpdateService';
+import NotificationService from '../utils/notificationService';
+import LocationPickerModal from '../components/LocationPickerModal';
+import LoggerModal from '../components/LoggerModal';
+import { getFCMToken } from '../utils/fcm';
+import { CONFIG } from '../constants/Config';
 
 const ConfigScreen = () => {
+  const [loggerModalVisible, setLoggerModalVisible] = useState(false);
+  const [fcmToken, setFcmToken] = useState(null);
   const { darkMode, setThemeMode, themeMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const navigation = useNavigation();
   const { user, signOut } = useAuth();
-  const { role } = useUser();
-  const isAdmin = !!(role && role.toLowerCase() === 'admin');
-  const [notifications, setNotifications] = useState(true);
-  const { exchangeRates, updateExchangeRates } = useCart();
-  const [ratesModalVisible, setRatesModalVisible] = useState(false);
-  const [tempRates, setTempRates] = useState({});
+  const { 
+    username, setUsername, 
+    address, setAddress, 
+    phone, setPhone, 
+    role, userTypeId, syncUserRole,
+    isSyncing: isUserSyncing
+  } = useUser();
+  const isAdmin = !!(role && (role.toLowerCase() === 'admin' || role.toLowerCase() === 'owner'));
 
-  const openRatesModal = () => {
-    setTempRates(exchangeRates || { USD: 58.00, EUR: 63.00, COP: 0.015, MXN: 3.50 });
-    setRatesModalVisible(true);
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      getFCMToken().then(t => setFcmToken(t || null)).catch(() => {});
+    }
+  }, []);
+  // Inicializar estado de notificaciones según el permiso actual del browser
+  const getInitialNotifState = () => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && 'Notification' in window) {
+      return window.Notification.permission === 'granted';
+    }
+    return true;
+  };
+  const [notifications, setNotifications] = useState(getInitialNotifState);
+  const { businessInfo } = useCart();
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+
+  const handleSyncProfile = async () => {
+    if (!user?.email) return;
+    try {
+      await syncUserRole(user.email);
+      showAlert('Sincronización', 'Tus datos han sido actualizados desde el servidor.');
+    } catch (error) {
+      showAlert('Error', 'No se pudieron sincronizar los datos.');
+    }
   };
 
-  const saveRates = () => {
-    updateExchangeRates(tempRates);
-    setRatesModalVisible(false);
-    Alert.alert('Éxito', 'Tasas de cambio actualizadas correctamente.');
+  // ✅ Nueva función para obtener la ubicación actual y rellenar lat/long en el modal de datos del negocio
+  const handleGetLocation = async () => {
+    try {
+      // Solicitar permiso si no se ha concedido (solo en dispositivos móviles)
+      if (Platform.OS !== 'web') {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          showAlert('Permiso', 'Permiso de ubicación denegado');
+          return;
+        }
+      }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      if (loc && loc.coords) {
+        const { latitude, longitude } = loc.coords;
+        setTempUser(prev => ({
+          ...prev,
+          latitude: latitude.toString(),
+          longitude: longitude.toString(),
+        }));
+        showAlert('Éxito', 'Ubicación obtenida y aplicada a los campos.');
+      } else {
+        showAlert('Error', 'No se pudo obtener la ubicación.');
+      }
+    } catch (e) {
+      console.warn('Error al obtener ubicación:', e);
+      showAlert('Error', 'Ocurrió un problema al obtener la ubicación.');
+    }
+  };
+
+  const handleCheckUpdates = async () => {
+    setIsCheckingUpdates(true);
+    try {
+      await UpdateService.checkUpdate(true);
+    } catch (error) {
+      console.error('Error checking updates:', error);
+      showAlert('Error', 'No se pudo verificar la actualización.');
+    } finally {
+      setIsCheckingUpdates(false);
+    }
   };
 
   const styles = useMemo(() => StyleSheet.create({
@@ -71,9 +142,9 @@ const ConfigScreen = () => {
     menuText: { flex: 1, fontSize: typography.sizes.md, color: colors.text.primary, fontWeight: typography.weights.medium },
     themeSelector: {
       flexDirection: 'row', backgroundColor: darkMode ? '#2C2C2E' : '#E9E9EB', padding: 3,
-      borderRadius: borders.radius.md, borderWidth: 1, borderColor: colors.border,
+      borderRadius: borders.radius.md, borderWidth: 1, borderColor: colors.border, gap: 2,
     },
-    themeBtn: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: borders.radius.sm + 2 },
+    themeBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: borders.radius.sm + 2 },
     themeBtnActive: { backgroundColor: colors.primary, ...shadows.small },
     logoutButton: {
       margin: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -87,7 +158,7 @@ const ConfigScreen = () => {
     modalTitle: { fontSize: typography.sizes.lg, fontWeight: 'bold', color: colors.text.primary, marginBottom: spacing.lg, textAlign: 'center' },
     rateInputRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
     rateCurrency: { fontSize: typography.sizes.md, fontWeight: 'bold', color: colors.primary, width: 60 },
-    rateInput: { flex: 1, backgroundColor: colors.surface, padding: spacing.md, borderRadius: borders.radius.md, color: colors.text.primary, borderWidth: 1, borderColor: colors.border },
+    rateInput: { backgroundColor: colors.surface, padding: spacing.md, borderRadius: borders.radius.md, color: colors.text.primary, borderWidth: 1, borderColor: colors.border, minHeight: 50, width: '100%' },
     modalBtnRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.lg },
     modalBtn: { flex: 1, padding: spacing.md, borderRadius: borders.radius.md, alignItems: 'center' },
     modalBtnCancel: { backgroundColor: colors.surface, marginRight: spacing.sm },
@@ -95,10 +166,10 @@ const ConfigScreen = () => {
   }), [colors, darkMode]);
 
   const handleLogout = () => {
-    Alert.alert('Cerrar Sesión', '¿Estás seguro de que deseas salir?', [
+    showAlert('Cerrar Sesión', '¿Estás seguro de que deseas salir?', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Salir', style: 'destructive', onPress: async () => {
-        try { await signOut(); } catch (error) { Alert.alert('Error', 'No se pudo cerrar la sesión'); }
+        try { await signOut(); } catch (error) { showAlert('Error', 'No se pudo cerrar la sesión'); }
       }}
     ]);
   };
@@ -119,29 +190,43 @@ const ConfigScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
+      <ScrollView bounces={false} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <FontAwesome5 name="arrow-left" size={20} color="#FFFFFF" />
           </TouchableOpacity>
           <View style={styles.avatarContainer}>
-            <Text style={styles.avatarText}>{(user?.displayName || user?.email || 'U')[0].toUpperCase()}</Text>
+            {isAdmin && businessInfo?.logo ? (
+              <TextInput style={{ display: 'none' }} /> // Hack to avoid potential issues with empty views
+            ) : null}
+            <Text style={styles.avatarText}>
+              {isAdmin ? (businessInfo?.name || 'D')[0].toUpperCase() : (user?.displayName || user?.email || 'U')[0].toUpperCase()}
+            </Text>
           </View>
-          <Text style={styles.userName}>{user?.displayName || 'Usuario DSicario'}</Text>
-          <Text style={styles.userEmail}>{user?.email || 'cliente@dsicario.com'}</Text>
+          <Text style={styles.userName}>{isAdmin ? (businessInfo?.name || 'Local DSicario') : (username || 'Usuario DSicario')}</Text>
+          <Text style={styles.userEmail}>{isAdmin ? (businessInfo?.email || 'admin@dsicario.com') : (userTypeId ? `Código: ${userTypeId}` : (user?.email || 'cliente@dsicario.com'))}</Text>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Mi Cuenta</Text>
-          <SettingItem icon="history" title="Historial de Pedidos" onPress={() => navigation.navigate('PurchaseHistory')} />
-          <SettingItem icon="heart" title="Mis Favoritos" onPress={() => navigation.navigate('Favorites')} />
+          <Text style={styles.sectionTitle}>{isAdmin ? 'Perfil del Local' : 'Mi Cuenta'}</Text>
+          <SettingItem 
+            icon={isAdmin ? "store" : "user-edit"} 
+            title={isAdmin ? "Información del Local" : "Datos Personales"} 
+            onPress={() => navigation.navigate('ConfigPersonalData')} 
+          />
+          <SettingItem 
+            icon={isUserSyncing ? "spinner" : "sync"} 
+            title={isUserSyncing ? "Sincronizando..." : "Sincronizar Perfil"} 
+            onPress={handleSyncProfile} 
+          />
+          <SettingItem icon="history" title="Historial de Pedidos" onPress={() => navigation.navigate('Historial')} />
+          <SettingItem icon="heart" title="Mis Favoritos" onPress={() => navigation.navigate('Favoritos')} />
         </View>
 
         {isAdmin && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>⚙️ ADMINISTRACIÓN</Text>
-            <SettingItem icon="motorcycle" title="Administrar Repartidores" onPress={() => navigation.navigate('RiderAdmin')} />
-            <SettingItem icon="money-bill-wave" title="Tasas de Cambio" onPress={openRatesModal} />
+            <SettingItem icon="tools" title="Panel de Gestión" onPress={() => navigation.navigate('GestionTab')} />
           </View>
         )}
 
@@ -154,14 +239,78 @@ const ConfigScreen = () => {
             <Text style={styles.menuText}>Tema Visual</Text>
             <View style={styles.themeSelector}>
               <TouchableOpacity onPress={() => setThemeMode('light')} style={[styles.themeBtn, themeMode === 'light' && styles.themeBtnActive]}>
-                <FontAwesome5 name="sun" size={12} color={themeMode === 'light' ? 'white' : colors.text.secondary} />
+                <FontAwesome5 name="sun" size={12} color={themeMode === 'light' ? '#FFF' : colors.text.secondary} />
               </TouchableOpacity>
               <TouchableOpacity onPress={() => setThemeMode('dark')} style={[styles.themeBtn, themeMode === 'dark' && styles.themeBtnActive]}>
-                <FontAwesome5 name="moon" size={12} color={themeMode === 'dark' ? 'white' : colors.text.secondary} />
+                <FontAwesome5 name="moon" size={12} color={themeMode === 'dark' ? '#FFF' : colors.text.secondary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setThemeMode('system')} style={[styles.themeBtn, themeMode === 'system' && styles.themeBtnActive]}>
+                <FontAwesome5 name="adjust" size={12} color={themeMode === 'system' ? '#FFF' : colors.text.secondary} />
               </TouchableOpacity>
             </View>
           </View>
-          <SettingItem icon="bell" title="Notificaciones" isSwitch value={notifications} onPress={() => setNotifications(!notifications)} />
+          <SettingItem 
+            icon="bell" 
+            title="Notificaciones" 
+            onPress={() => navigation.navigate('Notifications')} 
+          />
+
+          {/* Token FCM debug */}
+          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface + '80', paddingVertical: 8 }]} onPress={async () => {
+            try {
+              setFcmToken('Obteniendo...');
+              const token = await getFCMToken();
+              setFcmToken(token || null);
+              if (!token && typeof window !== 'undefined' && window.__FCM_TOKEN_ERROR__) {
+                setFcmToken(null);
+                showAlert('Error FCM', window.__FCM_TOKEN_ERROR__);
+              }
+            } catch { setFcmToken(null); }
+          }}>
+            <View style={styles.iconContainer}>
+              <FontAwesome5 name="fingerprint" size={14} color={colors.text.secondary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.menuText, { fontSize: 11 }]}>Token FCM (Firebase)</Text>
+              <Text style={{ fontSize: 9, color: colors.text.secondary, marginTop: 2 }} numberOfLines={2} selectable>
+                {fcmToken === 'Obteniendo...' 
+                  ? 'Cargando Firebase...'
+                  : fcmToken 
+                    ? fcmToken 
+                    : typeof window !== 'undefined' && window.__FCM_TOKEN_ERROR__
+                      ? window.__FCM_TOKEN_ERROR__
+                      : 'Toca para obtener token FCM'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+          {/* Expo Push Token debug */}
+          <View style={[styles.menuItem, { backgroundColor: colors.surface + '30', paddingVertical: 8 }]}>
+            <View style={styles.iconContainer}>
+              <FontAwesome5 name="bell" size={14} color={colors.text.secondary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.menuText, { fontSize: 11 }]}>Token Expo Push</Text>
+              <Text style={{ fontSize: 9, color: colors.text.secondary, marginTop: 2 }} numberOfLines={1} selectable>
+                {typeof window !== 'undefined' && window.__PUSH_TOKEN__ 
+                  ? window.__PUSH_TOKEN__ 
+                  : 'No disponible en localhost (CORS)'}
+              </Text>
+            </View>
+          </View>
+
+          {Platform.OS === 'web' && (
+            <SettingItem
+              icon="bug"
+              title="Control de Logs"
+              onPress={() => setLoggerModalVisible(true)}
+            />
+          )}
+          <LoggerModal visible={loggerModalVisible} onClose={() => setLoggerModalVisible(false)} />
+          <SettingItem 
+            icon={isCheckingUpdates ? "spinner" : "download"} 
+            title={isCheckingUpdates ? "Buscando..." : "Buscar Actualizaciones"} 
+            onPress={handleCheckUpdates} 
+          />
         </View>
 
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
@@ -170,48 +319,11 @@ const ConfigScreen = () => {
         </TouchableOpacity>
         
         <Text style={styles.footerText}>
-          DSicarioApp v1.2.0 • Hecho con amor 🇩🇴
+          DSicarioApp v{Constants.expoConfig?.version || '1.0.0'} • Hecho con amor 🇩🇴
         </Text>
       </ScrollView>
 
-      {/* MODAL DE TASAS DE CAMBIO */}
-      <Modal visible={ratesModalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Ajustar Tasas de Cambio</Text>
-            <Text style={{ color: colors.text.secondary, marginBottom: 15, fontSize: 12, textAlign: 'center' }}>
-              Valor en pesos (DOP) de cada moneda extranjera.
-            </Text>
-            
-            {Object.keys(tempRates).map(curr => (
-              <View key={curr} style={styles.rateInputRow}>
-                <Text style={styles.rateCurrency}>{curr}</Text>
-                <TextInput
-                  style={styles.rateInput}
-                  keyboardType="numeric"
-                  value={String(tempRates[curr])}
-                  onChangeText={(val) => {
-                    const parsed = parseFloat(val.replace(',', '.')) || 0;
-                    setTempRates(prev => ({ ...prev, [curr]: parsed || val }));
-                  }}
-                  onEndEditing={() => {
-                    setTempRates(prev => ({ ...prev, [curr]: parseFloat(prev[curr]) || 0 }));
-                  }}
-                />
-              </View>
-            ))}
 
-            <View style={styles.modalBtnRow}>
-              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => setRatesModalVisible(false)}>
-                <Text style={{ color: colors.text.primary, fontWeight: 'bold' }}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSave]} onPress={saveRates}>
-                <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Guardar</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 };

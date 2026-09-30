@@ -1,4 +1,4 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 import theme, { getThemeColors } from '../theme/theme';
 import { useThemeMode } from '../contexts/ThemeContext';
 
@@ -13,6 +13,12 @@ export const createGlobalStyles = (darkMode) => {
     container: {
       flex: 1,
       backgroundColor: colors.background,
+      ...Platform.select({
+        web: {
+          overflow: 'auto',
+        },
+        default: {},
+      }),
     },
     safeContainer: {
       flex: 1,

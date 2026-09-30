@@ -1,10 +1,10 @@
+import { showAlert } from '../utils/showAlert';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import QRCode from 'react-native-qrcode-svg';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   FlatList,
   TouchableOpacity,
   RefreshControl,
@@ -16,20 +16,50 @@ import {
   Switch,
   Platform
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
-import { fetchRiderOrders, fetchRiderStats, updateOrderStatus, pickupOrder, formatPrice, respondToOffer, updateDelivery } from '../utils/api';
+import { fetchRiderOrders, fetchRiderStats, updateOrderStatus, pickupOrder, formatPrice, respondToOffer, updateDelivery, pingRider, getRouteDetails, getOptimizedMultiStopRoute, decodePolyline } from '../utils/api';
 import { registerForPushNotifications, saveRiderPushToken, setupNotificationResponseListener } from '../utils/notifications';
+import { updateRiderLocation } from '../utils/locationService';
 import { useDataSync } from '../contexts/AppContext';
 import GlassPanel from '../components/GlassPanel';
 import { LinearGradient } from 'expo-linear-gradient';
+import { darkMapStyle, lightMapStyle } from '../constants/MapStyles';
+const MapView = Platform.OS !== 'web' ? require('react-native-maps').default : null;
+const MapProvider = Platform.OS === 'android' ? require('react-native-maps').PROVIDER_GOOGLE : undefined;
+const Polyline = Platform.OS !== 'web' ? require('react-native-maps').Polyline : null;
+const Marker = Platform.OS !== 'web' ? require('react-native-maps').Marker : null;
 import { useUser } from '../contexts/UserContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useIsFocused } from '@react-navigation/native';
+import { CONFIG } from '../constants/Config';
+
+// Componente estable para centrar el mapa Leaflet en web (definido a nivel de módulo para evitar remontajes)
+const LeafletMapCenterer = ({ useMap, routeSegments, currentRegion, isLoadingRoutes }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (routeSegments.length > 0) {
+      const allLatLngs = [
+        [CONFIG.STORE_LOCATION.latitude, CONFIG.STORE_LOCATION.longitude],
+        ...routeSegments.filter(s => s.points.length > 0).flatMap(s =>
+          s.points.map(p => [p.latitude, p.longitude])
+        ),
+      ];
+      map.fitBounds(allLatLngs, { padding: [60, 60], maxZoom: 15 });
+    } else if (!isLoadingRoutes) {
+      map.flyTo([currentRegion?.latitude || CONFIG.STORE_LOCATION.latitude, currentRegion?.longitude || CONFIG.STORE_LOCATION.longitude], 14, { duration: 1 });
+    }
+  }, [routeSegments, isLoadingRoutes, currentRegion, map]);
+  return null;
+};
 
 const RiderScreen = ({ navigation, route }) => {
   const { user, logout } = useAuth();
-  const { username, userId: contextUserId } = useUser();
+  const { username, userId: contextUserId, isClientMode } = useUser();
+  const isFocused = useIsFocused();
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const riderId = route.params?.riderId || contextUserId || 'DLV01'; 
@@ -44,45 +74,202 @@ const RiderScreen = ({ navigation, route }) => {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState('ready'); 
+  const [activeTab, setActiveTab] = useState('ready');
+  const defaultRegion = { latitude: CONFIG.STORE_LOCATION.latitude, longitude: CONFIG.STORE_LOCATION.longitude, latitudeDelta: 0.0922, longitudeDelta: 0.0421 };
+  const [currentRegion, setCurrentRegion] = useState(defaultRegion);
+  const [locationPermission, setLocationPermission] = useState(null);
+  const [MapComponents, setMapComponents] = useState(null);
+  const [routeSegments, setRouteSegments] = useState([]); // [ { points: [{lat,lng},...], orderId, cliente } ]
+  const [isLoadingRoutes, setIsLoadingRoutes] = useState(false);
+  const mapRef = useRef(null);
+
+  // Helper para extraer coordenadas de la dirección de una orden ("lat,lng")
+  const parseOrderCoords = useCallback((direccion) => {
+    if (!direccion || typeof direccion !== 'string') return null;
+    const coordsMatch = direccion.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+    if (coordsMatch) {
+      const lat = parseFloat(coordsMatch[1]);
+      const lng = parseFloat(coordsMatch[2]);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        return { latitude: lat, longitude: lng };
+      }
+    }
+    return null;
+  }, []);
+
+  // Obtener la ubicación actual de forma optimizada y robusta
+  useEffect(() => {
+    const fetchLocation = async () => {
+      if (locationPermission === true) {
+        try {
+          // Intentar obtener primero la última ubicación conocida (rápida, sin consumo excesivo)
+          let lastLoc = await Location.getLastKnownPositionAsync({});
+          if (lastLoc && lastLoc.coords) {
+            setCurrentRegion({
+              latitude: lastLoc.coords.latitude,
+              longitude: lastLoc.coords.longitude,
+              latitudeDelta: 0.015,
+              longitudeDelta: 0.015,
+            });
+          }
+          
+          // Luego intentar refrescar con la ubicación precisa balanceada
+          const preciseLoc = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          if (preciseLoc && preciseLoc.coords) {
+            setCurrentRegion({
+              latitude: preciseLoc.coords.latitude,
+              longitude: preciseLoc.coords.longitude,
+              latitudeDelta: 0.015,
+              longitudeDelta: 0.015,
+            });
+          }
+        } catch (e) {
+          console.warn('Error al obtener la geolocalización:', e);
+        }
+      }
+    };
+    fetchLocation();
+  }, [locationPermission]);
+
+  // Cargar componentes de Leaflet para Web dinámicamente
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+
+      import('react-leaflet').then(mod => setMapComponents(mod));
+
+      return () => {
+        try { document.head.removeChild(link); } catch (e) {}
+      };
+    }
+  }, []);
+
+  // Calcular rutas desde el local hasta cada pedido activo con coordenadas
+  const loadRoutes = useCallback(async (activeOrders) => {
+    const ordersWithCoords = activeOrders.filter(o => parseOrderCoords(o.direccion));
+    if (ordersWithCoords.length === 0) { setRouteSegments([]); return; }
+    setIsLoadingRoutes(true);
+    try {
+      const destinations = ordersWithCoords.map(o => parseOrderCoords(o.direccion));
+      const routeData = await getOptimizedMultiStopRoute(CONFIG.STORE_LOCATION, destinations);
+      
+      if (!routeData || !routeData.polyline) {
+        setRouteSegments([]);
+        setIsLoadingRoutes(false);
+        return;
+      }
+
+      const points = decodePolyline(routeData.polyline);
+      
+      // Construir segmentos de ruta ordenados
+      const valid = [];
+      const waypointOrder = routeData.waypointOrder || [];
+      
+      // El waypointOrder mapea el índice original (0 a N-1, donde N es número de destinos intermedios)
+      // al orden óptimo. El último destino siempre es el último (índice N).
+      let sortedDestinations = [];
+      if (waypointOrder.length > 0) {
+        waypointOrder.forEach(idx => {
+          sortedDestinations.push(ordersWithCoords[idx]);
+        });
+        // Agregar el destino final
+        sortedDestinations.push(ordersWithCoords[ordersWithCoords.length - 1]);
+      } else {
+        sortedDestinations = [...ordersWithCoords];
+      }
+
+      // En la UI, mostramos la línea completa pero desglosamos los marcadores
+      // Guardaremos la ruta completa en el primer elemento para dibujarla, y los demás solo los datos del pedido
+      sortedDestinations.forEach((o, index) => {
+        const dest = parseOrderCoords(o.direccion);
+        valid.push({
+          orderId: o.id,
+          cliente: o.cliente,
+          estado: o.estado,
+          total: o.total,
+          distance: index === 0 ? routeData.distance : '', // Solo mostramos distancia total en el primero o lo dividimos si queremos
+          duration: index === 0 ? routeData.duration : '',
+          dest,
+          points: index === 0 ? points : [], // Dibujamos la polilínea completa solo 1 vez
+          optimizedIndex: index + 1
+        });
+      });
+
+      setRouteSegments(valid);
+
+      // En nativo, ajustar el mapa para que entren todos los puntos
+      if (Platform.OS !== 'web' && mapRef.current && valid.length > 0) {
+        const allCoords = [
+          CONFIG.STORE_LOCATION,
+          ...points,
+          ...valid.map(r => r.dest)
+        ];
+        setTimeout(() => {
+          mapRef.current.fitToCoordinates(allCoords, {
+            edgePadding: { top: 80, right: 60, bottom: 80, left: 60 },
+            animated: true,
+          });
+        }, 600);
+      }
+    } catch (e) {
+      console.warn('Error cargando rutas:', e);
+    } finally {
+      setIsLoadingRoutes(false);
+    }
+  }, [parseOrderCoords]);
+
+  // Calcular rutas cuando se activa la pestaña RUTA o cuando cambian los pedidos
+  useEffect(() => {
+    if (activeTab === 'route') {
+      const activeOrders = orders.filter(o =>
+        ['ready', 'listo', 'on_the_way', 'transit', 'en camino'].includes(String(o.estado).toLowerCase().trim())
+      );
+      loadRoutes(activeOrders);
+    }
+  }, [activeTab, orders, loadRoutes]);
+
+  // Centrar mapa nativo en ubicación del rider cuando no hay rutas
+  useEffect(() => {
+    if (activeTab === 'route' && routeSegments.length === 0 && !isLoadingRoutes && Platform.OS !== 'web' && mapRef.current) {
+      mapRef.current.animateToRegion(currentRegion, 800);
+    }
+  }, [currentRegion, activeTab, routeSegments, isLoadingRoutes]);
+
   const { isAutoSyncEnabled } = useDataSync();
   const [proposal, setProposal] = useState(null);
   const [timeLeft, setTimeLeft] = useState(20);
   const [showQR, setShowQR] = useState(false);
   const [activeQRData, setActiveQRData] = useState(null);
+  const [selectedOrders, setSelectedOrders] = useState([]); // ✅ Estado para selección múltiple
   const timerRef = useRef(null);
+  const isFetchingRef = useRef(false); // ✅ Previene llamadas concurrentes que causan stack overflow
 
   // Sincronización de propuesta y contador
+  const requestLocationPermission = async () => {
+    if (Platform.OS !== 'web') {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        setLocationPermission(true);
+      } else {
+        setLocationPermission(false);
+        console.warn('Location permission not granted');
+      }
+    }
+  };
+
+  useEffect(() => {
+    requestLocationPermission();
+  }, []);
+// Existing effect for proposal sync follows below
   useEffect(() => {
     if (proposal && proposal.id) {
-      // Intentamos extraer el timestamp del ID (ORD-123456789)
-      const timestamp = parseInt(proposal.id.replace('ORD-', ''));
-      if (!isNaN(timestamp)) {
-        const elapsed = Math.floor((Date.now() - timestamp) / 1000);
-        const actualTimeLeft = Math.max(0, 20 - elapsed);
-        
-        console.log(`[Timer] Pedido creado hace ${elapsed}s. Iniciando contador en: ${actualTimeLeft}s`);
-        setTimeLeft(actualTimeLeft);
-
-        if (actualTimeLeft <= 0) {
-          handleProposalResponse(false);
-          return;
-        }
-      } else {
-        setTimeLeft(20);
-      }
-
-      if (timerRef.current) clearInterval(timerRef.current);
-      timerRef.current = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            clearInterval(timerRef.current);
-            handleProposalResponse(false);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+      // Solo mostrar la propuesta, NO auto-rechazar (el modal global maneja el timeout)
+      setTimeLeft(20);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
       setTimeLeft(20);
@@ -93,20 +280,24 @@ const RiderScreen = ({ navigation, route }) => {
   const [lastAssignedCount, setLastAssignedCount] = useState(0);
 
   const loadData = async (silent = false) => {
+    // ✅ Guard: si ya hay un fetch en curso, no lanzar otro (previene stack overflow)
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     if (!silent) setIsLoading(true);
     try {
-      console.log(`[RiderDebug] Buscando pedidos para ID: "${riderId}"`);
       const [orderData, statData] = await Promise.all([
         fetchRiderOrders(riderId),
         fetchRiderStats(riderId, user?.email)
       ]);
-      console.log(`[RiderDebug] Pedidos encontrados: ${orderData.length}`, orderData.map(o => ({ id: o.id, estado: o.estado })));
       
-      const currentProposal = orderData.find(o => String(o.estado).toLowerCase().trim() === 'propuesta');
+      const currentProposal = orderData.find(o => {
+        const est = String(o.estado).toLowerCase().trim();
+        const estExcel = String(o.Estado || '').toLowerCase().trim();
+        return est === 'proposal' || est === 'propuesta' || estExcel === 'propuesta';
+      });
       if (currentProposal && (!proposal || proposal.id !== currentProposal.id)) {
           console.log('[RiderDebug] 📢 ¡Propuesta detectada!', currentProposal.id);
           setProposal(currentProposal);
-          // 🔔 Notificar al repartidor en su propio navegador
           if (Platform.OS === 'web') {
             import('../utils/notifications').then(m => {
               m.sendWebBrowserNotification({
@@ -126,11 +317,10 @@ const RiderScreen = ({ navigation, route }) => {
 
       if (currentAssigned > lastAssignedCount) {
           console.log('[RiderDebug] 🚚 ¡Nuevo pedido asignado detectado!');
-          const msg = "Un administrador te ha asignado un pedido.";
           if (Platform.OS === 'web') {
             import('../utils/notifications').then(m => m.sendWebBrowserNotification({ cliente: 'Admin', total: 'Asignado', orderId: 'NEW' }));
           }
-          Alert.alert("🚀 ¡NUEVO PEDIDO!", msg);
+          console.log('[Rider] Nuevo pedido asignado');
       }
       setLastAssignedCount(currentAssigned);
       setOrders(orderData);
@@ -138,6 +328,7 @@ const RiderScreen = ({ navigation, route }) => {
     } catch (error) {
       console.error('Error loading rider data:', error);
     } finally {
+      isFetchingRef.current = false;
       setIsLoading(false);
     }
   };
@@ -151,7 +342,7 @@ const RiderScreen = ({ navigation, route }) => {
         await loadData(true);
         if (accept) setActiveTab('ready');
     } catch (e) {
-        Alert.alert('Error', 'No se pudo enviar la respuesta.');
+        console.error('[Rider] Error enviando respuesta');
     } finally {
         setIsLoading(false);
     }
@@ -161,7 +352,8 @@ const RiderScreen = ({ navigation, route }) => {
     loadData();
     let interval = null;
     if (isAutoSyncEnabled) {
-      interval = setInterval(() => loadData(true), 1000);
+      // ✅ 5 segundos — suficiente para detectar cambios sin saturar la API
+      interval = setInterval(() => loadData(true), 15000);
     }
     const setupPushNotifications = async () => {
       const token = await registerForPushNotifications();
@@ -174,6 +366,83 @@ const RiderScreen = ({ navigation, route }) => {
       unsubscribeNotif();
     };
   }, [isAutoSyncEnabled, riderId]);
+  
+  // 💓 Heartbeat / Ping: Mantener al rider online en las hojas de Excel
+  useEffect(() => {
+    // Si la pantalla no está enfocada o el usuario está en modo cliente, NO hacer ping
+    if (!isFocused || isClientMode) {
+      return;
+    }
+
+    // 🛡️ IMPORTANTE: No hacer ping si el ID es el valor por defecto o no es válido
+    // Esto evita marcar como online a 'DLV01' si el contexto aún está sincronizando
+    if (!riderId || riderId === 'N/A' || (riderId === 'DLV01' && !route.params?.riderId && contextUserId !== 'DLV01')) {
+      console.log(`[RiderHeartbeat] ⏳ Esperando ID válido para iniciar ping... (Actual: ${riderId})`);
+      return;
+    }
+
+    const performPing = async () => {
+      console.log(`[RiderHeartbeat] 💓 Ping Activo para: ${riderId} (Context ID: ${contextUserId})`);
+      try {
+        await pingRider(riderId, user?.uid, username, user?.email);
+      } catch (e) {
+        console.warn('[RiderHeartbeat] Error en ping:', e);
+      }
+    };
+
+    // Ping inmediato al detectar ID válido
+    performPing();
+
+    // Ping cada 45 segundos (un poco más frecuente para mayor fiabilidad)
+    const interval = setInterval(performPing, 45000);
+    
+    return () => {
+      console.log(`[RiderHeartbeat] 🛑 Deteniendo ping para: ${riderId}`);
+      clearInterval(interval);
+    };
+  }, [riderId, contextUserId, user?.uid, username, isFocused, isClientMode]);
+
+  // 🛵 Real-time GPS sharing when delivering
+  useEffect(() => {
+    const hasActiveDelivery = orders.some(o =>
+      String(o.id_repartidor || '').toLowerCase() === String(riderId).toLowerCase() &&
+      String(o.estado || '').toLowerCase() === 'on_the_way'
+    );
+
+    if (!hasActiveDelivery) return;
+
+    let watchSubscription = null;
+
+    const startTracking = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          console.warn('[GPS] Permission denied');
+          return;
+        }
+
+        watchSubscription = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, distanceInterval: 20, timeInterval: 5000 },
+          (position) => {
+            const { latitude, longitude } = position.coords;
+            const activeOrder = orders.find(o =>
+              String(o.id_repartidor || '').toLowerCase() === String(riderId).toLowerCase() &&
+              String(o.estado || '').toLowerCase() === 'on_the_way'
+            );
+            updateRiderLocation(riderId, latitude, longitude, activeOrder?.id || null);
+          }
+        );
+      } catch (e) {
+        console.warn('[GPS] Error starting tracking:', e.message);
+      }
+    };
+
+    startTracking();
+
+    return () => {
+      if (watchSubscription) watchSubscription.remove();
+    };
+  }, [orders, riderId]);
 
   // Cerrar Modal QR si el pedido se confirma (desde el lado del cliente)
   useEffect(() => {
@@ -185,7 +454,7 @@ const RiderScreen = ({ navigation, route }) => {
           setShowQR(false);
           setActiveQRData(null);
           if (Platform.OS !== 'web') {
-             Alert.alert('✅ ¡Entregado!', 'El cliente ha confirmado la recepción del pedido.');
+             console.log('[Rider] Cliente confirmó recepción');
           }
         }
       } catch (e) {
@@ -202,16 +471,23 @@ const RiderScreen = ({ navigation, route }) => {
 
   const toggleAvailability = async (value) => {
     try {
-      const updatedRider = { ...stats.fullData, id_delivery: riderId, id: riderId, activo: value };
+      // Usar los datos completos del rider para no perder info al actualizar
+      const updatedRider = { 
+        ...stats.fullData, 
+        id_delivery: riderId, 
+        id: riderId, 
+        activo: value,
+        disponible: value // Sincronizamos activo con disponible por ahora
+      };
       setStats(prev => ({ ...prev, activo: value }));
       const res = await updateDelivery(updatedRider);
       if (!res || !(res.success || res.status === 'success')) {
         setStats(prev => ({ ...prev, activo: !value }));
-        Alert.alert('Error', 'El servidor no pudo guardar el cambio.');
+        console.error('[Rider] Error guardando cambio');
       }
     } catch (e) {
       setStats(prev => ({ ...prev, activo: !value }));
-      Alert.alert('Error', 'No se pudo actualizar tu disponibilidad.');
+      console.error('[Rider] Error actualizando disponibilidad');
     }
   };
 
@@ -221,21 +497,36 @@ const RiderScreen = ({ navigation, route }) => {
       if (activeTab === 'ready') {
         return ['pending', 'accepted', 'ready', 'listo'].includes(status);
       }
+      if (activeTab === 'on_the_way') {
+        return status === 'on_the_way' || status === 'transit' || status === 'en camino';
+      }
+      if (activeTab === 'route') {
+        return ['on_the_way', 'transit', 'en camino', 'ready', 'listo'].includes(status);
+      }
       return status === activeTab;
     });
   }, [orders, activeTab]);
 
   const handleAction = (type, val) => {
     if (type === 'whatsapp') {
-      Linking.openURL(`whatsapp://send?phone=${val}&text=Hola, soy tu repartidor de DSicario.`).catch(() => Alert.alert('Error', 'WhatsApp no instalado'));
+      Linking.openURL(`whatsapp://send?phone=${val}&text=Hola, soy tu repartidor de DSicario.`).catch(() => console.warn('[Rider] WhatsApp no instalado'));
     } else if (type === 'gps') {
-      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(val)}`).catch(() => Alert.alert('Error', 'No se pudo abrir el mapa'));
+      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(val)}`).catch(() => console.warn('[Rider] No se pudo abrir el mapa'));
     } else if (type === 'call') {
-      Linking.openURL(`tel:${val}`).catch(() => Alert.alert('Error', 'No se pudo llamar'));
+      Linking.openURL(`tel:${val}`).catch(() => console.warn('[Rider] No se pudo llamar'));
     }
   };
 
-  const handlePickup = async (orderId) => {
+  const handlePickup = async (order) => {
+    const orderId = order.id;
+    const orderTotal = parseFloat(order.total || order.Total || 0);
+    const availableFunds = (parseFloat(stats.cartera) || 0) + (parseFloat(stats.cupo) || 0);
+
+    if (orderTotal > availableFunds) {
+      console.warn(`[Rider] Saldo insuficiente: RD$${availableFunds} < RD$${orderTotal}`);
+      return;
+    }
+
     const executePickup = async () => {
       setIsLoading(true);
       try {
@@ -243,7 +534,7 @@ const RiderScreen = ({ navigation, route }) => {
         await loadData(true);
         setActiveTab('on_the_way');
       } catch (error) {
-        Alert.alert('Error', 'Error al actualizar.');
+        showAlert('Error', 'Error al actualizar.');
       } finally {
         setIsLoading(false);
       }
@@ -254,11 +545,68 @@ const RiderScreen = ({ navigation, route }) => {
         executePickup();
       }
     } else {
-      Alert.alert('Recoger Pedido', '¿Confirmas que ya tienes el pedido?', [
+      showAlert('Recoger Pedido', '¿Confirmas que ya tienes el pedido?', [
         { text: 'No', style: 'cancel' },
         { text: 'Sí', onPress: executePickup }
       ]);
     }
+  };
+
+  // ✅ Nueva función para recoger múltiples pedidos
+  const handleBulkPickup = async () => {
+    if (selectedOrders.length === 0) return;
+
+    // Calcular total de los pedidos seleccionados
+    const selectedData = orders.filter(o => selectedOrders.includes(o.id));
+    const totalBulk = selectedData.reduce((sum, o) => sum + (parseFloat(o.total || o.Total) || 0), 0);
+    const availableFunds = (parseFloat(stats.cartera) || 0) + (parseFloat(stats.cupo) || 0);
+
+    if (totalBulk > availableFunds) {
+      showAlert(
+        'Saldo Insuficiente', 
+        `El total (RD$ ${totalBulk}) supera tu saldo disponible (RD$ ${availableFunds}).`
+      );
+      return;
+    }
+
+    const executeBulk = async () => {
+      setIsLoading(true);
+      try {
+        // Ejecutamos todos los pickups en paralelo
+        await Promise.all(selectedOrders.map(id => pickupOrder(id, riderId)));
+        setSelectedOrders([]); // Limpiar selección
+        await loadData(true);
+        setActiveTab('on_the_way');
+        showAlert('✅ Éxito', `${selectedOrders.length} pedidos recogidos correctamente.`);
+      } catch (error) {
+        showAlert('Error', 'No se pudieron recoger algunos pedidos.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(`¿Confirmas que recoges estos ${selectedOrders.length} pedidos?`)) {
+        executeBulk();
+      }
+    } else {
+      showAlert(
+        'Recoger Múltiples', 
+        `¿Confirmas que ya tienes los ${selectedOrders.length} pedidos seleccionados?`, 
+        [
+          { text: 'No', style: 'cancel' },
+          { text: 'Sí', onPress: executeBulk }
+        ]
+      );
+    }
+  };
+
+  const toggleSelection = (orderId) => {
+    setSelectedOrders(prev => 
+      prev.includes(orderId) 
+        ? prev.filter(id => id !== orderId) 
+        : [...prev, orderId]
+    );
   };
 
   const handleDeliver = (order) => {
@@ -279,33 +627,33 @@ const RiderScreen = ({ navigation, route }) => {
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     statsHeader: { 
-      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight + 20) : 45, 
-      paddingBottom: spacing.xl, 
+      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight + 2) : 10, 
+      paddingBottom: 25, 
       paddingHorizontal: spacing.md, 
-      borderBottomLeftRadius: 35, 
-      borderBottomRightRadius: 35, 
+      borderBottomLeftRadius: 25, 
+      borderBottomRightRadius: 25, 
       elevation: 8, 
       shadowColor: '#000', 
       shadowOffset: { width: 0, height: 4 }, 
       shadowOpacity: 0.3, 
       shadowRadius: 5 
     },
-    headerTop: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg },
+    headerTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
     backBtn: { padding: 5 },
-    profileBadge: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.3)', alignItems: 'center', justifyContent: 'center', marginHorizontal: 10 },
-    profileInitial: { color: '#FFF', fontWeight: 'bold', fontSize: 18 },
-    riderName: { flex: 1, color: '#FFF', fontSize: 18, fontWeight: 'bold' },
-    availabilityCard: { marginHorizontal: spacing.md, marginVertical: spacing.sm, padding: spacing.md, borderRadius: 20, borderWidth: 1 },
+    profileBadge: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.3)', alignItems: 'center', justifyContent: 'center', marginHorizontal: 10 },
+    profileInitial: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
+    riderName: { flex: 1, color: '#FFF', fontSize: 16, fontWeight: 'bold' },
+    availabilityCard: { marginHorizontal: spacing.md, marginVertical: 2, padding: 8, borderRadius: 15, borderWidth: 1 },
     availabilityRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     availabilityInfo: { flexDirection: 'row', alignItems: 'center' },
     statusDot: { width: 12, height: 12, borderRadius: 6, marginRight: spacing.sm },
     availabilityText: { fontWeight: '900', fontSize: 16, letterSpacing: 1 },
-    statsGrid: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: 20, paddingVertical: 15 },
+    statsGrid: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: 20, paddingVertical: 8, marginBottom: 15 },
     statItem: { flex: 1, alignItems: 'center' },
     statDivider: { width: 1, height: '60%', backgroundColor: 'rgba(255,255,255,0.2)' },
     statLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 9, fontWeight: 'bold', marginBottom: 4 },
-    statValue: { color: '#FFF', fontSize: 14, fontWeight: '900' },
-    tabContainer: { flexDirection: 'row', paddingHorizontal: spacing.md, marginTop: -20, zIndex: 10 },
+    statValue: { color: '#FFF', fontSize: 13, fontWeight: '900' },
+    tabContainer: { flexDirection: 'row', paddingHorizontal: spacing.md, marginTop: -15, zIndex: 10 },
     tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, paddingVertical: 12, marginHorizontal: 4, borderRadius: 15, gap: 8, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 3 },
     activeTab: { borderBottomWidth: 3, borderBottomColor: colors.primary },
     tabText: { fontSize: 10, color: colors.text.secondary },
@@ -327,7 +675,7 @@ const RiderScreen = ({ navigation, route }) => {
     mainBtnText: { color: '#FFF', fontWeight: '900', fontSize: 12 },
     secondaryActions: { flexDirection: 'row', gap: 8 },
     circleBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', elevation: 3 },
-    listContainer: { paddingBottom: 100, paddingTop: 20 },
+    listContainer: { paddingBottom: 120, paddingTop: 20 },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     emptyContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 60 },
     emptyText: { marginTop: 15, color: colors.text.disabled, fontSize: 15, textAlign: 'center' },
@@ -387,7 +735,67 @@ const RiderScreen = ({ navigation, route }) => {
     qrSubtitle: { fontSize: 13, color: colors.text.secondary, textAlign: 'center', marginTop: 8, paddingHorizontal: 20 },
     qrContainer: { padding: 20, backgroundColor: '#FFF', borderRadius: 25, elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 15 },
     qrFooter: { marginTop: 25, width: '100%' },
-    statusBadge: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 15, borderRadius: 20, width: '100%' }
+    statusBadge: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 15, borderRadius: 20, width: '100%' },
+    // ✅ Badges de tipo
+    typeBadge: { 
+      paddingHorizontal: 8, 
+      paddingVertical: 2, 
+      borderRadius: 8, 
+      borderWidth: 1, 
+      borderColor: 'transparent' 
+    },
+    typeText: { 
+      fontSize: 10, 
+      fontWeight: 'bold' 
+    },
+    // ✅ Estilos para recogida múltiple
+    footerAction: { 
+      padding: spacing.md, 
+      backgroundColor: colors.surface, 
+      borderTopWidth: 1, 
+      borderColor: colors.border,
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      elevation: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -4 },
+      shadowOpacity: 0.2,
+      shadowRadius: 10
+    },
+    bulkPickupBtn: { 
+      borderRadius: 20, 
+      overflow: 'hidden',
+      elevation: 5
+    },
+    bulkGradient: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 18,
+      gap: 12
+    },
+    bulkPickupText: {
+      color: '#FFF',
+      fontSize: 16,
+      fontWeight: '900',
+      letterSpacing: 1
+    },
+    markerIconCircle: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderWidth: 2,
+      borderColor: '#FFF',
+      elevation: 5,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 3.84,
+    }
   }), [colors, darkMode]);
 
   const renderOrderItem = ({ item }) => {
@@ -395,70 +803,127 @@ const RiderScreen = ({ navigation, route }) => {
     const isReady = status === 'ready' || status === 'listo';
     const isPending = status === 'pending';
     const isAccepted = status === 'accepted';
-    const isOnTheWay = status === 'on_the_way';
     const isDelivered = status === 'delivered';
     const isCancelled = status === 'cancelado' || status === 'rechazado';
+    const isSelected = selectedOrders.includes(item.id);
+    const isAssignedToMe = String(item.riderId || '').toLowerCase() === String(riderId).toLowerCase();
 
     return (
-      <GlassPanel intensity={20} style={styles.orderCard}>
-        <View style={styles.cardHeader}>
-          <View style={styles.idBadge}><Text style={styles.orderId}>#{String(item.id).slice(-4)}</Text></View>
-          <Text style={styles.orderTotal}>{formatPrice(item.Total || item.total)}</Text>
-        </View>
-        <Text style={styles.customerName}>{item.Cliente || item.cliente || 'Desconocido'}</Text>
-        <View style={styles.addressBox}>
-          <Ionicons name="location-sharp" size={14} color={colors.primary} />
-          <Text style={styles.infoText} numberOfLines={2}>{item.Direccion || item.direccion || 'No especificada'}</Text>
-        </View>
-        <View style={styles.itemsBrief}>
-           <Text style={styles.itemsText} numberOfLines={2}>{item.items?.map(i => `${i.cantidad}x ${i.nombre}`).join(', ') || 'Sin items'}</Text>
-        </View>
-        
-        <View style={styles.actionsRow}>
-          {isDelivered ? (
-            <View style={[styles.mainBtn, { backgroundColor: colors.success + '20', borderWidth: 1, borderColor: colors.success }]}>
-              <FontAwesome5 name="check-circle" size={16} color={colors.success} />
-              <Text style={[styles.mainBtnText, { color: colors.success }]}>ENTREGADO</Text>
-            </View>
-          ) : isCancelled ? (
-            <View style={[styles.mainBtn, { backgroundColor: colors.error + '20', borderWidth: 1, borderColor: colors.error }]}>
-              <FontAwesome5 name="times-circle" size={16} color={colors.error} />
-              <Text style={[styles.mainBtnText, { color: colors.error }]}>PEDIDO CANCELADO</Text>
-            </View>
-          ) : isAccepted ? (
-            <View style={[styles.mainBtn, { backgroundColor: colors.text.disabled + '20', borderWidth: 1, borderColor: colors.border }]}>
-              <FontAwesome5 name="user-clock" size={16} color={colors.text.disabled} />
-              <Text style={[styles.mainBtnText, { color: colors.text.disabled }]}>ESPERANDO CLIENTE</Text>
-            </View>
-          ) : isPending ? (
-            <View style={[styles.mainBtn, { backgroundColor: colors.text.disabled + '20', borderWidth: 1, borderColor: colors.border }]}>
-              <FontAwesome5 name="fire" size={16} color={colors.text.disabled} />
-              <Text style={[styles.mainBtnText, { color: colors.text.disabled }]}>EN COCINA</Text>
-            </View>
-          ) : (
-            <TouchableOpacity 
-              style={[styles.mainBtn, { backgroundColor: isReady ? colors.primary : colors.success }]} 
-              onPress={() => isReady ? handlePickup(item.id) : handleDeliver(item)}
-            >
-              <FontAwesome5 name={isReady ? "motorcycle" : "qrcode"} size={16} color="#FFF" />
-              <Text style={styles.mainBtnText}>{isReady ? 'RECOGER' : 'GENERAR QR'}</Text>
-            </TouchableOpacity>
-          )}
+      <TouchableOpacity 
+        activeOpacity={isReady ? 0.7 : 1}
+        onPress={() => isReady ? toggleSelection(item.id) : null}
+      >
+        <GlassPanel intensity={20} style={[
+          styles.orderCard, 
+          isSelected && { borderColor: colors.primary, borderWidth: 2, backgroundColor: colors.primary + '10' }
+        ]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {/* ✅ Checkbox para selección múltiple */}
+            {isReady && (
+              <View style={{ marginRight: 12 }}>
+                <Ionicons 
+                  name={isSelected ? "checkbox" : "square-outline"} 
+                  size={24} 
+                  color={isSelected ? colors.primary : colors.text.disabled} 
+                />
+              </View>
+            )}
 
-          <View style={styles.secondaryActions}>
-            <TouchableOpacity style={[styles.circleBtn, { backgroundColor: '#25D366' }]} onPress={() => handleAction('whatsapp', item.whatsapp)}>
-              <FontAwesome5 name="whatsapp" size={18} color="#FFF" />
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.circleBtn, { backgroundColor: '#4285F4' }]} onPress={() => handleAction('gps', item.direccion)}>
-              <Ionicons name="map" size={18} color="#FFF" />
-            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <View style={styles.cardHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={styles.idBadge}><Text style={styles.orderId}>#{String(item.id).slice(-4)}</Text></View>
+                  <View style={[styles.typeBadge, { backgroundColor: (item.tipo || item.Tipo) ? colors.primary + '20' : colors.text.disabled + '20' }]}>
+                    <Text style={[styles.typeText, { color: (item.tipo || item.Tipo) ? colors.primary : colors.text.disabled }]}>
+                      {String(item.tipo || item.Tipo || 'DESCONOCIDO').toUpperCase()}
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={styles.orderTotal}>{formatPrice(item.Total || item.total)}</Text>
+                  {item.envio > 0 && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <FontAwesome5 name="motorcycle" size={10} color={colors.success} />
+                      <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700' }}>+{formatPrice(item.envio)}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+              <Text style={styles.customerName}>{item.Cliente || item.cliente || 'Desconocido'}</Text>
+              <View style={styles.addressBox}>
+                <Ionicons name="location-sharp" size={14} color={colors.primary} />
+                <Text style={styles.infoText} numberOfLines={2}>
+                  {String(item.Direccion || item.direccion || '').split('|').pop().trim() || 'No especificada'}
+                </Text>
+              </View>
+              <View style={styles.itemsBrief}>
+                 <Text style={styles.itemsText} numberOfLines={2}>{item.items?.map(i => `${i.cantidad}x ${i.nombre}`).join(', ') || 'Sin items'}</Text>
+              </View>
+
+              {isReady && !isAssignedToMe && (
+                <TouchableOpacity 
+                  style={[styles.mainBtn, { backgroundColor: colors.primary, marginTop: 10 }]} 
+                  onPress={() => handlePickup(item)}
+                >
+                  <FontAwesome5 name="hand-holding-heart" size={16} color="#FFF" />
+                  <Text style={styles.mainBtnText}>RECOGER PEDIDO</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
-        </View>
-      </GlassPanel>
+          
+          <View style={styles.actionsRow}>
+            {isDelivered ? (
+              <View style={[styles.mainBtn, { backgroundColor: colors.success + '20', borderWidth: 1, borderColor: colors.success }]}>
+                <FontAwesome5 name="check-circle" size={16} color={colors.success} />
+                <Text style={[styles.mainBtnText, { color: colors.success }]}>ENTREGADO</Text>
+              </View>
+            ) : isCancelled ? (
+              <View style={[styles.mainBtn, { backgroundColor: colors.error + '20', borderWidth: 1, borderColor: colors.error }]}>
+                <FontAwesome5 name="times-circle" size={16} color={colors.error} />
+                <Text style={[styles.mainBtnText, { color: colors.error }]}>PEDIDO CANCELADO</Text>
+              </View>
+            ) : isAccepted ? (
+              <View style={[styles.mainBtn, { backgroundColor: colors.text.disabled + '20', borderWidth: 1, borderColor: colors.border }]}>
+                <FontAwesome5 name="user-clock" size={16} color={colors.text.disabled} />
+                <Text style={[styles.mainBtnText, { color: colors.text.disabled }]}>ESPERANDO CLIENTE</Text>
+              </View>
+            ) : isPending ? (
+              <View style={[styles.mainBtn, { backgroundColor: colors.text.disabled + '20', borderWidth: 1, borderColor: colors.border }]}>
+                <FontAwesome5 name="fire" size={16} color={colors.text.disabled} />
+                <Text style={[styles.mainBtnText, { color: colors.text.disabled }]}>EN COCINA</Text>
+              </View>
+            ) : isReady ? (
+               <View style={[styles.mainBtn, { backgroundColor: colors.warning + '20', borderWidth: 1, borderColor: colors.warning }]}>
+                 <FontAwesome5 name="box-open" size={16} color={colors.warning} />
+                 <Text style={[styles.mainBtnText, { color: colors.warning }]}>LISTO PARA RECOGER</Text>
+               </View>
+            ) : (
+              <TouchableOpacity 
+                style={[styles.mainBtn, { backgroundColor: colors.success }]} 
+                onPress={() => handleDeliver(item)}
+              >
+                <FontAwesome5 name="qrcode" size={16} color="#FFF" />
+                <Text style={styles.mainBtnText}>GENERAR QR</Text>
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.secondaryActions}>
+              <TouchableOpacity style={[styles.circleBtn, { backgroundColor: '#25D366' }]} onPress={() => handleAction('whatsapp', item.whatsapp)}>
+                <FontAwesome5 name="whatsapp" size={18} color="#FFF" />
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.circleBtn, { backgroundColor: '#4285F4' }]} onPress={() => handleAction('gps', item.direccion)}>
+                <Ionicons name="map" size={18} color="#FFF" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </GlassPanel>
+      </TouchableOpacity>
     );
   };
 
   return (
+    <View style={{ flex: 1 }}>
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       <LinearGradient colors={[colors.primary, '#E63946']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.statsHeader}>
@@ -477,7 +942,7 @@ const RiderScreen = ({ navigation, route }) => {
             <Ionicons name="chatbubble-ellipses-outline" size={24} color="#FFF" />
           </TouchableOpacity>
           <TouchableOpacity onPress={() => {
-            Alert.alert('Cerrar Sesión', '¿Estás seguro de que quieres salir?', [
+            showAlert('Cerrar Sesión', '¿Estás seguro de que quieres salir?', [
               { text: 'Cancelar', style: 'cancel' },
               { text: 'Salir', onPress: () => logout(), style: 'destructive' }
             ]);
@@ -485,22 +950,7 @@ const RiderScreen = ({ navigation, route }) => {
             <Ionicons name="log-out-outline" size={24} color="#FFF" />
           </TouchableOpacity>
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <TouchableOpacity 
-                onPress={() => {
-                  import('../utils/notifications').then(m => {
-                    m.sendWebBrowserNotification({
-                      cliente: 'SISTEMA (Prueba)',
-                      total: 0,
-                      orderId: 'TEST-123'
-                    });
-                    Alert.alert('Prueba enviada', 'Deberías ver una notificación del navegador en unos segundos.');
-                  });
-                }}
-                style={[styles.statItem, { backgroundColor: colors.primary + '20' }]}
-              >
-                <FontAwesome5 name="bell" size={16} color={colors.primary} />
-                <Text style={[styles.statLabel, { color: colors.primary }]}>Probar Campana</Text>
-              </TouchableOpacity>
+
 
               <TouchableOpacity onPress={() => loadData()} style={styles.syncBtn}>
                 <FontAwesome5 name="sync-alt" size={16} color={colors.primary} />
@@ -517,62 +967,13 @@ const RiderScreen = ({ navigation, route }) => {
             </View>
         </GlassPanel>
 
-        <TouchableOpacity 
-          onPress={() => {
-            import('../utils/notifications').then(m => {
-              m.sendWebBrowserNotification({
-                cliente: 'PRUEBA DE DSICARIO',
-                total: '0.00',
-                orderId: 'TEST-OK'
-              });
-            });
-          }}
-          style={{ 
-            backgroundColor: 'rgba(255,255,255,0.2)', 
-            marginHorizontal: 20, 
-            padding: 10, 
-            borderRadius: 12, 
-            flexDirection: 'row', 
-            justifyContent: 'center', 
-            alignItems: 'center',
-            gap: 10,
-            marginTop: 5
-          }}
-        >
-          <FontAwesome5 name="bell" size={14} color="#FFF" />
-          <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 12 }}>PROBAR ALERTAS</Text>
-        </TouchableOpacity>
 
-        <TouchableOpacity 
-          onPress={() => {
-            setProposal({
-              id: 'MOCK-' + Math.random().toString(36).substr(2, 5),
-              cliente: 'CLIENTE DE PRUEBA',
-              total: '550.00',
-              estado: 'propuesta'
-            });
-          }}
-          style={{ 
-            backgroundColor: 'rgba(255,165,0,0.2)', 
-            marginHorizontal: 20, 
-            padding: 10, 
-            borderRadius: 12, 
-            flexDirection: 'row', 
-            justifyContent: 'center', 
-            alignItems: 'center',
-            gap: 10,
-            marginTop: 10
-          }}
-        >
-          <FontAwesome5 name="vial" size={14} color="#FFA500" />
-          <Text style={{ color: '#FFA500', fontWeight: 'bold', fontSize: 12 }}>SIMULAR PEDIDO (PRUEBA)</Text>
-        </TouchableOpacity>
         <View style={styles.statsGrid}>
-          <View style={styles.statItem}><Text style={styles.statLabel}>BOLSILLO</Text><Text style={styles.statValue}>{formatPrice(stats.cartera)}</Text></View>
+          <View style={styles.statItem}><Text style={styles.statLabel}>CARTERA</Text><Text style={styles.statValue}>{formatPrice(stats.cartera)}</Text></View>
           <View style={styles.statDivider} />
-          <View style={styles.statItem}><Text style={styles.statLabel}>DEUDA</Text><Text style={[styles.statValue, { color: '#FFD700' }]}>{formatPrice(stats.deuda)}</Text></View>
+          <View style={styles.statItem}><Text style={styles.statLabel}>POR ENTREGAR</Text><Text style={[styles.statValue, { color: '#FFD700' }]}>{formatPrice(stats.deuda)}</Text></View>
           <View style={styles.statDivider} />
-          <View style={styles.statItem}><Text style={styles.statLabel}>CUPO</Text><Text style={[styles.statValue, { color: '#90EE90' }]}>{formatPrice(stats.cupo)}</Text></View>
+          <View style={styles.statItem}><Text style={styles.statLabel}>CREDITO DISP.</Text><Text style={[styles.statValue, { color: '#90EE90' }]}>{formatPrice(stats.cupo)}</Text></View>
         </View>
       </LinearGradient>
       <View style={styles.tabContainer}>
@@ -586,15 +987,192 @@ const RiderScreen = ({ navigation, route }) => {
           <Text style={[styles.tabText, activeTab === 'on_the_way' && { color: colors.primary, fontWeight: 'bold' }]}>EN CAMINO</Text>
           {orders.filter(o => o.estado === 'on_the_way').length > 0 && <View style={styles.badgeCount}><Text style={styles.badgeText}>{orders.filter(o => o.estado === 'on_the_way').length}</Text></View>}
         </TouchableOpacity>
+        <TouchableOpacity style={[styles.tab, activeTab === 'route' && styles.activeTab]} onPress={() => setActiveTab('route')}>
+          <MaterialCommunityIcons name="map-marker-path" size={20} color={activeTab === 'route' ? colors.primary : colors.text.secondary} />
+          <Text style={[styles.tabText, activeTab === 'route' && { color: colors.primary, fontWeight: 'bold' }]}>RUTA</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={[styles.tab, activeTab === 'delivered' && styles.activeTab]} onPress={() => setActiveTab('delivered')}>
           <MaterialCommunityIcons name="history" size={20} color={activeTab === 'delivered' ? colors.primary : colors.text.secondary} />
           <Text style={[styles.tabText, activeTab === 'delivered' && { color: colors.primary, fontWeight: 'bold' }]}>HISTORIAL</Text>
         </TouchableOpacity>
       </View>
       <View style={styles.content}>
-        {isLoading && !refreshing ? <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View> : (
-          <FlatList data={filteredOrders} renderItem={renderOrderItem} keyExtractor={item => item?.id?.toString() || Math.random().toString()} contentContainerStyle={styles.listContainer} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />} ListEmptyComponent={<View style={styles.emptyContainer}><Ionicons name="bicycle-outline" size={80} color={colors.border} /><Text style={styles.emptyText}>Sin entregas activas.</Text></View>} />
-        )}
+        {isLoading && !refreshing ? <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View> : 
+          activeTab === 'route' ? (
+            <View style={{ flex: 1, borderRadius: 20, overflow: 'hidden', margin: 10 }}>
+              {locationPermission === false && (
+                <TouchableOpacity style={[styles.mainBtn, { margin: 10 }]} onPress={requestLocationPermission}>
+                  <Text style={styles.mainBtnText}>Activar permiso de ubicación</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Overlay de carga de rutas */}
+              {isLoadingRoutes && (
+                <View style={{ position: 'absolute', top: 12, alignSelf: 'center', zIndex: 20, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface + 'EE', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, gap: 8, elevation: 10 }}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={{ color: colors.text.primary, fontSize: 12, fontWeight: '700' }}>Calculando rutas...</Text>
+                </View>
+              )}
+
+              {Platform.OS === 'web' ? (
+                MapComponents ? (() => {
+                  const { MapContainer, TileLayer, Marker: LeafletMarker, Polyline: LeafletPolyline, Popup, useMap } = MapComponents;
+                  const storeCoords = { latitude: CONFIG.STORE_LOCATION.latitude, longitude: CONFIG.STORE_LOCATION.longitude };
+
+                  return (
+                    <MapContainer 
+                      center={[currentRegion?.latitude || CONFIG.STORE_LOCATION.latitude, currentRegion?.longitude || CONFIG.STORE_LOCATION.longitude]} 
+                      zoom={14} 
+                      style={{ width: '100%', height: '100%', borderRadius: 20 }}
+                      zoomControl={true}
+                    >
+                      <LeafletMapCenterer useMap={useMap} routeSegments={routeSegments} currentRegion={currentRegion} isLoadingRoutes={isLoadingRoutes} />
+                      <TileLayer 
+                        url={darkMode 
+                          ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" 
+                          : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+                        } 
+                      />
+
+                      {/* Marcador del Restaurante (origen de todas las rutas) */}
+                      <LeafletMarker position={[CONFIG.STORE_LOCATION.latitude, CONFIG.STORE_LOCATION.longitude]}>
+                        <Popup><strong>🏪 DSicario Local</strong><br />Origen de entregas</Popup>
+                      </LeafletMarker>
+
+                      {/* Rutas + marcadores de destino */}
+                      {routeSegments.map((seg, idx) => {
+                        const lineColor = seg.estado === 'on_the_way' ? colors.primary : '#FF8C00';
+                        return (
+                          <React.Fragment key={seg.orderId}>
+                            {/* Polilínea de la ruta */}
+                            {LeafletPolyline && seg.points.length > 0 && (
+                              <LeafletPolyline
+                                positions={seg.points.map(p => [p.latitude, p.longitude])}
+                                pathOptions={{ color: lineColor, weight: 4, opacity: 0.85, dashArray: seg.estado !== 'on_the_way' ? '8,6' : null }}
+                              />
+                            )}
+                            {/* Marcador de destino */}
+                            <LeafletMarker position={[seg.dest.latitude, seg.dest.longitude]}>
+                              <Popup>
+                                <strong>📦 Pedido #{String(seg.orderId).slice(-4)}</strong><br />
+                                Cliente: {seg.cliente}<br />
+                                {seg.distance && <span>Distancia: {seg.distance}<br /></span>}
+                                {seg.duration && <span>Tiempo estimado: {seg.duration}</span>}
+                              </Popup>
+                            </LeafletMarker>
+                          </React.Fragment>
+                        );
+                      })}
+
+                      {/* Si no hay rutas calculadas, mostrar marcador del rider */}
+                      {routeSegments.length === 0 && (
+                        <LeafletMarker position={[currentRegion?.latitude || CONFIG.STORE_LOCATION.latitude, currentRegion?.longitude || CONFIG.STORE_LOCATION.longitude]}>
+                          <Popup><strong>🏍️ Tú (Repartidor)</strong><br />Sin pedidos activos con coordenadas</Popup>
+                        </LeafletMarker>
+                      )}
+                    </MapContainer>
+                  );
+                })() : (
+                  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={{ color: colors.text.secondary, marginTop: 8 }}>Cargando mapa web...</Text>
+                  </View>
+                )
+              ) : (
+                MapView ? (
+                  <MapView
+                    ref={mapRef}
+                    provider={MapProvider}
+                    style={{ flex: 1 }}
+                    initialRegion={{
+                      latitude: CONFIG.STORE_LOCATION.latitude,
+                      longitude: CONFIG.STORE_LOCATION.longitude,
+                      latitudeDelta: 0.08,
+                      longitudeDelta: 0.08,
+                    }}
+                    showsUserLocation={true}
+                    customMapStyle={darkMode ? darkMapStyle : lightMapStyle}
+                  >
+                    {/* Marcador del Local (origen) */}
+                    {Marker && (
+                      <Marker
+                        coordinate={{ latitude: CONFIG.STORE_LOCATION.latitude, longitude: CONFIG.STORE_LOCATION.longitude }}
+                        title="DSicario Local"
+                        description="Punto de partida"
+                      >
+                        <View style={[styles.markerIconCircle, { backgroundColor: '#1A1A1A', borderColor: colors.primary, width: 38, height: 38, borderRadius: 19 }]}>
+                          <FontAwesome5 name="store-alt" size={16} color="#FFF" />
+                        </View>
+                      </Marker>
+                    )}
+
+                    {/* Polilíneas y marcadores de destino por cada pedido */}
+                    {routeSegments.map((seg) => {
+                      const lineColor = seg.estado === 'on_the_way' ? colors.primary : '#FF8C00';
+                      return (
+                        <React.Fragment key={seg.orderId}>
+                          {/* Polilínea de la ruta */}
+                          {Polyline && seg.points.length > 0 && (
+                            <Polyline
+                              coordinates={seg.points}
+                              strokeColor={lineColor}
+                              strokeWidth={4}
+                              lineDashPattern={seg.estado !== 'on_the_way' ? [10, 6] : null}
+                            />
+                          )}
+                          {/* Marcador del cliente */}
+                          {Marker && (
+                            <Marker
+                              coordinate={seg.dest}
+                              flat={true}
+                              title={`Pedido #${String(seg.orderId).slice(-4)}`}
+                              description={`${seg.cliente} · ${seg.distance || ''} · ${seg.duration || ''}`}
+                            >
+                              <View style={[styles.markerIconCircle, { backgroundColor: lineColor }]}>
+                                <FontAwesome5 name="box-open" size={12} color="#FFF" />
+                              </View>
+                            </Marker>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+
+                    {/* Fallback: si no hay rutas, mostrar marcador del rider */}
+                    {routeSegments.length === 0 && !isLoadingRoutes && Marker && (
+                      <Marker coordinate={currentRegion} flat={true} title="Tu Ubicación">
+                        <View style={[styles.markerIconCircle, { backgroundColor: colors.primary }]}>
+                          <FontAwesome5 name="motorcycle" size={12} color="#FFF" />
+                        </View>
+                      </Marker>
+                    )}
+                  </MapView>
+                ) : (
+                  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                    <Text style={{ color: colors.text.secondary, fontSize: 16 }}>Mapa nativo no disponible</Text>
+                  </View>
+                )
+              )}
+
+              {/* Panel de info de rutas calculadas */}
+              {routeSegments.length > 0 && (
+                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: colors.surface + 'F0', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 12, gap: 6 }}>
+                  {routeSegments.map((seg) => (
+                    <View key={seg.orderId} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: seg.estado === 'on_the_way' ? colors.primary : '#FF8C00' }} />
+                      <Text style={{ flex: 1, color: colors.text.primary, fontSize: 12, fontWeight: '600' }}>
+                        #{String(seg.orderId).slice(-4)} · {seg.cliente}
+                      </Text>
+                      <Text style={{ color: colors.text.secondary, fontSize: 11 }}>{seg.distance}</Text>
+                      <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>{seg.duration}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+          ) : (
+            <FlatList data={filteredOrders} renderItem={renderOrderItem} keyExtractor={(item, index) => item?.id?.toString() || `fallback-${index}`} contentContainerStyle={styles.listContainer} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />} ListEmptyComponent={<View style={styles.emptyContainer}><Ionicons name="bicycle-outline" size={80} color={colors.border} /><Text style={styles.emptyText}>Sin entregas activas.</Text></View>} />
+          )
+        }
       </View>
       {/* 📱 MODAL PARA CÓDIGO QR DE ENTREGA */}
       <Modal visible={showQR} transparent animationType="slide" onRequestClose={() => setShowQR(false)}>
@@ -633,8 +1211,8 @@ const RiderScreen = ({ navigation, route }) => {
 
       {/* 🚀 OVERLAY DE PROPUESTA FLOTANTE */}
 
-      {proposal && (
-        <View style={styles.floatingProposal}>
+      <Modal visible={!!proposal} transparent animationType="fade" onRequestClose={() => handleProposalResponse(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: 20 }}>
           <GlassPanel style={styles.proposalInner}>
             <View style={styles.propHeader}>
               <View style={styles.timerBadge}>
@@ -642,9 +1220,9 @@ const RiderScreen = ({ navigation, route }) => {
               </View>
               <View style={{ flex: 1, marginLeft: 10 }}>
                 <Text style={styles.propTitle}>¡Nueva Propuesta!</Text>
-                <Text style={styles.propClient}>{proposal.cliente || 'Nuevo Cliente'}</Text>
+                <Text style={styles.propClient}>{proposal?.cliente || 'Nuevo Cliente'}</Text>
               </View>
-              <Text style={styles.propPrice}>RD${proposal.total || '0'}</Text>
+              <Text style={styles.propPrice}>RD${proposal?.total || '0'}</Text>
             </View>
 
             <View style={styles.propActions}>
@@ -665,9 +1243,40 @@ const RiderScreen = ({ navigation, route }) => {
             </View>
           </GlassPanel>
         </View>
+      </Modal>
+      {/* ✅ Botón Global de Recogida (Siempre visible) */}
+      {activeTab === 'ready' && (
+        <View style={styles.footerAction}>
+          <TouchableOpacity 
+            style={[
+              styles.bulkPickupBtn, 
+              { opacity: selectedOrders.length > 0 ? 1 : 0.5 }
+            ]} 
+            onPress={handleBulkPickup}
+            disabled={selectedOrders.length === 0}
+          >
+            <LinearGradient 
+              colors={selectedOrders.length > 0 ? [colors.success, '#2D6A4F'] : [colors.text.disabled, '#666']} 
+              start={{ x: 0, y: 0 }} 
+              end={{ x: 1, y: 0 }} 
+              style={styles.bulkGradient}
+            >
+              <FontAwesome5 name="motorcycle" size={20} color="#FFF" />
+              <Text style={styles.bulkPickupText}>
+                {selectedOrders.length > 0 
+                  ? `RECOGER SELECCIONADOS (${selectedOrders.length})` 
+                  : 'SELECCIONA PEDIDOS PARA RECOGER'}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
       )}
     </SafeAreaView>
+
+    </View>
   );
 };
 
 export default RiderScreen;
+
+

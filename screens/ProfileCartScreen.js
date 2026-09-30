@@ -1,13 +1,13 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { getThemeColors } from '../theme';
 import { useThemeMode } from '../contexts/ThemeContext';
 
-const { darkMode } = useThemeMode();
-  const colors = getThemeColors(darkMode);
-
 const ProfileCartScreen = ({ navigation }) => {
+  const { darkMode } = useThemeMode();
+  const colors = getThemeColors(darkMode);
 
   const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },

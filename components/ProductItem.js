@@ -1,19 +1,21 @@
 // Product Item Component - DSicario Branding
-import React, { memo, useMemo } from 'react';
+import React, { memo, useMemo, useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
-  Image,
   StyleSheet,
-  Platform
+  Platform,
+  Animated
 } from 'react-native';
+import { Image } from 'expo-image';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useProducts, useCart } from '../contexts/AppContext';
 import { useUser } from '../contexts/UserContext';
-import { formatPrice, calculateDiscountedPrice, voteSuggestion } from '../utils/api';
+import { formatPrice, calculateDiscountedPrice, voteSuggestion, updateProduct, toggleProductStock } from '../utils/api';
 import { useThemeMode } from '../contexts/ThemeContext';
+import { useFavorites } from '../contexts/FavoritesContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
 
 /**
@@ -32,11 +34,16 @@ const ProductItem = memo(({
 }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
-  const { products, isEditorMode, refetchProducts } = useProducts();
-  const { cart, addToCart, updateCartItemQuantity } = useCart();
+  const { products, isEditorMode, refetchProducts, updateProductLocally } = useProducts();
+  const { cart, addToCart, updateCartItemQuantity, businessInfo, isWaiterMode, waiterActiveSession } = useCart();
+  const { toggleFavorite, isFavorite } = useFavorites();
   const { role, isClientMode } = useUser(); // 🛡️ Seguridad
 
+  const isClosed = businessInfo?.closed === true;
   const isSuggestion = product.isSuggestion;
+
+  const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
+  const activeEditorMode = isEditorMode && isAdmin && !isClientMode;
 
   const handleVote = async (type) => {
     try {
@@ -49,14 +56,54 @@ const ProductItem = memo(({
       console.error('Error in handleVote:', error);
     }
   };
+
+  const agotadoAnim = useRef(new Animated.Value(product.agotado ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.timing(agotadoAnim, {
+      toValue: product.agotado ? 1 : 0,
+      duration: 350,
+      useNativeDriver: true,
+    }).start();
+  }, [product.agotado]);
+
+  const [togglingStock, setTogglingStock] = useState(false);
+
+  const handleToggleStock = async (e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (togglingStock) return;
+    
+    setTogglingStock(true);
+    const productId = product.id || product.ID_Producto || product.id_producto;
+    const newAgotadoState = !product.agotado;
+    const oldAgotadoState = product.agotado;
+
+    // 🚀 Actualización Optimista: Cambia la UI INMEDIATAMENTE
+    if (updateProductLocally) {
+      updateProductLocally({ ...product, agotado: newAgotadoState, isAvailable: !newAgotadoState });
+    }
+
+    try {
+      await toggleProductStock(productId, oldAgotadoState);
+      // Opcional: refetchProducts() en background, pero ya actualizamos localmente
+    } catch (err) {
+      console.error('❌ Error toggling stock:', err);
+      // Revertir si falla
+      if (updateProductLocally) {
+        updateProductLocally({ ...product, agotado: oldAgotadoState, isAvailable: !oldAgotadoState });
+      }
+    } finally {
+      setTogglingStock(false);
+    }
+  };
   
   const originalPrice = parseFloat(product.precio) || 0;
   const finalPrice = product.descuento > 0 
     ? calculateDiscountedPrice(originalPrice, product.descuento)
     : originalPrice;
 
-  // 🛡️ Determinamos si este usuario tiene permiso para comprar
-  const canPurchase = isClientMode || role === 'Cliente' || role === 'Admin';
+  // 🛡️ Puede comprar si es cliente o si el mesero tiene una sesión activa (cliente seleccionado)
+  const isWaiterWithSession = isWaiterMode && waiterActiveSession?.cliente;
+  const canPurchase = isClientMode || isWaiterWithSession || role?.toLowerCase() === 'cliente';
 
   const styles = useMemo(() => StyleSheet.create({
     gridCard: {
@@ -119,11 +166,45 @@ const ProductItem = memo(({
       paddingVertical: 4,
       zIndex: 10,
     },
+    firebaseBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      backgroundColor: 'rgba(230, 81, 0, 0.85)',
+      borderRadius: borders.radius.sm,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      marginTop: 3,
+      marginBottom: 2,
+    },
+    firebaseBadgeText: {
+      fontSize: 9,
+      fontWeight: 'bold',
+      color: '#FFFFFF',
+      marginLeft: 4,
+    },
     ratingText: {
       fontSize: 10,
       fontWeight: 'bold',
       color: '#FFFFFF',
       marginLeft: 4,
+    },
+    favoriteItemBtn: {
+      position: 'absolute',
+      top: 6,
+      left: 6,
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: 'rgba(255,255,255,0.85)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 25,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.2,
+      shadowRadius: 2,
+      elevation: 3,
     },
     outOfStockContainer: { opacity: 0.8 },
     outOfStockImage: { opacity: 0.5 },
@@ -169,6 +250,7 @@ const ProductItem = memo(({
     discountPriceContainer: {
       flexDirection: 'row',
       alignItems: 'baseline',
+      height: 24,
     },
     originalPrice: {
       fontSize: 12,
@@ -195,6 +277,26 @@ const ProductItem = memo(({
       ...shadows.medium,
       borderWidth: 1.5,
       borderColor: 'rgba(255,255,255,0.3)',
+    },
+    stockToggleBtn: {
+      position: 'absolute',
+      bottom: 12,
+      right: 98,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 30,
+      ...shadows.medium,
+      borderWidth: 1.5,
+      borderColor: 'rgba(255,255,255,0.3)',
+    },
+    preOrderBtn: {
+      backgroundColor: '#6A5ACD',
+      width: 40,
+      height: 40,
+      borderRadius: 12,
     },
     suggestionOverlay: {
       position: 'absolute',
@@ -232,44 +334,114 @@ const ProductItem = memo(({
       color: '#FFF',
       fontSize: 10,
       fontWeight: 'bold',
+      gap: 4,
+    },
+    voteCountText: {
+      color: '#FFF',
+      fontSize: 10,
+      fontWeight: 'bold',
     },
   }), [colors, darkMode]);
 
   const handlePress = () => {
-    if (product.agotado && !isEditorMode) return;
+    if (product.agotado && !activeEditorMode) return;
+    
+    // 🤵 Bloqueo para meseros sin sesión
+    if (isWaiterMode && !waiterActiveSession?.cliente && !activeEditorMode) {
+      return; // No hacer nada, el banner ya indica que debe elegir mesa
+    }
+
     onPress?.(product);
   };
 
-  const renderSharedImageContent = () => (
+  const renderSharedImageContent = () => {
+    if (product.imagen) {
+      console.log(`[IMG DEPURACIÓN] Intentando cargar imagen de producto "${product.nombre}":`, product.imagen.substring(0, 150) + (product.imagen.length > 150 ? '...' : ''));
+    }
+
+    return (
     <>
       <Image 
         source={product.imagen ? { uri: product.imagen } : require('../assets/logo.png')}
+        placeholder={require('../assets/logo.png')}
         style={[
           styles.image, 
           imageStyle, 
           product.agotado && styles.outOfStockImage,
           !product.imagen && { opacity: 0.8 }
         ]}
+        contentFit="cover"
+        transition={300}
+        cachePolicy="memory-disk"
+        onError={(err) => {
+          console.warn(`[IMG ERROR] Falló la carga de imagen para "${product.nombre}"! URL intentada: ${product.imagen}`);
+          console.warn(`[IMG ERROR Detalles]:`, err);
+        }}
       />
+      
+      {/* ❤️ Favorito (modo cliente) | 🚫 Stock (modo editor) */}
+      {activeEditorMode ? (
+        <TouchableOpacity
+          style={[
+            styles.favoriteItemBtn,
+            { backgroundColor: product.agotado ? 'rgba(39,174,96,0.9)' : 'rgba(231,76,60,0.9)' },
+            togglingStock && { opacity: 0.5 }
+          ]}
+          onPress={handleToggleStock}
+          activeOpacity={0.7}
+          disabled={togglingStock}
+        >
+          <FontAwesome5
+            name={product.agotado ? 'check' : 'ban'}
+            size={12}
+            color="#FFF"
+          />
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          style={styles.favoriteItemBtn}
+          onPress={(e) => {
+            if (e && e.stopPropagation) e.stopPropagation();
+            toggleFavorite(product);
+          }}
+          activeOpacity={0.7}
+        >
+          <FontAwesome5
+            name="heart"
+            solid={isFavorite(product.id || product.ID_Producto || product.id_producto)}
+            size={12}
+            color={isFavorite(product.id || product.ID_Producto || product.id_producto) ? '#E74C3C' : '#95A5A6'}
+          />
+        </TouchableOpacity>
+      )}
+
       {showRating && product.rating > 0 && (
         <View style={styles.topRightBadge}>
           <FontAwesome5 name="star" size={8} color={colors.accent} solid />
           <Text style={styles.ratingText}>{product.rating}</Text>
         </View>
       )}
-      {product.agotado && (
-        <View style={styles.outOfStockOverlay}>
-          <FontAwesome5 name="times-circle" size={24} color="rgba(255,255,255,0.7)" />
-        </View>
-      )}
+      <Animated.View 
+        style={[
+          styles.outOfStockOverlay, 
+          { opacity: agotadoAnim },
+          Platform.OS === 'web' && { pointerEvents: product.agotado ? 'auto' : 'none' }
+        ]} 
+        {...(Platform.OS !== 'web' ? { pointerEvents: product.agotado ? 'auto' : 'none' } : {})}
+      >
+        <FontAwesome5 name="times-circle" size={24} color="rgba(255,255,255,0.7)" />
+      </Animated.View>
+      
+
       <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.gradient}>
         <Text style={[styles.productName, product.agotado && styles.outOfStockText, { paddingRight: 35 }]} numberOfLines={2}>
           {product.nombre}
         </Text>
       </LinearGradient>
       {!isSuggestion && (
-        isEditorMode ? (
-          <TouchableOpacity 
+        activeEditorMode ? (
+          // En modo editor: solo botón de editar (el de stock ya está arriba-izquierda)
+          <TouchableOpacity
             style={[styles.quickAddBtn, { backgroundColor: colors.info }]}
             onPress={(e) => {
               if (e && e.stopPropagation) e.stopPropagation();
@@ -282,14 +454,14 @@ const ProductItem = memo(({
         ) : (
           !product.agotado && canPurchase && (
             <TouchableOpacity 
-              style={styles.quickAddBtn}
+              style={[styles.quickAddBtn, isClosed && styles.preOrderBtn]}
               onPress={(e) => {
                 if (e && e.stopPropagation) e.stopPropagation();
                 addToCart(product);
               }}
               activeOpacity={0.7}
             >
-              <FontAwesome5 name="plus" size={14} color="#FFF" />
+              <FontAwesome5 name={isClosed ? "moon" : "plus"} size={14} color="#FFF" />
             </TouchableOpacity>
           )
         )
@@ -326,6 +498,7 @@ const ProductItem = memo(({
       )}
     </>
   );
+};
 
   const renderSharedInfoContent = () => (
     <View style={styles.infoContainer}>
@@ -345,6 +518,13 @@ const ProductItem = memo(({
             )}
          </View>
       </View>
+      {/* 🔥 Badge Firebase inline bajo la imagen */}
+      {(role === 'Owner' || role === 'Admin') && product._fromFirebaseBackup && (
+        <View style={styles.firebaseBadge}>
+          <FontAwesome5 name="fire" size={9} color="#FFD54F" solid />
+          <Text style={styles.firebaseBadgeText}>Firebase</Text>
+        </View>
+      )}
       <View style={styles.priceContainer}>
         {product.descuento > 0 ? (
           <View style={styles.discountPriceContainer}>
@@ -368,9 +548,9 @@ const ProductItem = memo(({
     return (
       <TouchableOpacity
         style={[styles.compactCard, product.agotado && styles.outOfStockContainer, style]}
-        activeOpacity={(product.agotado && !isEditorMode) ? 1 : 0.8}
+        activeOpacity={(product.agotado && !activeEditorMode) ? 1 : 0.8}
         onPress={handlePress}
-        disabled={product.agotado && !isEditorMode}
+        disabled={product.agotado && !activeEditorMode}
       >
         <View style={styles.compactImageContainer}>
           {renderSharedImageContent()}
@@ -383,9 +563,9 @@ const ProductItem = memo(({
   return (
     <TouchableOpacity
       style={[styles.gridCard, product.agotado && styles.outOfStockContainer, style]}
-        activeOpacity={(product.agotado && !isEditorMode) ? 1 : 0.8}
+        activeOpacity={(product.agotado && !activeEditorMode) ? 1 : 0.8}
         onPress={handlePress}
-        disabled={product.agotado && !isEditorMode}
+        disabled={product.agotado && !activeEditorMode}
     >
       <View style={styles.gridImageContainer}>
         {renderSharedImageContent()}
