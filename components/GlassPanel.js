@@ -1,31 +1,70 @@
 import React from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { useTheme } from '../contexts/ThemeContext';
 
 /**
- * Componente que aplica un efecto de cristal (glassmorphism).
- * En iOS usa BlurView para un desenfoque real.
- * En Android/Web usa un fondo semi-transparente como fallback.
+ * GlassPanel — Componente glassmorphism unificado.
+ *
+ * Props:
+ *  intensity    → Intensidad del blur (default: 28).
+ *  tint         → 'auto' (sigue darkMode), 'dark', 'light' (default: 'auto').
+ *  borderRadius → Esquinas (default: 24).
+ *  noBorder     → Si true, omite el borde de cristal.
+ *  style        → Estilos extra.
+ *  children     → Contenido.
  */
-const GlassPanel = ({ children, style, intensity = 20, tint = 'light' }) => {
-  const overflowStyle = Platform.OS === 'web' ? { overflow: 'visible' } : {};
+const GlassPanel = ({
+  children,
+  style,
+  intensity = 28,
+  tint = 'auto',
+  borderRadius = 24,
+  noBorder = false,
+}) => {
+  const { darkMode } = useTheme?.() ?? { darkMode: false };
+  const effectiveTint = tint === 'auto' ? (darkMode ? 'dark' : 'light') : tint;
+  const isDark = effectiveTint === 'dark';
 
+  const glassStyle = {
+    borderRadius,
+    borderWidth: noBorder ? 0 : 1,
+    borderColor: isDark
+      ? 'rgba(255, 255, 255, 0.10)'
+      : 'rgba(255, 255, 255, 0.80)',
+  };
+
+  // iOS → BlurView nativo real
   if (Platform.OS === 'ios') {
     return (
-      <BlurView intensity={intensity} tint={tint} style={[styles.panel, overflowStyle, style]}>
+      <BlurView
+        intensity={intensity}
+        tint={effectiveTint}
+        style={[styles.panel, glassStyle, style]}
+      >
         {children}
       </BlurView>
     );
   }
 
-  // Fallback para Android/Web
+  // Android / Web → semi-transparente + backdrop-filter CSS (web moderno)
+  const fallbackBg = isDark
+    ? 'rgba(20, 20, 24, 0.76)'
+    : 'rgba(255, 255, 255, 0.74)';
+
   return (
-    <View style={[
-      styles.panel, 
-      { backgroundColor: tint === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)' },
-      overflowStyle,
-      style
-    ]}>
+    <View
+      style={[
+        styles.panel,
+        glassStyle,
+        {
+          backgroundColor: fallbackBg,
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+        },
+        style,
+      ]}
+    >
       {children}
     </View>
   );
@@ -33,10 +72,13 @@ const GlassPanel = ({ children, style, intensity = 20, tint = 'light' }) => {
 
 const styles = StyleSheet.create({
   panel: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    overflow: Platform.OS === 'ios' ? 'hidden' : 'visible',
+    // Sombra sutil que da profundidad al cristal
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 8,
   },
 });
 

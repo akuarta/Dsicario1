@@ -19,6 +19,7 @@ import { getThemeColors, spacing, typography, borders, shadows } from '../theme/
 import { showAlert } from '../utils/showAlert';
 import { showConfirm } from '../utils/showConfirm';
 import { CustomHeader } from '../components/CustomHeader';
+import CartItem from '../components/CartItem';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const CartScreen = ({ navigation }) => {
@@ -39,7 +40,6 @@ const CartScreen = ({ navigation }) => {
   } = useCart();
 
   const [activeNoteId, setActiveNoteId] = useState(null);
-  const [draftNote, setDraftNote] = useState('');
   const NOTES_KEY = `@dsicario_product_notes_${email || 'guest'}`;
 
   useEffect(() => {
@@ -67,33 +67,24 @@ const CartScreen = ({ navigation }) => {
     AsyncStorage.setItem(NOTES_KEY, JSON.stringify(notes)).catch(() => {});
   }, [cart]);
 
-  const openNote = (item) => {
-    const id = item.cartItemId || String(item.id);
-    AsyncStorage.getItem(NOTES_KEY)
-      .then(raw => {
-        const saved = raw ? JSON.parse(raw) : {};
-        const savedDraft = saved[id] || item.orderNote || '';
-        setDraftNote(savedDraft);
-      })
-      .catch(() => setDraftNote(item.orderNote || ''));
-    setActiveNoteId(id);
-  };
+  const handleToggleNote = useCallback((itemId) => {
+    setActiveNoteId(prev => prev === itemId ? null : itemId);
+  }, []);
 
-  const confirmNote = (cartItemId) => {
-    updateCartItemNote(cartItemId, draftNote.trim());
+  const handleConfirmNote = useCallback((cartItemId, noteText) => {
+    updateCartItemNote(cartItemId, noteText);
     setActiveNoteId(null);
-  };
+  }, [updateCartItemNote]);
 
-  const clearNote = (cartItemId) => {
+  const handleClearNote = useCallback((cartItemId) => {
     updateCartItemNote(cartItemId, '');
-    setDraftNote('');
     setActiveNoteId(null);
     AsyncStorage.getItem(NOTES_KEY).then(raw => {
       const saved = raw ? JSON.parse(raw) : {};
       delete saved[cartItemId];
       AsyncStorage.setItem(NOTES_KEY, JSON.stringify(saved)).catch(() => {});
     }).catch(() => {});
-  };
+  }, [updateCartItemNote, NOTES_KEY]);
 
   const totalCost = useMemo(() => getTotalCost(), [cart, getTotalCost]);
   const totalItems = useMemo(() => getTotalItems(), [cart, getTotalItems]);
@@ -114,13 +105,13 @@ const CartScreen = ({ navigation }) => {
     }
   }, [updateCartItemQuantity, removeFromCart]);
 
-  const handleRemoveItem = (item) => {
+  const handleRemoveItem = useCallback((item) => {
     showConfirm(
       'Remover producto',
       `¿Estás seguro de que quieres remover ${item.nombre} del carrito?`,
       () => removeFromCart(item.cartItemId)
     );
-  };
+  }, [removeFromCart]);
 
   const handleClearCart = useCallback(() => {
     showConfirm(
@@ -394,76 +385,19 @@ const CartScreen = ({ navigation }) => {
     },
   }), [colors, darkMode]);
 
-  function renderCartItem({ item }) {
-    const hasNote = !!(item.orderNote && item.orderNote.trim());
-    const itemId = item.cartItemId || String(item.id);
-    const isOpen = activeNoteId === itemId;
-
-    return (
-      <View>
-        <View style={styles.cartItem}>
-          <Image source={{ uri: item.imagen }} style={styles.itemImage} resizeMode="cover" />
-          <View style={styles.itemInfo}>
-            {item.isPreOrder && (
-              <View style={styles.preOrderBadge}>
-                <Text style={styles.preOrderText}>Pre-Orden</Text>
-              </View>
-            )}
-            <Text style={styles.itemName} numberOfLines={2}>{item.nombre}</Text>
-            <Text style={styles.itemCategory}>{item.categoria}</Text>
-            <Text style={styles.itemPrice}>{formatPrice(item.precio)} c/u</Text>
-          </View>
-          <View style={styles.quantityControls}>
-            <TouchableOpacity style={styles.quantityButton} onPress={() => decrementQuantity(item)}>
-              <FontAwesome5 name="minus" size={12} color="#FFF" />
-            </TouchableOpacity>
-            <Text style={styles.quantityText}>{item.quantity}</Text>
-            <TouchableOpacity style={[styles.quantityButton, styles.incrementButton]} onPress={() => incrementQuantity(item)}>
-              <FontAwesome5 name="plus" size={12} color="#FFF" />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.itemActions}>
-            <Text style={styles.subtotalText}>{formatPrice(parseFloat(item.precio || 0) * item.quantity)}</Text>
-            <TouchableOpacity style={styles.removeButton} onPress={() => handleRemoveItem(item)}>
-              <FontAwesome5 name="trash" size={14} color={colors.error} />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <TouchableOpacity
-          style={[styles.noteRow, (hasNote || isOpen) && styles.noteRowActive]}
-          onPress={() => (isOpen || hasNote) ? clearNote(itemId) : openNote(item)}
-          activeOpacity={0.7}
-        >
-          <FontAwesome5 name="check" size={10} color={(hasNote || isOpen) ? colors.primary : colors.text.light} style={{ marginRight: 6 }} />
-          <Text style={[styles.noteRowText, (hasNote || isOpen) && styles.noteRowTextActive]}>
-            {hasNote ? `Nota: ${item.orderNote}` : isOpen ? 'Toca para cancelar nota' : 'Agregar nota para cocina'}
-          </Text>
-        </TouchableOpacity>
-
-        {isOpen && (
-          <View style={styles.noteInputContainer}>
-            <FontAwesome5 name="utensils" size={12} color={colors.text.light} style={{ marginRight: 8, marginTop: 4 }} />
-            <TextInput
-              style={styles.noteInput}
-              placeholder="Nota para cocina..."
-              placeholderTextColor={colors.text.light}
-              value={draftNote}
-              onChangeText={setDraftNote}
-              autoFocus
-              multiline
-              numberOfLines={2}
-              onSubmitEditing={() => confirmNote(itemId)}
-              blurOnSubmit={true}
-            />
-            <TouchableOpacity style={styles.noteConfirmBtn} onPress={() => confirmNote(itemId)}>
-              <FontAwesome5 name="arrow-right" size={13} color="#FFF" />
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-    );
-  }
+  const renderItem = useCallback(({ item }) => (
+    <CartItem
+      item={item}
+      isOpen={activeNoteId === (item.cartItemId || String(item.id))}
+      colors={colors}
+      onToggleNote={handleToggleNote}
+      onConfirmNote={handleConfirmNote}
+      onClearNote={handleClearNote}
+      onIncrement={incrementQuantity}
+      onDecrement={decrementQuantity}
+      onRemove={handleRemoveItem}
+    />
+  ), [activeNoteId, colors, handleToggleNote, handleConfirmNote, handleClearNote, incrementQuantity, decrementQuantity, handleRemoveItem]);
 
   const renderEmptyCart = () => (
     <View style={globalStyles.emptyContainer}>
@@ -505,10 +439,11 @@ const CartScreen = ({ navigation }) => {
         }
         rightAction={cart.length > 0 ? handleClearCart : null}
       />
-      <View style={styles.container}>
+      <View style={globalStyles.container}>
         <FlatList
           data={cart}
-          renderItem={renderCartItem}
+          renderItem={renderItem}
+          keyboardShouldPersistTaps="handled"
           keyExtractor={(item, index) => item.cartItemId || item.id?.toString() || `fallback-${index}`}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
           ListEmptyComponent={renderEmptyCart}

@@ -1,15 +1,19 @@
 import { showAlert } from '../utils/showAlert';
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, Switch, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useUser } from '../contexts/UserContext';
 import { useCart } from '../contexts/AppContext';
+import { useThemeMode } from '../contexts/ThemeContext';
 import { CONFIG } from '../constants/Config';
 
 const ProfileDrawerContent = (props) => {
+  const { darkMode } = useThemeMode();
   const { colors } = useTheme();
   const { signOut } = useAuth();
   const { username, email, role, isClientMode, setIsClientMode, userId, userTypeId, firebaseUid } = useUser();
@@ -128,42 +132,152 @@ const ProfileDrawerContent = (props) => {
     },
   ];
 
-  const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background || '#fff' },
-    header: { alignItems: 'center', backgroundColor: colors.primary || '#FF6B35', paddingVertical: 24 },
-    userName: { fontSize: 18, fontWeight: 'bold', color: '#fff', marginTop: 8 },
-    userEmail: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginBottom: 4 },
-    userRole: { fontSize: 10, color: '#fff', backgroundColor: 'rgba(0,0,0,0.2)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, overflow: 'hidden', fontWeight: 'bold' },
-    
-    modeSection: { padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border || '#eee', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    modeText: { fontSize: 14, fontWeight: 'bold', color: colors.text?.primary || '#333' },
-    modeSub: { fontSize: 11, color: colors.text?.secondary || '#666' },
+  const isDark = darkMode;
 
-    menuContainer: { marginTop: 12 },
-    menuItem: { flexDirection: 'row', alignItems: 'center', padding: 14 },
-    menuItemTitle: { fontSize: 15, color: colors.text?.primary || '#333', flex: 1 },
-    destructiveItem: { backgroundColor: 'rgba(244, 67, 54, 0.05)' },
-    destructiveText: { color: colors.error || '#f44336' },
-    badge: { backgroundColor: colors.primary || '#FF6B35', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 8 },
-    badgeText: { color: '#fff', fontWeight: 'bold', fontSize: 10 },
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    // Header con imagen de fondo y glassmorphism encima
+    headerGradient: {
+      paddingTop: 40,
+      paddingBottom: 28,
+      paddingHorizontal: 20,
+      alignItems: 'center',
+    },
+    avatarRing: {
+      width: 88,
+      height: 88,
+      borderRadius: 44,
+      borderWidth: 2.5,
+      borderColor: 'rgba(255,255,255,0.50)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 14,
+      backgroundColor: '#000',   // Negro que hace juego con logo_dark
+      overflow: 'hidden',
+    },
+    avatarImg: {
+      width: 88,
+      height: 88,
+      borderRadius: 44,
+    },
+    userName: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: '#FFFFFF',
+      letterSpacing: 0.4,
+      marginBottom: 2,
+    },
+    userEmail: {
+      fontSize: 12,
+      color: 'rgba(255,255,255,0.70)',
+      marginBottom: 10,
+    },
+    roleRow: {
+      flexDirection: 'row',
+      gap: 6,
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+    },
+    userRole: {
+      fontSize: 10,
+      color: '#fff',
+      backgroundColor: 'rgba(0,0,0,0.28)',
+      paddingHorizontal: 10,
+      paddingVertical: 3,
+      borderRadius: 12,
+      overflow: 'hidden',
+      fontWeight: '700',
+      letterSpacing: 0.8,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.18)',
+    },
+    modeSection: {
+      padding: 14,
+      marginHorizontal: 12,
+      marginTop: 14,
+      borderRadius: 16,
+      backgroundColor: colors.primary + '15',
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    modeText: { fontSize: 14, fontWeight: '700', color: colors.text?.primary },
+    modeSub: { fontSize: 11, color: colors.text?.secondary },
+    menuContainer: { marginTop: 10 },
+    menuItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 13,
+      paddingHorizontal: 20,
+    },
+    menuIconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      backgroundColor: colors.primary + '18',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 14,
+    },
+    menuIconWrapDestructive: {
+      backgroundColor: (colors.error || '#FF3B30') + '18',
+    },
+    menuItemTitle: {
+      fontSize: 15,
+      color: colors.text?.primary,
+      flex: 1,
+      fontWeight: '500',
+    },
+    destructiveText: { color: colors.error || '#FF3B30' },
+    badge: {
+      backgroundColor: colors.primary,
+      borderRadius: 10,
+      paddingHorizontal: 7,
+      paddingVertical: 2,
+      marginLeft: 6,
+    },
+    badgeText: { color: '#fff', fontWeight: '800', fontSize: 10 },
+    separator: {
+      height: 1,
+      backgroundColor: colors.border,
+      marginHorizontal: 20,
+      marginVertical: 4,
+      opacity: 0.6,
+    },
   });
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <Image 
-            source={require('../assets/logo.png')} 
-            style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: 'rgba(255,255,255,0.2)' }} 
-            resizeMode="contain" 
-          />
-          <Text style={styles.userName}>{username}</Text>
-          <Text style={styles.userEmail}>{email}</Text>
-          <View style={{ flexDirection: 'row', gap: 5 }}>
-            <Text style={styles.userRole}>{role?.toUpperCase() || 'CLIENTE'}</Text>
-            <Text style={[styles.userRole, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>ID: {userTypeId || 'Cargando...'}</Text>
+        {/* ── Header con gradiente DSicario brand ── */}
+        <LinearGradient
+          colors={['#1A0005', '#A80015', '#8B000F']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.headerGradient}
+        >
+          <View style={styles.avatarRing}>
+            <Image
+              // icon.png será el nuevo logo del chef tras la conversión JPEG→PNG
+              source={require('../assets/icon.png')}
+              style={styles.avatarImg}
+              resizeMode="cover"
+            />
           </View>
-        </View>
+          <Text style={styles.userName}>{username || 'Usuario'}</Text>
+          <Text style={styles.userEmail}>{email}</Text>
+          <View style={styles.roleRow}>
+            <Text style={styles.userRole}>{role?.toUpperCase() || 'CLIENTE'}</Text>
+            {userTypeId ? (
+              <Text style={[styles.userRole, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
+                ID: {userTypeId}
+              </Text>
+            ) : null}
+          </View>
+        </LinearGradient>
 
 
 
@@ -185,34 +299,52 @@ const ProfileDrawerContent = (props) => {
           </TouchableOpacity>
         )}
         <View style={styles.menuContainer}>
-          {menuItems.map(item => {
+          {menuItems.map((item, idx) => {
             if (item.visible === false) return null;
-
+            const isLast = idx === menuItems.filter(i => i.visible !== false).length - 1;
             return (
-              <TouchableOpacity
-                key={item.id}
-                style={[styles.menuItem, item.isDestructive && styles.destructiveItem]}
-                onPress={item.onPress}
-              >
-                <FontAwesome5 
-                  name={item.icon} 
-                  size={20} 
-                  color={item.isDestructive ? (colors.error || '#f44336') : (colors.primary || '#FF6B35')} 
-                  style={{ marginRight: 16 }} 
-                />
-                <Text style={[styles.menuItemTitle, item.isDestructive && styles.destructiveText]}>{item.title}</Text>
-                {item.showBadge && item.badgeCount > 0 && (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{item.badgeCount > 99 ? '99+' : item.badgeCount}</Text>
+              <React.Fragment key={item.id}>
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={item.onPress}
+                  activeOpacity={0.7}
+                >
+                  <View style={[
+                    styles.menuIconWrap,
+                    item.isDestructive && styles.menuIconWrapDestructive,
+                  ]}>
+                    <FontAwesome5
+                      name={item.icon}
+                      size={15}
+                      color={item.isDestructive ? (colors.error || '#FF3B30') : colors.primary}
+                    />
                   </View>
-                )}
-              </TouchableOpacity>
+                  <Text style={[
+                    styles.menuItemTitle,
+                    item.isDestructive && styles.destructiveText,
+                  ]}>
+                    {item.title}
+                  </Text>
+                  {item.showBadge && item.badgeCount > 0 && (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>
+                        {item.badgeCount > 99 ? '99+' : item.badgeCount}
+                      </Text>
+                    </View>
+                  )}
+                  {!item.isDestructive && (
+                    <FontAwesome5 name="chevron-right" size={11} color={colors.text?.light} />
+                  )}
+                </TouchableOpacity>
+                {!isLast && <View style={styles.separator} />}
+              </React.Fragment>
             );
           })}
         </View>
         
-        <TouchableOpacity 
-          style={[styles.menuItem, { marginTop: 20, borderTopWidth: 1, borderTopColor: colors.border || '#eee' }]}
+        <View style={[styles.separator, { marginTop: 16, marginBottom: 0 }]} />
+        <TouchableOpacity
+          style={styles.menuItem}
           onPress={() => {
             const handleLogout = async () => {
               console.log(`[USER_PRESENCE] 🔴 CIERRE DE SESIÓN INICIADO para UID: ${firebaseUid}`);
