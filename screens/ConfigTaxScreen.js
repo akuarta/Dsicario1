@@ -75,7 +75,7 @@ const ConfigTaxScreen = ({ navigation }) => {
   const taxAmount = taxEnabled ? (taxInclusive ? previewAmount - (previewAmount / (1 + rate / 100)) : previewAmount * rate / 100) : 0;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <CustomHeader title="Configurar Impuestos" showBack />
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Habilitado / Deshabilitado */}

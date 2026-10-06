@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { Modal, View, Text, Animated } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FontAwesome5 } from '@expo/vector-icons';
+import GlassPanel from '../components/GlassPanel';
 import { fetchUserRoleByEmail, fetchDeliveries, saveUser, setOffline, setUserOnlineStatus } from '../utils/api';
 import { useAuth } from './AuthContext';
 import { CONFIG } from '../constants/Config';
@@ -318,61 +319,77 @@ export const UserProvider = ({ children }) => {
     <UserContext.Provider value={value}>
       {children}
 
-      {/* ── Modal de transición de Modo Cliente/Personal estilo InDrive ── */}
+      {/* ── Modal de transición de Modo Cliente/Personal estilo InDrive con Glass ── */}
       <Modal visible={transitioning} transparent animationType="none" statusBarTranslucent>
         <Animated.View style={{
           flex: 1,
-          backgroundColor: 'rgba(10, 10, 10, 0.95)',
+          backgroundColor: 'rgba(10, 10, 14, 0.88)',
           justifyContent: 'center',
           alignItems: 'center',
           opacity: overlayOpacity,
+          padding: 24,
         }}>
           <Animated.View style={{
+            width: '100%',
+            maxWidth: 340,
             alignItems: 'center',
             transform: [{ scale: cardScale }],
             opacity: cardOpacity,
           }}>
-            {/* Círculo animado */}
-            <Animated.View style={{
-              width: 140, height: 140, borderRadius: 70,
-              backgroundColor: switchingToClient ? 'rgba(255, 107, 53, 0.12)' : 'rgba(52, 152, 219, 0.12)',
-              borderWidth: 2,
-              borderColor: switchingToClient ? '#FF6B3588' : '#3498DB88',
-              alignItems: 'center', justifyContent: 'center',
-              marginBottom: 32,
-              transform: [{ rotate: spin }],
-              // Sombra / brillo
-              shadowColor: switchingToClient ? '#FF6B35' : '#3498DB',
-              shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: 0.3,
-              shadowRadius: 15,
-              elevation: 10,
-            }}>
-              <FontAwesome5
-                name={switchingToClient ? 'shopping-basket' : 'user-shield'}
-                size={54}
-                color={switchingToClient ? '#FF6B35' : '#3498DB'}
-              />
-            </Animated.View>
+            <GlassPanel
+              intensity={40}
+              borderRadius={32}
+              tint="dark"
+              style={{
+                width: '100%',
+                paddingVertical: 36,
+                paddingHorizontal: 24,
+                alignItems: 'center',
+                borderWidth: 1.5,
+                borderColor: switchingToClient ? 'rgba(255, 107, 53, 0.45)' : 'rgba(52, 152, 219, 0.45)',
+              }}
+            >
+              {/* Círculo animado */}
+              <Animated.View style={{
+                width: 120, height: 120, borderRadius: 60,
+                backgroundColor: switchingToClient ? 'rgba(255, 107, 53, 0.15)' : 'rgba(52, 152, 219, 0.15)',
+                borderWidth: 2,
+                borderColor: switchingToClient ? '#FF6B3588' : '#3498DB88',
+                alignItems: 'center', justifyContent: 'center',
+                marginBottom: 26,
+                transform: [{ rotate: spin }],
+                shadowColor: switchingToClient ? '#FF6B35' : '#3498DB',
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: 0.35,
+                shadowRadius: 15,
+                elevation: 10,
+              }}>
+                <FontAwesome5
+                  name={switchingToClient ? 'shopping-basket' : 'user-shield'}
+                  size={48}
+                  color={switchingToClient ? '#FF6B35' : '#3498DB'}
+                />
+              </Animated.View>
 
-            {/* Texto informativo */}
-            <Text style={{ color: '#FFF', fontSize: 24, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center', marginBottom: 8 }}>
-              {switchingToClient ? 'Cambiando a' : 'Iniciando'}
-            </Text>
-            <Text style={{
-              fontSize: 22, fontWeight: '800',
-              color: switchingToClient ? '#FF6B35' : '#3498DB',
-              marginBottom: 16,
-              textTransform: 'uppercase',
-              letterSpacing: 1,
-            }}>
-              {switchingToClient ? 'Modo Cliente' : 'Modo Personal'}
-            </Text>
-            <Text style={{ color: '#AAA', fontSize: 14, textAlign: 'center', maxWidth: 280, lineHeight: 20 }}>
-              {switchingToClient 
-                ? 'Preparando el menú y tu carrito de compras...' 
-                : 'Cargando herramientas de gestión y pedidos...'}
-            </Text>
+              {/* Texto informativo */}
+              <Text style={{ color: '#FFF', fontSize: 24, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center', marginBottom: 8 }}>
+                {switchingToClient ? 'Cambiando a' : 'Iniciando'}
+              </Text>
+              <Text style={{
+                fontSize: 20, fontWeight: '800',
+                color: switchingToClient ? '#FF6B35' : '#3498DB',
+                marginBottom: 14,
+                textTransform: 'uppercase',
+                letterSpacing: 1,
+              }}>
+                {switchingToClient ? 'Modo Cliente' : 'Modo Personal'}
+              </Text>
+              <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, textAlign: 'center', maxWidth: 260, lineHeight: 19 }}>
+                {switchingToClient 
+                  ? 'Preparando el menú y tu carrito de compras...' 
+                  : 'Cargando herramientas de gestión y pedidos...'}
+              </Text>
+            </GlassPanel>
           </Animated.View>
         </Animated.View>
       </Modal>

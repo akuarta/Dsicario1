@@ -10,7 +10,8 @@ import {
   TextInput,
   Switch,
   Image,
-  Animated
+  Animated,
+  Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { showAlert } from '../utils/showAlert';
@@ -125,9 +126,25 @@ const CheckoutScreen = ({ navigation, route }) => {
     section: { backgroundColor: colors.surface, margin: spacing.md, padding: spacing.md, borderRadius: borders.radius.lg, ...shadows.small },
     sectionTitle: { fontSize: typography.sizes.lg, fontWeight: typography.weights.bold, color: colors.text.primary, marginBottom: spacing.md },
     optionContainer: { flexDirection: 'row', backgroundColor: colors.background, borderRadius: borders.radius.md, padding: spacing.xs, marginBottom: spacing.md },
-    optionButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.sm, borderRadius: borders.radius.sm },
+    optionButton: {
+      flex: 1,
+      flexShrink: 1,
+      minWidth: 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: spacing.sm,
+      paddingHorizontal: Platform.OS === 'web' ? spacing.sm : 4,
+      borderRadius: borders.radius.sm,
+    },
     optionButtonActive: { backgroundColor: colors.primary },
-    optionText: { fontSize: typography.sizes.sm, fontWeight: typography.weights.bold, color: colors.text.secondary, marginLeft: spacing.xs },
+    optionText: {
+      fontSize: Platform.OS === 'web' ? typography.sizes.sm : 12,
+      fontWeight: typography.weights.bold,
+      color: colors.text.secondary,
+      marginLeft: 4,
+      flexShrink: 1,
+    },
     optionTextActive: { color: colors.text.white },
     riderTrustContainer: { marginTop: spacing.md, padding: spacing.md, borderRadius: borders.radius.lg, backgroundColor: colors.primary + '08', borderWidth: 1, borderStyle: 'dashed', borderColor: colors.primary + '40' },
     riderTrustHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
@@ -146,7 +163,7 @@ const CheckoutScreen = ({ navigation, route }) => {
     totalLabel: { fontSize: typography.sizes.lg, fontWeight: typography.weights.bold, color: colors.text.primary },
     totalAmount: { fontSize: typography.sizes.xl, fontWeight: typography.weights.bold, color: colors.primary },
     paymentMethod: { flexDirection: 'row', alignItems: 'center', padding: spacing.md, backgroundColor: colors.background, borderRadius: borders.radius.md, borderWidth: 1, borderColor: colors.border },
-    paymentText: { fontSize: typography.sizes.md, fontWeight: typography.weights.medium, color: colors.text.primary, marginLeft: spacing.md },
+    paymentText: { fontSize: 15, fontWeight: typography.weights.medium, color: colors.text.primary, marginLeft: 8 },
     cashInputContainer: { marginTop: spacing.md, padding: spacing.md, backgroundColor: colors.background, borderRadius: borders.radius.md, borderWidth: 1, borderColor: colors.border },
     cashInput: { fontSize: typography.sizes.xl, fontWeight: typography.weights.bold, color: colors.primary, paddingVertical: spacing.sm, borderBottomWidth: 2, borderBottomColor: colors.primary, textAlign: 'center' },
     changeContainer: { marginTop: spacing.md, alignItems: 'center' },
@@ -204,7 +221,7 @@ const CheckoutScreen = ({ navigation, route }) => {
 
   if (orderCompleted) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
         <ScrollView
           contentContainerStyle={[styles.successContainer, { justifyContent: 'flex-start', paddingTop: 48, paddingBottom: 40 }]}
           keyboardShouldPersistTaps="handled"
@@ -323,7 +340,7 @@ const CheckoutScreen = ({ navigation, route }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <CustomHeader title="Checkout" showBack />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollContent}>
         {businessInfo?.closed && (
@@ -379,8 +396,8 @@ const CheckoutScreen = ({ navigation, route }) => {
           <View style={styles.optionContainer}>
             {['pickup', 'local', 'delivery'].map(type => (
               <TouchableOpacity key={type} style={[styles.optionButton, deliveryType === type && styles.optionButtonActive]} onPress={() => setDeliveryType(type)}>
-                <FontAwesome5 name={type === 'local' ? 'utensils' : type === 'pickup' ? 'store' : 'motorcycle'} size={14} color={deliveryType === type ? '#FFF' : colors.text.secondary} />
-                <Text style={[styles.optionText, deliveryType === type && styles.optionTextActive]}>{type === 'local' ? 'En Local' : type === 'pickup' ? 'Recogida' : 'A Domicilio'}</Text>
+                <FontAwesome5 name={type === 'local' ? 'utensils' : type === 'pickup' ? 'store' : 'motorcycle'} size={12} color={deliveryType === type ? '#FFF' : colors.text.secondary} />
+                <Text style={[styles.optionText, deliveryType === type && styles.optionTextActive]} numberOfLines={1}>{type === 'local' ? 'En Local' : type === 'pickup' ? 'Recogida' : 'A Domicilio'}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -567,14 +584,16 @@ const CheckoutScreen = ({ navigation, route }) => {
                   key={index}
                   style={[
                     styles.paymentMethod, 
-                    { minWidth: 120, paddingHorizontal: 15, height: 55, marginVertical: 0 },
+                    { minWidth: 100, paddingHorizontal: 10, minHeight: 52, marginVertical: 0 },
                     isActive && { backgroundColor: colors.primary + '20', borderColor: colors.primary, borderWidth: 2 },
                     riderConfirmed && isActive && { backgroundColor: colors.success + '20', borderColor: colors.success, borderWidth: 2 }
                   ]} 
                   onPress={() => setPaymentType(method)}
                 >
-                  <FontAwesome5 name={getPaymentIcon(method)} size={20} color={isActive ? (riderConfirmed ? colors.success : colors.primary) : colors.text.secondary} />
-                  <Text style={[styles.paymentText, isActive && { color: riderConfirmed ? colors.success : colors.primary, fontWeight: 'bold' }]}>{method}</Text>
+                  <View style={{ flexShrink: 0 }}>
+                    <FontAwesome5 name={getPaymentIcon(method)} size={16} color={isActive ? (riderConfirmed ? colors.success : colors.primary) : colors.text.secondary} />
+                  </View>
+                  <Text style={[styles.paymentText, isActive && { color: riderConfirmed ? colors.success : colors.primary, fontWeight: 'bold' }]} numberOfLines={1}>{method}</Text>
                 </TouchableOpacity>
               );
             })}

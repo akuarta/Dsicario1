@@ -101,10 +101,8 @@ export const UpdateService = {
 
       return true;
     } catch (error) {
-      console.error('[UpdateService] Error verificando actualización:', error);
-      if (error.code === 'permission-denied') {
-        console.error('[UpdateService] Sin permisos: verifica las reglas de Firestore para /app_config/version_control');
-      }
+      // Chequeo de fondo: no abrir overlay/toast rojo en desarrollo.
+      console.log('[UpdateService] Sin actualización disponible o sin acceso:', error.code || error.message);
       return false;
     }
   },

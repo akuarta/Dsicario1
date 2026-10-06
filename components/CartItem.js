@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Image, TextInput, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, Image, TextInput, StyleSheet, Platform } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { formatPrice } from '../utils/api';
 import { borders, shadows, spacing, typography } from '../theme/theme';
@@ -32,6 +32,35 @@ const CartItem = ({
     onClearNote(itemId);
   };
 
+  // En móvil angosto (360dp) la fila cuádruple imagen+info+stepper+precio
+  // no cabe: a la info le quedaban ~40px y el texto se rompía letra por letra.
+  // En nativo: fila superior (imagen + info + papelera) y fila inferior
+  // (stepper + subtotal). En web se conserva la fila única original.
+  const isNarrowNative = Platform.OS !== 'web';
+
+  const quantityStepper = (
+    <View style={styles.quantityControls}>
+      <TouchableOpacity style={[styles.quantityButton, { backgroundColor: colors.error }]} onPress={() => onDecrement(item)}>
+        <FontAwesome5 name="minus" size={12} color="#FFF" />
+      </TouchableOpacity>
+      <Text style={[styles.quantityText, { color: colors.text.primary }]}>{item.quantity}</Text>
+      <TouchableOpacity style={[styles.quantityButton, { backgroundColor: colors.primary }]} onPress={() => onIncrement(item)}>
+        <FontAwesome5 name="plus" size={12} color="#FFF" />
+      </TouchableOpacity>
+    </View>
+  );
+
+  const subtotalBlock = (
+    <View style={styles.itemActions}>
+      <Text style={[styles.subtotalText, { color: colors.primary }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>{formatPrice(parseFloat(item.precio || 0) * item.quantity)}</Text>
+      {!isNarrowNative && (
+        <TouchableOpacity style={styles.removeButton} onPress={() => onRemove(item)}>
+          <FontAwesome5 name="trash" size={14} color={colors.error} />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
   return (
     <View>
       <View style={[styles.cartItem, { backgroundColor: colors.surface }]}>
@@ -43,25 +72,26 @@ const CartItem = ({
             </View>
           )}
           <Text style={[styles.itemName, { color: colors.text.primary }]} numberOfLines={2}>{item.nombre}</Text>
-          <Text style={[styles.itemCategory, { color: colors.text.light }]}>{item.categoria}</Text>
-          <Text style={[styles.itemPrice, { color: colors.text.secondary }]}>{formatPrice(item.precio)} c/u</Text>
+          <Text style={[styles.itemCategory, { color: colors.text.light }]} numberOfLines={1}>{item.categoria}</Text>
+          <Text style={[styles.itemPrice, { color: colors.text.secondary }]} numberOfLines={1}>{formatPrice(item.precio)} c/u</Text>
         </View>
-        <View style={styles.quantityControls}>
-          <TouchableOpacity style={[styles.quantityButton, { backgroundColor: colors.error }]} onPress={() => onDecrement(item)}>
-            <FontAwesome5 name="minus" size={12} color="#FFF" />
-          </TouchableOpacity>
-          <Text style={[styles.quantityText, { color: colors.text.primary }]}>{item.quantity}</Text>
-          <TouchableOpacity style={[styles.quantityButton, { backgroundColor: colors.primary }]} onPress={() => onIncrement(item)}>
-            <FontAwesome5 name="plus" size={12} color="#FFF" />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.itemActions}>
-          <Text style={[styles.subtotalText, { color: colors.primary }]}>{formatPrice(parseFloat(item.precio || 0) * item.quantity)}</Text>
+        {isNarrowNative ? (
           <TouchableOpacity style={styles.removeButton} onPress={() => onRemove(item)}>
             <FontAwesome5 name="trash" size={14} color={colors.error} />
           </TouchableOpacity>
-        </View>
+        ) : (
+          <>
+            {quantityStepper}
+            {subtotalBlock}
+          </>
+        )}
       </View>
+      {isNarrowNative && (
+        <View style={[styles.cartItemFooter, { backgroundColor: colors.surface }]}>
+          {quantityStepper}
+          {subtotalBlock}
+        </View>
+      )}
 
       <TouchableOpacity
         style={[
@@ -113,17 +143,43 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     marginHorizontal: spacing.md,
     marginVertical: spacing.xs,
-    borderRadius: borders.radius.lg,
+    ...Platform.select({
+      web: { borderRadius: borders.radius.lg },
+      default: {
+        borderTopLeftRadius: borders.radius.lg,
+        borderTopRightRadius: borders.radius.lg,
+        borderBottomLeftRadius: 0,
+        borderBottomRightRadius: 0,
+        marginBottom: 0,
+      },
+    }),
     ...shadows.small,
   },
+  // Segunda fila solo nativo: stepper + subtotal a lo ancho
+  cartItemFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.sm,
+    paddingBottom: spacing.sm,
+    marginHorizontal: spacing.md,
+    marginTop: 0,
+    marginBottom: spacing.xs,
+    borderBottomLeftRadius: borders.radius.lg,
+    borderBottomRightRadius: borders.radius.lg,
+  },
   itemImage: {
-    width: 70,
-    height: 70,
+    width: 60,
+    height: 60,
     borderRadius: borders.radius.md,
+    flexShrink: 0,
   },
   itemInfo: {
     flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
     marginLeft: spacing.sm,
+    marginRight: spacing.xs,
     justifyContent: 'center',
   },
   preOrderBadge: {
@@ -143,6 +199,7 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.md,
     fontWeight: typography.weights.medium,
     marginBottom: spacing.xs,
+    flexShrink: 1,
   },
   itemCategory: {
     fontSize: typography.sizes.sm,
@@ -154,7 +211,8 @@ const styles = StyleSheet.create({
   quantityControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: spacing.sm,
+    marginRight: spacing.xs,
+    flexShrink: 0,
   },
   quantityButton: {
     width: 28,
@@ -166,17 +224,20 @@ const styles = StyleSheet.create({
   quantityText: {
     fontSize: typography.sizes.md,
     fontWeight: typography.weights.bold,
-    marginHorizontal: spacing.sm,
+    marginHorizontal: spacing.xs,
     minWidth: 20,
     textAlign: 'center',
   },
   itemActions: {
     alignItems: 'flex-end',
+    flexShrink: 0,
+    marginLeft: spacing.xs,
   },
   subtotalText: {
-    fontSize: typography.sizes.md,
+    fontSize: typography.sizes.sm,
     fontWeight: typography.weights.bold,
     marginBottom: spacing.xs,
+    textAlign: 'right',
   },
   removeButton: {
     padding: spacing.xs,

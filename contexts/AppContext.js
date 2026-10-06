@@ -490,7 +490,23 @@ export const DataSyncProvider = ({ children }) => {
   // DeliveryTrackingScreen y RiderScreen lo leen para arrancar su setInterval de
   // refresco. No estaba expuesto, así que era siempre `undefined` y el polling
   // nunca se creaba. Default true para recuperar ese comportamiento.
-  const [isAutoSyncEnabled, setIsAutoSyncEnabled] = useState(true);
+  // KitchenScreen lo alterna con el interruptor ON/OFF de su cabecera.
+  const [isAutoSyncEnabled, setIsAutoSyncEnabledState] = useState(true);
+  const setIsAutoSyncEnabled = useCallback((value) => {
+    setIsAutoSyncEnabledState(value);
+    AsyncStorage.setItem('@dsicario_autosync', value ? '1' : '0').catch(console.warn);
+  }, []);
+  // Ref para que el intervalo global (creado una sola vez, deps []) pueda leer
+  // el valor actual sin tener que recrearse en cada toggle.
+  const autoSyncRef = useRef(true);
+  useEffect(() => { autoSyncRef.current = isAutoSyncEnabled; }, [isAutoSyncEnabled]);
+
+  // Restaurar la preferencia guardada
+  useEffect(() => {
+    AsyncStorage.getItem('@dsicario_autosync')
+      .then(v => { if (v !== null) setIsAutoSyncEnabledState(v === '1'); })
+      .catch(() => {});
+  }, []);
   const isSyncingRef = useRef(false);
   const mountedRef = useRef(false);
 
@@ -638,13 +654,13 @@ export const DataSyncProvider = ({ children }) => {
     
     const SYNC_INTERVAL_MS = 60000;
     const interval = setInterval(() => {
-      if (mountedRef.current) {
+      if (mountedRef.current && autoSyncRef.current) {
         syncAllData();
       }
     }, SYNC_INTERVAL_MS); 
 
     const handleAppStateChange = (nextState) => {
-      if (nextState === 'active' && mountedRef.current) {
+      if (nextState === 'active' && mountedRef.current && autoSyncRef.current) {
         syncAllData();
       }
     };
@@ -719,7 +735,7 @@ export const DataSyncProvider = ({ children }) => {
     tables, setTables, // 👈 Expuesto en el contexto
     isSyncing, syncAllData,
     isAutoSyncEnabled, setIsAutoSyncEnabled,
-  }), [users, kitchenOrders, deliveries, tables, isSyncing, isAutoSyncEnabled]);
+  }), [users, kitchenOrders, deliveries, tables, isSyncing, isAutoSyncEnabled, setIsAutoSyncEnabled]);
 
   return <DataSyncContext.Provider value={value}>{children}</DataSyncContext.Provider>;
 };

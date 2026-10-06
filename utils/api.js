@@ -40,12 +40,39 @@ export const clearAllCache = async () => {
 };
 
 /**
+ * ⏱️ Timeout para las llamadas a Google Apps Script.
+ * Los cold starts de GAS llegan a 6-10s y si la ejecución se cuelga el usuario
+ * se quedaba mirando el spinner sin límite. 15s es holgado para un POST normal.
+ */
+const GAS_TIMEOUT_MS = 15000;
+
+/**
+ * fetch con timeout. Lanza un error legible si Apps Script no responde a tiempo.
+ */
+const fetchWithTimeout = async (url, options = {}, timeoutMs = GAS_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      const timeoutError = new Error(`El servidor tardó más de ${Math.round(timeoutMs / 1000)}s en responder`);
+      timeoutError.isTimeout = true;
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+/**
  * ✅ POST centralizado al GAS API — SIEMPRE usa text/plain para evitar CORS preflight en Web.
  * GAS soporta JSON en body aunque el Content-Type sea text/plain.
  * Sin este header, los browsers envían un preflight OPTIONS que GAS no responde → CORS error.
  */
 const gasPost = async (payload) => {
-  const response = await fetch(CONFIG.GAS_API_URL, {
+  const response = await fetchWithTimeout(CONFIG.GAS_API_URL, {
     method: 'POST',
     redirect: 'follow',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -93,7 +120,7 @@ export const fetchWholeData = async (forceRefresh = false, returnCacheImmediatel
             if (!backgroundFetchInProgress) {
               backgroundFetchInProgress = true;
               console.log('🔄 Cargado de AsyncStorage, actualizando en segundo plano...');
-              fetchAndPersistData().finally(() => { backgroundFetchInProgress = false; }).catch(console.error);
+              fetchAndPersistData().finally(() => { backgroundFetchInProgress = false; }).catch((e) => console.log('[API] Background fetch falló:', e.message));
             }
             return parsed;
           }
@@ -104,7 +131,7 @@ export const fetchWholeData = async (forceRefresh = false, returnCacheImmediatel
             if (!backgroundFetchInProgress) {
               backgroundFetchInProgress = true;
               console.log('✅ Usando caché persistente de AsyncStorage, actualizando en background...');
-              fetchAndPersistData().finally(() => { backgroundFetchInProgress = false; }).catch(console.error);
+              fetchAndPersistData().finally(() => { backgroundFetchInProgress = false; }).catch((e) => console.log('[API] Background fetch falló:', e.message));
             }
             return parsed;
           }
@@ -159,7 +186,10 @@ const fetchAndPersistData = async () => {
     
     return data;
   } catch (error) {
-    console.error('Error fetching data from network:', error);
+    // Fallo de red del backend (Apps Script a ratos devuelve HTML o tarda).
+    // No usar console.error: en desarrollo abre el overlay rojo y el toast.
+    // Se devuelve el caché y el próximo ciclo reintenta.
+    console.log('[API] Backend sin respuesta, usando caché:', error.message);
     return apiCache.allData.data || null;
   }
 };
@@ -464,6 +494,32 @@ export const mapProductData = (item) => {
 };
 
 /**
+ * Compara dos catálogos de productos ignorando el orden de las filas.
+ * Se usa para decidir si vale la pena reescribir el backup completo en Firestore:
+ * Sheets no garantiza el mismo orden entre lecturas, así que comparar el array
+ * crudo daría "cambió" en falso positivo casi siempre.
+ */
+const productsEqual = (a, b) => {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+
+  const keyOf = (p) => String(p?.id ?? p?.ID_Producto ?? p?.id_producto ?? '');
+  const norm = (p) => {
+    const { _fromFirebaseBackup, ...rest } = p || {};
+    return rest;
+  };
+
+  const byId = new Map(a.map(p => [keyOf(p), p]));
+  for (const product of b) {
+    const prev = byId.get(keyOf(product));
+    if (!prev) return false;
+    if (JSON.stringify(norm(prev)) !== JSON.stringify(norm(product))) return false;
+  }
+  return true;
+};
+
+/**
  * Fetch products from Google Sheets
  */
 export const fetchProducts = async (returnCacheImmediately = false) => {
@@ -487,17 +543,24 @@ export const fetchProducts = async (returnCacheImmediately = false) => {
       _fromFirebaseBackup: true // 👈 Se marca para que el Admin sepa que está respaldado
     }));
 
+    // 🔥 Backup completo a Firestore SOLO si el catálogo cambió realmente.
+    // Antes se disparaba en CADA lectura, escribiendo todos los productos en
+    // lotes de 450 (commit de Firestore por lote). Con el autosync de 60s eso
+    // era tráfico constante que competía con el guardado del usuario.
+    // Ahora comparamos contra el catálogo en caché y solo respaldamos si difiere.
+    const previousCount = apiCache.products?.data?.length ?? -1;
+    const contentChanged = !productsEqual(apiCache.products?.data, combined);
+
     apiCache.products = { data: combined, timestamp: Date.now() };
 
-    // 🔥 Respaldar la base de datos de productos en Firestore en segundo plano (fire-and-forget)
-    // Solo si no estamos devolviendo inmediatamente del caché local
-    if (!returnCacheImmediately && combined.length > 0) {
+    if (!returnCacheImmediately && combined.length > 0 && contentChanged) {
+      console.log(`[🔥 BACKUP FULL] Catálogo cambió (${previousCount} → ${combined.length}). Respaldando ${combined.length} productos...`);
       backupProductsToFirestore(combined).catch(err => console.warn('[🔥 BACKUP FULL] Falló backup en background:', err));
     }
 
     return combined;
   } catch (error) {
-    console.error('Error fetching products from Sheets:', error);
+    console.log('[API] Sheets sin respuesta, usando caché/Firestore:', error.message);
     
     // 🔥 Fallback: Si falla Google Sheets, intentamos recuperar del caché local,
     // y si no hay caché, restauramos desde el respaldo de Firestore.
@@ -527,7 +590,7 @@ export const fetchSuggestedProducts = async () => {
     const suggested = resolveSheetData(data, 'productos sugeridos');
     return (suggested || []).map(mapSuggestedProductData);
   } catch (error) {
-    console.error('Error fetching suggested products:', error);
+    console.log('[API] Sugeridos sin respuesta:', error.message);
     return [];
   }
 };
@@ -1532,7 +1595,7 @@ export const fetchAllUsers = async () => {
  */
 export const getNextId = async (sheetName, prefix) => {
   try {
-    const response = await fetch(`${CONFIG.GAS_API_URL}?sheet=${sheetName}`, { redirect: 'follow' });
+    const response = await fetchWithTimeout(`${CONFIG.GAS_API_URL}?sheet=${sheetName}`, { redirect: 'follow' });
     const data = await response.json();
     const rows = resolveSheetData(data, sheetName);
     const maxNum = rows.reduce((max, row) => {
@@ -1840,7 +1903,9 @@ export const pingRider = async (riderId, firebaseUid = null, name = null, email 
     await Promise.all(promises);
     return { success: true };
   } catch (e) {
-    console.error('[API] Error in pingRider:', e);
+    // Ping de fondo: un fallo (timeout, red) no debe abrir el overlay rojo
+    // de desarrollo. Se registra silencioso y el próximo ciclo reintenta.
+    console.log('[API] pingRider falló (reintenta en el próximo ciclo):', e.message);
     return { success: false };
   }
 };
@@ -2875,7 +2940,7 @@ export const updateProduct = async (productData) => {
     const payloadStr = JSON.stringify(payload);
     console.log(`[API UPSERT/ADD] Enviando a Sheets: Acción=${payload.action}, ID=${isSuggestion ? payload.data.ID_Sugerido : payload.data.id_producto}, URL de imagen: ${payload.data.imagen?.substring(0, 50)}`);
 
-    const response = await fetch(CONFIG.GAS_API_URL, {
+    const response = await fetchWithTimeout(CONFIG.GAS_API_URL, {
       method: 'POST',
       redirect: 'follow',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -2893,7 +2958,14 @@ export const updateProduct = async (productData) => {
     return result;
   } catch (error) {
     console.error('Error updating product:', error);
-    return { success: false, error: error.message };
+    // 🚨 Timeout = respuesta ambigua. Puede que Sheets SÍ haya escrito antes de
+    // que cortáramos la conexión. El ProductEditorScreen trata un timeout como
+    // "no guardado" y el usuario podría crear duplicados al reintentar.
+    return {
+      success: false,
+      error: error.message,
+      isTimeout: !!error.isTimeout,
+    };
   }
 };
 

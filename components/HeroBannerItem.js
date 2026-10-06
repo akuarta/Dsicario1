@@ -74,11 +74,11 @@ const HeroBannerItem = memo(({ product, onPress }) => {
                     <Text style={[styles.discountedPrice, { color: colors.accent }]}>{formatPrice(finalPrice)}</Text>
                   </>
                 ) : (
-                  <Text style={[styles.price, { color: colors.primary }]}>{formatPrice(finalPrice)}</Text>
+                  <Text style={[styles.price, { color: colors.primary }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{formatPrice(finalPrice)}</Text>
                 )}
               </View>
               
-              <View style={{ flexDirection: 'row', gap: 8 }}>
+              <View style={{ flexDirection: 'row', gap: 6, flexShrink: 0 }}>
                 {activeEditorMode ? (
                   <TouchableOpacity 
                     onPress={() => onPress?.(product)}
@@ -191,10 +191,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 8,
   },
   priceContainer: {
     flexDirection: 'row',
     alignItems: 'baseline',
+    flexShrink: 1,
+    minWidth: 0,
   },
   price: {
     fontSize: 20,
@@ -213,9 +216,10 @@ const styles = StyleSheet.create({
     textShadow: '0px 1px 2px rgba(0, 0, 0, 0.5)',
   },
   actionButton: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: borders.radius.full,
+    flexShrink: 0,
   },
   actionText: {
     color: '#fff',

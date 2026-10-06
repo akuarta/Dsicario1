@@ -434,7 +434,18 @@ const ProductItem = memo(({
       
 
       <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.gradient}>
-        <Text style={[styles.productName, product.agotado && styles.outOfStockText, { paddingRight: 35 }]} numberOfLines={2}>
+        <Text
+          style={[
+            styles.productName,
+            product.agotado && styles.outOfStockText,
+            { paddingRight: 35 },
+            // Teléfonos con fuente del sistema muy ampliada (1.45x): el tope
+            // global 1.25x no basta para "Hamburguesa". Aquí 14px + tope 1.15.
+            Platform.OS !== 'web' && { fontSize: 14, lineHeight: 18 },
+          ]}
+          numberOfLines={2}
+          maxFontSizeMultiplier={1.15}
+        >
           {product.nombre}
         </Text>
       </LinearGradient>

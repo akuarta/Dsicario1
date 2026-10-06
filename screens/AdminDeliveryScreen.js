@@ -38,9 +38,10 @@ const AdminDeliveryScreen = ({ navigation }) => {
   const colors = getThemeColors(darkMode);
   const { role } = useUser();
   const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
+  // El gate de rol va DESPUES de todos los hooks: `role` se resuelve de forma
+  // asincrona, y un return temprano hace que el numero de hooks cambie entre
+  // renders -> "Rendered more hooks than during the previous render" (pantalla en blanco).
   const [updatingId, setUpdatingId] = useState(null);
-
-  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
 
   useEffect(() => {
     navigation.setOptions({
@@ -457,6 +458,8 @@ const AdminDeliveryScreen = ({ navigation }) => {
     }
   }), [colors, darkMode]);
 
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
+
   const renderDeliveryItem = ({ item }) => (
     <GlassPanel intensity={15} style={styles.deliveryCard}>
       <View style={styles.cardHeader}>
@@ -602,7 +605,7 @@ const AdminDeliveryScreen = ({ navigation }) => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
 
       <FlatList
         data={deliverys}

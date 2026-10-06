@@ -12,12 +12,12 @@
       "serviceWorkerPath": "/firebase-messaging-sw.js"
     },
     "jsEngine": "hermes",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "orientation": "portrait",
-    "icon": "./assets/logo.png",
+    "icon": "./assets/app-logo.jpg",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/logo.png",
+      "image": "./assets/app-logo.jpg",
       "resizeMode": "contain",
       "backgroundColor": "#1a1a1a"
     },
@@ -26,10 +26,11 @@
     ],
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/logo.png",
+        "foregroundImage": "./assets/app-logo.jpg",
         "backgroundColor": "#1a1a1a"
       },
       "package": "com.akuarta.dsicario",
+      "versionCode": 3,
       "googleServicesFile": "./google-services.json",
       "config": {
         "googleMaps": {

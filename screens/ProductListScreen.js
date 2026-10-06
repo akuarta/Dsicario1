@@ -276,7 +276,13 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
 
   const handleFavoritePress = (productId) => {
     if (!isAuthenticated) {
-      showAlert('¡Atención!', 'Inicia sesión para guardar favoritos', () => navigation.navigate('Configuracion', { screen: 'Login' }));
+      showAlert('¡Atención!', 'Inicia sesión para guardar favoritos', [
+        { text: 'Cancelar', style: 'cancel' },
+        // 'Login' vive en el Stack raiz de AppNavigator (solo se registra cuando
+        // !isAuthenticated). Antes se usaba 'Configuracion' > 'Login', ruta que
+        // no existe en ConfigStack -> el boton no llevaba a ninguna parte.
+        { text: 'Iniciar sesión', onPress: () => navigation.navigate('Login') },
+      ]);
       return;
     }
     toggleFavorite(productId);
@@ -361,8 +367,10 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
 
   const styles = useMemo(() => StyleSheet.create({
     headerContainer: {
-      paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 10),
-      paddingBottom: spacing.sm,
+      // Barra translúcida: el rojo llega hasta el borde superior y los
+      // iconos del sistema flotan sobre él (insets.top ya los despeja).
+      paddingTop: insets.top,
+      paddingBottom: 6,
       backgroundColor: colors.primary,
       ...shadows.medium,
     },
@@ -387,22 +395,43 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
       fontSize: 12,
     },
     homeLogoSection: {
+      // header_black.png (2172x724, fondo transparente): va directo sobre el
+      // rojo, a sangre y sin ampliar de más. Sin cajas ni franjas.
       alignItems: 'center',
-      paddingTop: 0,
-      paddingBottom: 0,
+      justifyContent: 'center',
+      ...Platform.select({
+        web: {
+          backgroundColor: '#FFFFFF',
+          paddingVertical: 12,
+          marginHorizontal: 24,
+          marginTop: 8,
+          borderRadius: 20,
+        },
+        default: {
+          backgroundColor: 'transparent',
+          paddingVertical: 6,
+          marginHorizontal: 0,
+          marginTop: 0,
+          borderRadius: 0,
+        },
+      }),
     },
     homeLogoBadge: {
-      width: 350,
-      height: 110,
-      borderRadius: 8,
-      backgroundColor: 'transparent',
+      ...Platform.select({
+        web: { height: 64 },
+        default: { height: 76 },
+      }),
+      aspectRatio: 2172 / 724,
       justifyContent: 'center',
       alignItems: 'center',
       overflow: 'hidden',
     },
     homeLogo: {
-      width: 350,
-      height: 110,
+      ...Platform.select({
+        web: { height: 64 },
+        default: { height: 76 },
+      }),
+      aspectRatio: 2172 / 724,
     },
     chipsWrapper: {
       backgroundColor: colors.surface,
@@ -659,17 +688,18 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
 
     return (
       <View style={[globalStyles.container, { backgroundColor: colors.background }]}>
+        <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
         <View style={styles.headerContainer}>
           <View style={styles.homeLogoSection}>
              <View style={styles.homeLogoBadge}>
                 <Image 
-                  source={darkMode ? require('../assets/header_dark.png') : require('../assets/header.png')} 
+                  source={require('../assets/header_final.png')} 
                   style={styles.homeLogo} 
                   resizeMode="contain" 
                 />
              </View>
           </View>
-          <View style={{ marginTop: 5, zIndex: 1 }}>
+          <View style={{ marginTop: 2, zIndex: 1 }}>
             <SearchBar
               value={searchTerm}
               onChangeText={setSearchTerm}
@@ -769,13 +799,29 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
 
         {/* 👨‍💼 Banner de Modo Personal Activo (Vista Inicio) */}
         {!isClientMode && isStaff && staffModeDetails && !(activeStaffMode === 'mesero' && activeWaiterSession) && (
-          <View style={[styles.editorToggleBar, { backgroundColor: staffModeDetails.color, marginTop: 10, justifyContent: 'center' }]}>
-            <FontAwesome5 name={staffModeDetails.icon} size={14} color="#FFF" />
-            <Text style={[styles.editorToggleText, { color: '#FFF' }]}>
-              <Text style={{ fontWeight: '900' }}>{staffModeDetails.label}</Text>
+          <GlassPanel
+            intensity={25}
+            borderRadius={20}
+            tint={darkMode ? 'dark' : 'light'}
+            style={{
+              marginHorizontal: 16,
+              marginTop: 10,
+              paddingVertical: 10,
+              paddingHorizontal: 16,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: staffModeDetails.color + (darkMode ? '28' : '18'),
+              borderColor: staffModeDetails.color + '55',
+              borderWidth: 1.5,
+            }}
+          >
+            <FontAwesome5 name={staffModeDetails.icon} size={15} color={staffModeDetails.color} />
+            <Text style={[styles.editorToggleText, { color: colors.text?.primary || (darkMode ? '#FFF' : '#111'), marginLeft: 10 }]}>
+              <Text style={{ fontWeight: '900', color: staffModeDetails.color }}>{staffModeDetails.label}</Text>
               {" ACTIVO"}
             </Text>
-          </View>
+          </GlassPanel>
         )}
 
         <ScrollView 
@@ -957,13 +1003,30 @@ const ProductListScreen = ({ navigation, route, mode = 'explorar' }) => {
 
       {/* 🤵 Banner de Modo Personal Activo (Resto de modos) */}
       {!isClientMode && isStaff && staffModeDetails && activeStaffMode !== 'mesero' && (
-        <View style={[styles.editorToggleBar, { backgroundColor: staffModeDetails.color, justifyContent: 'center' }]}>
-          <FontAwesome5 name={staffModeDetails.icon} size={14} color="#FFF" />
-          <Text style={[styles.editorToggleText, { color: '#FFF' }]}>
-            <Text style={{ fontWeight: '900' }}>{staffModeDetails.label}</Text>
+        <GlassPanel
+          intensity={25}
+          borderRadius={20}
+          tint={darkMode ? 'dark' : 'light'}
+          style={{
+            marginHorizontal: 16,
+            marginTop: 8,
+            marginBottom: 4,
+            paddingVertical: 10,
+            paddingHorizontal: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: staffModeDetails.color + (darkMode ? '28' : '18'),
+            borderColor: staffModeDetails.color + '55',
+            borderWidth: 1.5,
+          }}
+        >
+          <FontAwesome5 name={staffModeDetails.icon} size={15} color={staffModeDetails.color} />
+          <Text style={[styles.editorToggleText, { color: colors.text?.primary || (darkMode ? '#FFF' : '#111'), marginLeft: 10 }]}>
+            <Text style={{ fontWeight: '900', color: staffModeDetails.color }}>{staffModeDetails.label}</Text>
             {" ACTIVO"}
           </Text>
-        </View>
+        </GlassPanel>
       )}
 
       {/* 🤵 Banner de Sesión Activa (Mesero) */}
@@ -1187,6 +1250,7 @@ export default ProductListScreen;
 // 🛠️ EditorModeToggleBtn — Estilo InDrive (botón grande + transición)
 // ─────────────────────────────────────────────────────────────────
 const EditorModeToggleBtn = ({ isEditorMode, onToggle, colors }) => {
+  const { darkMode } = useThemeMode?.() ?? { darkMode: false };
   const [transitioning, setTransitioning] = useState(false);
   const [pendingValue, setPendingValue] = useState(null);
 
@@ -1237,114 +1301,221 @@ const EditorModeToggleBtn = ({ isEditorMode, onToggle, colors }) => {
 
   return (
     <>
-      {/* ── Botón estilo InDrive ── */}
+      {/* ── Banner Glass Modo Editor / Modo Vista Cliente ── */}
       <TouchableOpacity
         onPress={handlePress}
         activeOpacity={0.88}
         style={{
           marginHorizontal: 16,
-          marginTop: 10,
-          marginBottom: 4,
-          borderRadius: 18,
-          overflow: 'hidden',
+          marginTop: 12,
+          marginBottom: 10,
+          borderRadius: 24,
+          shadowColor: isEditorMode ? '#22C55E' : (darkMode ? '#000' : '#888'),
+          shadowOffset: { width: 0, height: 3 },
+          shadowOpacity: isEditorMode ? 0.18 : (darkMode ? 0.18 : 0.06),
+          shadowRadius: 10,
+          elevation: 3,
         }}
       >
-        <LinearGradient
-          colors={isEditorMode
-            ? ['#1A8A4A', '#22C55E']     // Verde activo
-            : ['#1C1C1E', '#2C2C2E']     // Oscuro inactivo
-          }
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
+        <GlassPanel
+          intensity={30}
+          borderRadius={24}
+          tint={isEditorMode ? (darkMode ? 'dark' : 'light') : 'auto'}
           style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            paddingHorizontal: 20,
-            paddingVertical: 14,
+            borderWidth: 1.5,
+            borderColor: isEditorMode
+              ? 'rgba(34, 197, 94, 0.45)'
+              : (darkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.90)'),
+            // Fondo explícito en nativo: el `undefined` + fallback del GlassPanel
+            // dejaba una franja blanca fantasma tras el texto en Android.
+            ...Platform.select({
+              web: {
+                backgroundColor: isEditorMode
+                  ? (darkMode ? 'rgba(12, 45, 25, 0.70)' : 'rgba(235, 252, 240, 0.82)')
+                  : undefined,
+              },
+              default: {
+                backgroundColor: isEditorMode
+                  ? (darkMode ? 'rgba(12, 45, 25, 0.95)' : 'rgba(235, 252, 240, 1)')
+                  : colors.surface,
+              },
+            }),
           }}
         >
-          {/* Ícono izquierdo */}
-          <View style={{
-            width: 42, height: 42, borderRadius: 13,
-            backgroundColor: 'rgba(255,255,255,0.15)',
-            alignItems: 'center', justifyContent: 'center',
-            marginRight: 14,
-          }}>
-            <FontAwesome5
-              name={isEditorMode ? 'pencil-alt' : 'eye'}
-              size={18}
-              color="#FFF"
-            />
-          </View>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 16,
+              paddingVertical: 13,
+            }}
+          >
+            {/* Ícono izquierdo con píldora redondeada suave */}
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 14,
+                backgroundColor: isEditorMode
+                  ? 'rgba(34, 197, 94, 0.22)'
+                  : (darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)'),
+                borderWidth: 1,
+                borderColor: isEditorMode
+                  ? 'rgba(34, 197, 94, 0.40)'
+                  : (darkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.06)'),
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginRight: 12,
+              }}
+            >
+              <FontAwesome5
+                name={isEditorMode ? 'pencil-alt' : 'eye'}
+                size={18}
+                color={isEditorMode ? '#22C55E' : (darkMode ? '#FFFFFF' : '#1A1A1A')}
+              />
+            </View>
 
-          {/* Texto central */}
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 }}>
-              {isEditorMode ? 'Modo Editor ACTIVO' : 'Modo Vista Cliente'}
-            </Text>
-            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12, marginTop: 2 }}>
-              {isEditorMode ? 'Toca para volver a vista cliente' : 'Toca para activar edición'}
-            </Text>
-          </View>
+            {/* Texto central */}
+            <View style={{ flex: 1, flexShrink: 1, minWidth: 0, backgroundColor: 'transparent' }}>
+              <Text
+                style={{
+                  color: isEditorMode
+                    ? (darkMode ? '#4ADE80' : '#16A34A')
+                    : (colors.text?.primary || (darkMode ? '#FFFFFF' : '#111827')),
+                  fontSize: 13,
+                  fontWeight: '800',
+                  letterSpacing: 0.3,
+                  backgroundColor: 'transparent',
+                }}
+                numberOfLines={1}
+              >
+                {isEditorMode ? 'Editor ACTIVO' : 'Vista Cliente'}
+              </Text>
+              <Text
+                style={{
+                  color: colors.text?.secondary || (darkMode ? 'rgba(255,255,255,0.60)' : 'rgba(0,0,0,0.55)'),
+                  fontSize: 11,
+                  marginTop: 2,
+                  fontWeight: '500',
+                  backgroundColor: 'transparent',
+                }}
+                numberOfLines={1}
+              >
+                {isEditorMode ? 'Toca para salir' : 'Toca para editar'}
+              </Text>
+            </View>
 
-          {/* Badge de estado */}
-          <View style={{
-            paddingHorizontal: 12, paddingVertical: 6,
-            borderRadius: 20,
-            backgroundColor: isEditorMode ? 'rgba(255,255,255,0.2)' : 'rgba(229,57,53,0.7)',
-          }}>
-            <Text style={{ color: '#FFF', fontSize: 11, fontWeight: '700' }}>
-              {isEditorMode ? '✏️ ON' : 'OFF'}
-            </Text>
+            {/* Badge de estado glass */}
+            <View
+              style={{
+                flexShrink: 0,
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                borderRadius: 20,
+                backgroundColor: isEditorMode
+                  ? 'rgba(34, 197, 94, 0.20)'
+                  : (darkMode ? 'rgba(227, 24, 34, 0.18)' : 'rgba(227, 24, 34, 0.10)'),
+                borderWidth: 1,
+                borderColor: isEditorMode
+                  ? 'rgba(34, 197, 94, 0.40)'
+                  : 'rgba(227, 24, 34, 0.30)',
+              }}
+            >
+              <Text
+                style={{
+                  color: isEditorMode ? '#22C55E' : '#E31822',
+                  fontSize: 9,
+                  fontWeight: '800',
+                  letterSpacing: 0.5,
+                }}
+                numberOfLines={1}
+              >
+                {isEditorMode ? '✏️ ON' : 'CLIENTE'}
+              </Text>
+            </View>
           </View>
-        </LinearGradient>
+        </GlassPanel>
       </TouchableOpacity>
 
-      {/* ── Modal de transición pantalla completa (estilo InDrive) ── */}
+      {/* ── Modal de transición pantalla completa glass ── */}
       <Modal visible={transitioning} transparent animationType="none" statusBarTranslucent>
         <Animated.View style={{
           flex: 1,
-          backgroundColor: activating ? 'rgba(10, 10, 10, 0.96)' : 'rgba(15, 15, 15, 0.95)',
+          backgroundColor: darkMode ? 'rgba(10, 10, 14, 0.88)' : 'rgba(18, 18, 24, 0.78)',
           justifyContent: 'center',
           alignItems: 'center',
           opacity: overlayOpacity,
+          padding: 24,
         }}>
           <Animated.View style={{
+            width: '100%',
+            maxWidth: 340,
             alignItems: 'center',
             transform: [{ scale: cardScale }],
             opacity: cardOpacity,
           }}>
-            {/* Círculo grande animado */}
-            <Animated.View style={{
-              width: 130, height: 130, borderRadius: 65,
-              backgroundColor: activating ? '#22C55E18' : '#E3182218',
-              borderWidth: 2,
-              borderColor: activating ? '#22C55E55' : '#E3182255',
-              alignItems: 'center', justifyContent: 'center',
-              marginBottom: 32,
-              transform: [{ rotate: spin }],
-            }}>
-              <FontAwesome5
-                name={activating ? 'pencil-alt' : 'eye'}
-                size={52}
-                color={activating ? '#22C55E' : '#E31822'}
-              />
-            </Animated.View>
+            <GlassPanel
+              intensity={40}
+              borderRadius={30}
+              tint={darkMode ? 'dark' : 'light'}
+              style={{
+                width: '100%',
+                paddingVertical: 36,
+                paddingHorizontal: 24,
+                alignItems: 'center',
+                borderWidth: 1.5,
+                borderColor: activating ? 'rgba(34, 197, 94, 0.45)' : 'rgba(227, 24, 34, 0.45)',
+              }}
+            >
+              {/* Círculo animado */}
+              <Animated.View style={{
+                width: 110,
+                height: 110,
+                borderRadius: 55,
+                backgroundColor: activating ? 'rgba(34, 197, 94, 0.15)' : 'rgba(227, 24, 34, 0.15)',
+                borderWidth: 2,
+                borderColor: activating ? 'rgba(34, 197, 94, 0.50)' : 'rgba(227, 24, 34, 0.50)',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: 24,
+                transform: [{ rotate: spin }],
+              }}>
+                <FontAwesome5
+                  name={activating ? 'pencil-alt' : 'eye'}
+                  size={46}
+                  color={activating ? '#22C55E' : '#E31822'}
+                />
+              </Animated.View>
 
-            {/* Título */}
-            <Text style={{ color: '#FFF', fontSize: 26, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center', marginBottom: 8 }}>
-              {activating ? 'Activando' : 'Desactivando'}
-            </Text>
-            <Text style={{
-              fontSize: 20, fontWeight: '700',
-              color: activating ? '#22C55E' : '#E31822',
-              marginBottom: 16,
-            }}>
-              Modo Editor
-            </Text>
-            <Text style={{ color: colors.text?.secondary || 'rgba(255,255,255,0.6)', fontSize: 14, textAlign: 'center', maxWidth: 260 }}>
-              {activating ? 'Preparando tu espacio de trabajo...' : 'Volviendo a la vista de cliente...'}
-            </Text>
+              {/* Título */}
+              <Text style={{
+                color: colors.text?.primary || (darkMode ? '#FFF' : '#111'),
+                fontSize: 24,
+                fontWeight: '900',
+                letterSpacing: 0.5,
+                textAlign: 'center',
+                marginBottom: 6,
+              }}>
+                {activating ? 'Activando' : 'Desactivando'}
+              </Text>
+              <Text style={{
+                fontSize: 18,
+                fontWeight: '800',
+                color: activating ? '#22C55E' : '#E31822',
+                marginBottom: 12,
+              }}>
+                Modo Editor
+              </Text>
+              <Text style={{
+                color: colors.text?.secondary || (darkMode ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.6)'),
+                fontSize: 13,
+                textAlign: 'center',
+                maxWidth: 260,
+                lineHeight: 18,
+              }}>
+                {activating ? 'Preparando tu espacio de trabajo...' : 'Volviendo a la vista de cliente...'}
+              </Text>
+            </GlassPanel>
           </Animated.View>
         </Animated.View>
       </Modal>

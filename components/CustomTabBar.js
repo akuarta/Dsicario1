@@ -27,7 +27,7 @@ export function CustomTabBar({ state, descriptors, navigation }) {
   // Pantallas donde NO debe aparecer la barra de pestañas
   const screensWithoutTabBar = [
     'ProductDetail', 'ProductEditor', 'Checkout', 'DeliveryTracking',
-    'Carrito', 'Cart', 'CarritoTab', 'Configuracion', 'Config',
+    'Carrito', 'Cart', 'CarritoTab', 'Configuracion', 'Config', 'Chat',
     'AdminDeliveryScreen', 'AdminStaff', 'StaffModeSettings',
     'ConfigPersonalData', 'ConfigDeliveryRates', 'ConfigExchangeRates',
     'ConfigPaymentMethods', 'GestionTab', 'Gestion', 'AdminUsers',

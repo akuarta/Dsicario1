@@ -31,7 +31,9 @@ const KitchenScreen = ({ navigation }) => {
     kitchenOrders: orders, 
     isSyncing, 
     syncAllData, 
-    setKitchenOrders 
+    setKitchenOrders,
+    isAutoSyncEnabled,
+    setIsAutoSyncEnabled
   } = useDataSync();
   const [refreshing, setRefreshing] = useState(false);
   const [updatingOrderId, setUpdatingOrderId] = useState(null);
@@ -171,6 +173,7 @@ const KitchenScreen = ({ navigation }) => {
 
   const renderOrderItem = ({ item }) => {
     const isPreOrder = item.estado?.toLowerCase() === 'pre-orden';
+    const isReady = item.estado?.toLowerCase() === 'ready';
     const cardBg = isPreOrder ? '#1A0B2E' : colors.surface;
     const accentColor = isPreOrder ? '#B19CD9' : colors.primary;
     const textColor = isPreOrder ? '#FFF' : colors.text.primary;
@@ -234,6 +237,16 @@ const KitchenScreen = ({ navigation }) => {
               <Text style={[styles.notesText, { color: isPreOrder ? accentColor : colors.text.primary }]}>{item.notas}</Text>
             </View>
           ) : null}
+          {/* Cuando el pedido ya esta 'ready' la cocina no puede actuar sobre el (solo el
+              mesero devuelve pedidos), asi que antes se renderizaba un boton
+              "REINICIAR" que no hacia absolutamente nada. Ahora se muestra el
+              estado como etiqueta informative en vez de un boton muerto. */}
+          {isReady ? (
+            <View style={[styles.actionButton, { backgroundColor: getStatusColor(item.estado) }]}>
+              <FontAwesome5 name="check-double" size={16} color="#FFF" />
+              <Text style={styles.actionButtonText}>LISTO PARA ENTREGAR</Text>
+            </View>
+          ) : (
           <TouchableOpacity 
             style={[styles.actionButton, { backgroundColor: isPreOrder ? '#6A5ACD' : getStatusColor(item.estado) }]}
             disabled={updatingOrderId === item.id}
@@ -244,22 +257,23 @@ const KitchenScreen = ({ navigation }) => {
             ) : (
               <>
                 <FontAwesome5 
-                  name={isPreOrder ? 'fire' : (item.estado === 'preparing' ? 'check-circle' : item.estado === 'ready' ? 'undo' : 'fire')} 
+                  name={isPreOrder ? 'fire' : (item.estado === 'preparing' ? 'check-circle' : 'fire')} 
                   size={16} color="#FFF" 
                 />
                 <Text style={styles.actionButtonText}>
-                  {isPreOrder ? 'EMPEZAR COCINA' : (item.estado === 'preparing' ? 'MARCAR LISTO' : item.estado === 'ready' ? 'REINICIAR' : 'EMPEZAR COCINA')}
+                  {isPreOrder ? 'EMPEZAR COCINA' : (item.estado === 'preparing' ? 'MARCAR LISTO' : 'EMPEZAR COCINA')}
                 </Text>
               </>
             )}
           </TouchableOpacity>
+          )}
         </View>
       </View>
     );
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <View style={styles.header}>
         <TouchableOpacity 
           onPress={() => navigation.openDrawer()} 
@@ -276,10 +290,34 @@ const KitchenScreen = ({ navigation }) => {
           }} style={{ marginRight: 15 }}>
           <Ionicons name="log-out-outline" size={24} color={colors.text.primary} />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => syncAllData()} style={styles.refreshHeaderBtn}>
+        {/* Interruptor de auto-sync. En la version de abril la cocina sincronizaba
+            cada 30 s contra Google Sheets; la de junio dejo el flag fuera del
+            contexto y sin UI, quedandose siempre sincronizando sin forma de
+            apagarlo. Pulsar ON/OFF: OFF corta el polling, la pull-to-refresh
+            sigue funcionando. */}
+        <TouchableOpacity
+          onPress={() => {
+            const next = !isAutoSyncEnabled;
+            setIsAutoSyncEnabled(next);
+            showAlert(
+              next ? 'Auto-sync activado' : 'Auto-sync desactivado',
+              next
+                ? 'La cocina se sincronizará automáticamente con la nube.'
+                : 'Solo se sincronizará al tirar para actualizar.'
+            );
+          }}
+          style={styles.refreshHeaderBtn}
+        >
           <View style={styles.syncIndicator}>
-            <FontAwesome5 name={syncStatus === 'active' ? "spinner" : "sync"} size={18} color={getSyncColor()} spin={syncStatus === 'active'} />
-            <Text style={[styles.syncStatusText, { color: getSyncColor() }]}>{syncStatus === 'active' ? '...' : 'SYNC'}</Text>
+            <FontAwesome5
+              name={syncStatus === 'active' ? 'spinner' : (isAutoSyncEnabled ? 'sync' : 'sync-alt')}
+              size={18}
+              color={isAutoSyncEnabled ? getSyncColor() : colors.text.secondary}
+              spin={syncStatus === 'active'}
+            />
+            <Text style={[styles.syncStatusText, { color: isAutoSyncEnabled ? getSyncColor() : colors.text.secondary }]}>
+              {isAutoSyncEnabled ? (syncStatus === 'active' ? '...' : 'ON') : 'OFF'}
+            </Text>
           </View>
         </TouchableOpacity>
       </View>

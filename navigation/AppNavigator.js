@@ -29,6 +29,8 @@ import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import KitchenScreen from '../screens/KitchenScreen';
 import RiderScreen from '../screens/RiderScreen';
+import ChatScreen from '../screens/ChatScreen';
+import ChatListScreen from '../screens/ChatListScreen';
 import WaiterScreen from '../screens/WaiterScreen';
 import ProductListScreen from '../screens/ProductListScreen';
 import OrderCenterScreen from '../screens/OrderCenterScreen';
@@ -40,22 +42,56 @@ const Tab = createBottomTabNavigator();
 const Drawer = createDrawerNavigator();
 const Stack = createStackNavigator();
 
+// Deep links: dsicario://carrito, dsicario://rider, dsicario://chat?orderId=.. etc.
+// La config JS funciona en el acto; en Android el sistema entrega el intent
+// a la app solo si el manifiesto registra el esquema (prebuild).
+const linking = {
+  prefixes: ['dsicario://'],
+  config: {
+    screens: {
+      Main: {
+        screens: {
+          MainTabs: {
+            screens: {
+              InicioTab: 'inicio',
+              ExplorarTab: 'explorar',
+              PreOrdenTab: 'preorden',
+              PedidosTab: 'pedidos',
+              Historial: 'historial',
+              Favoritos: 'favoritos',
+              Configuracion: 'config',
+              GestionTab: 'gestion',
+              StaffModeTab: 'modo',
+              DeliveryTracking: 'rastreo',
+              CarritoTab: {
+                screens: {
+                  Carrito: 'carrito',
+                  Checkout: 'checkout',
+                },
+              },
+              RiderView: 'rider',
+              CocinaAdmin: 'cocina',
+              WaiterHome: 'mesero',
+              Chat: 'chat',
+              ChatList: 'chats',
+            },
+          },
+          Inventory: 'inventario',
+        },
+      },
+      Login: 'ingresar',
+      Register: 'registro',
+    },
+  },
+};
+
 const ExplorarStack = () => {
-  const { colors } = useTheme();
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.primary, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, elevation: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },
-        headerTintColor: '#FFFFFF',
-        headerTitleStyle: { fontWeight: 'bold' },
-        headerTitleAlign: 'center',
-        headerBackTitleVisible: false,
-      }}
-    >
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen 
         name="ProductList" 
         component={ProductListScreen} 
-        options={{ title: 'Explorar Menú' }}
+        options={{ headerShown: false }}
         initialParams={{ mode: 'explorar' }}
       />
       <Stack.Screen 
@@ -73,21 +109,12 @@ const ExplorarStack = () => {
 };
 
 const PreOrderStack = () => {
-  const { colors } = useTheme();
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.primary, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, elevation: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },
-        headerTintColor: '#FFFFFF',
-        headerTitleStyle: { fontWeight: 'bold' },
-        headerTitleAlign: 'center',
-        headerBackTitleVisible: false,
-      }}
-    >
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen 
         name="PreOrderList" 
         component={ProductListScreen} 
-        options={{ title: 'Pre-Ordenes' }}
+        options={{ headerShown: false }}
         initialParams={{ mode: 'preorder' }}
       />
       <Stack.Screen 
@@ -219,6 +246,8 @@ const MainTabs = () => {
       <Tab.Screen name="StaffModeTab" component={StaffModeScreen} options={{ tabBarButton: () => null }} />
       <Tab.Screen name="DeliveryTracking" component={DeliveryTrackingScreen} options={{ tabBarButton: () => null, unmountOnBlur: false }} />
       <Tab.Screen name="CarritoTab" component={CartStack} options={{ tabBarButton: () => null }} />
+      <Tab.Screen name="Chat" component={ChatScreen} options={{ tabBarButton: () => null }} />
+      <Tab.Screen name="ChatList" component={ChatListScreen} options={{ tabBarButton: () => null }} />
       
       {isStaff ? (
         <React.Fragment>
@@ -253,7 +282,9 @@ const DrawerNavigator = () => {
         screenOptions={{
           headerShown: false,
           drawerActiveTintColor: colors.primary,
-          drawerStyle: { backgroundColor: colors.background, width: 300 },
+          // Fondo del contenedor del drawer = inicio del degradado del perfil:
+          // la zona de status queda roja oscura, sin banda clara.
+          drawerStyle: { backgroundColor: '#1A0005', width: 300 },
         }}
       >
         <Drawer.Screen name="MainTabs" component={MainTabs} options={{ drawerLabel: 'Inicio' }} />
@@ -311,7 +342,7 @@ const AppNavigator = () => {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
-      <NavigationContainer theme={darkMode ? DarkTheme : DefaultTheme}>
+      <NavigationContainer theme={darkMode ? DarkTheme : DefaultTheme} linking={linking}>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           {isAuthenticated ? (
             <Stack.Screen name="Main" component={DrawerNavigator} />

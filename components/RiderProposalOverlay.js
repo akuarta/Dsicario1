@@ -198,23 +198,43 @@ const RiderProposalOverlay = () => {
   }, [isRider, userId, activeStaffMode]);
 
   // ─── Cuenta regresiva de la propuesta ───────────────────────────────
+  // El intervalo SOLO decrementa. La expiracion se resuelve en el efecto de
+  // abajo: lanzar una peticion dentro de un updater de setState es un side
+  // effect (React puede ejecutarlo dos veces en StrictMode -> doble respuesta).
   useEffect(() => {
     if (!proposal) return;
 
     tickRef.current = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) {
-          dismissProposal(); // Tiempo agotado: cerrar modal automáticamente
-          return 20;
-        }
-        return prev - 1;
-      });
+      setCountdown(prev => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
 
     return () => {
       if (tickRef.current) clearInterval(tickRef.current);
     };
-  }, [proposal, dismissProposal]);
+  }, [proposal]);
+
+  // ─── Auto-rechazo al agotarse los 20s ────────────────────────────────
+  // Antes solo se cerraba el modal, asi que el pedido se quedaba en estado
+  // 'proposal' indefinidamente: el cliente veia su cuenta atras y el reparto
+  // nunca se cerraba solo. Hay que notificar al backend igual que cuando el
+  // repartidor rechaza a mano.
+  useEffect(() => {
+    if (!proposal || countdown > 0) return;
+    let cancelled = false;
+    (async () => {
+      const current = proposalRef.current;
+      if (current?.id) {
+        try {
+          await respondToOffer(current.id, userId || current.riderId, false);
+          console.log('[Overlay] Propuesta expirada -> auto-rechazada');
+        } catch (e) {
+          console.error('[Overlay] Error al auto-rechazar:', e.message);
+        }
+      }
+      if (!cancelled) dismissProposal();
+    })();
+    return () => { cancelled = true; };
+  }, [proposal, countdown, userId, dismissProposal]);
 
   if (!isRider || !proposal) return null;
 

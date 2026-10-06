@@ -36,4 +36,16 @@ config.transformer.getTransformOptions = async () => ({
   },
 });
 
+// ── Excluir intermedios de CMake/Gradle del watcher y del resolver ──
+// El build nativo genera y borra directorios .cxx/CMakeTmp dentro de
+// node_modules mientras Metro observa: el watcher crashea con ENOENT.
+// Estos archivos nunca son JS empaquetable, así que se ignoran siempre.
+{
+  const prev = config.resolver.blockList;
+  const prevSources = !prev ? [] : Array.isArray(prev) ? prev.map((r) => r.source) : [prev.source];
+  const extra = [/.*\/\.cxx\/.*/, /.*\/build\/intermediates\/.*/, /.*\/CMakeFiles\/.*/];
+  const sources = [...prevSources, ...extra.map((r) => r.source)];
+  config.resolver.blockList = new RegExp(`(${sources.join(')|(')})`);
+}
+
 module.exports = config;

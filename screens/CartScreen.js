@@ -414,7 +414,7 @@ const CartScreen = ({ navigation }) => {
   );
 
   return (
-    <SafeAreaView style={globalStyles.container}>
+    <SafeAreaView style={globalStyles.container} edges={['left', 'right', 'bottom']}>
       <CustomHeader 
         showBack={true}
         leftIcon="arrow-left"

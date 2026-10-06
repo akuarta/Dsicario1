@@ -33,7 +33,11 @@ const ProductEditorScreen = ({ navigation, route }) => {
   const { user, role } = useUser();
   const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
 
-  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
+  // El gate de rol va DESPUES de todos los hooks: `role` se resuelve de forma
+  // asincrona, y un return temprano hace que el numero de hooks cambie entre
+  // renders -> "Rendered more hooks than during the previous render" (pantalla en blanco).
+  // Esta pantalla es la mas expuesta: se abre desde el catalogo, asi que el rol
+  // casi siempre llega despues del primer render.
   const { product, isSuggestionFlow } = route.params || {};
   const isEditing = !!product && !isSuggestionFlow;
 
@@ -167,8 +171,14 @@ const ProductEditorScreen = ({ navigation, route }) => {
           showAlert('¡Éxito!', msg);
         }
         
-        // Sincronización en segundo plano (forzada)
-        await refetchProducts(true);
+        // ⚡ Sincronización en segundo plano (NO bloqueante).
+        // Antes esto era `await refetchProducts(true)`, que descargaba TODAS las hojas
+        // de Apps Script y además disparaba un backup completo a Firestore.
+        // Eso delays el goBack() 10-20s en móvil y, si fallaba, caía en el catch
+        // mostrando "No se pudo guardar" aunque el producto SÍ se hubiera guardado.
+        refetchProducts(true).catch(err => {
+          console.warn('[SYNC] Refetch post-guardado falló (el producto sí está guardado):', err);
+        });
         navigation.goBack();
       } else {
         console.error('❌ [API ERROR] Payload rejected:', result);
@@ -181,7 +191,20 @@ const ProductEditorScreen = ({ navigation, route }) => {
         stack: error.stack,
         raw: error
       });
-      if (Platform.OS === 'web') {
+
+      // 🚨 Un timeout NO significa que el guardado falló: Apps Script pudo haber
+      // escrito en Sheets justo antes de que cortáramos la conexión. Avisar que
+      // "no se pudo guardar" invitaba a reintentar y crear productos duplicados.
+      if (error.isTimeout) {
+        const msg =
+          'El servidor tardó demasiado en responder. El producto PUDO guardarse igual. ' +
+          'Verifica en la lista antes de volver a intentar.';
+        if (Platform.OS === 'web') {
+          window.alert('⚠️ ' + msg);
+        } else {
+          showAlert('⚠️ Respuesta tardía', msg);
+        }
+      } else if (Platform.OS === 'web') {
         window.alert('Error: No se pudo guardar el producto. Verifica tu conexión.');
       } else {
         showAlert('Error', 'No se pudo guardar el producto. Verifica tu conexión.');
@@ -485,19 +508,25 @@ const ProductEditorScreen = ({ navigation, route }) => {
     },
     saveBtn: {
       flex: 2,
+      flexShrink: 1,
+      minWidth: 0,
       backgroundColor: colors.primary,
-      padding: 18,
+      paddingVertical: 14,
+      paddingHorizontal: 16,
       borderRadius: 100,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 12,
+      gap: 8,
       ...shadows.large,
     },
     discardBtn: {
       flex: 1,
+      flexShrink: 1,
+      minWidth: 0,
       backgroundColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-      padding: 18,
+      paddingVertical: 14,
+      paddingHorizontal: 10,
       borderRadius: 100,
       alignItems: 'center',
       justifyContent: 'center',
@@ -506,28 +535,35 @@ const ProductEditorScreen = ({ navigation, route }) => {
     },
     footerButtons: {
       flexDirection: 'row',
-      gap: 12,
-      paddingHorizontal: 20,
-      paddingBottom: 20,
-      backgroundColor: 'transparent',
+      gap: 10,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      // Barra sólida (no transparente): el pie absoluto flotaba sobre los
+      // inputs con el teclado abierto y el texto se leía a través.
+      backgroundColor: colors.surface,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
       position: 'absolute',
       bottom: 0,
       left: 0,
       right: 0,
     },
-    saveBtnText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
-    discardBtnText: { color: colors.text.secondary, fontSize: 14, fontWeight: '600' },
+    saveBtnText: { color: '#FFF', fontSize: 15, fontWeight: 'bold', flexShrink: 1 },
+    discardBtnText: { color: colors.text.secondary, fontSize: 12, fontWeight: '600', flexShrink: 1 },
     deleteBtn: {
       flex: 1,
+      flexShrink: 1,
+      minWidth: 0,
       backgroundColor: '#DC2626',
-      padding: 18,
+      paddingVertical: 14,
+      paddingHorizontal: 10,
       borderRadius: 100,
       alignItems: 'center',
       justifyContent: 'center',
       flexDirection: 'row',
       gap: 6,
     },
-    deleteBtnText: { color: '#FFF', fontSize: 14, fontWeight: 'bold' },
+    deleteBtnText: { color: '#FFF', fontSize: 12, fontWeight: 'bold', flexShrink: 1 },
     switchGroup: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -556,8 +592,10 @@ const ProductEditorScreen = ({ navigation, route }) => {
     },
   }), [colors, darkMode]);
 
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <CustomHeader 
         title={isSuggestionFlow ? 'Sugerir Producto' : (isEditing ? 'Editar Producto' : 'Nuevo Producto')} 
         showBack 
@@ -769,7 +807,7 @@ const ProductEditorScreen = ({ navigation, route }) => {
           onPress={handleDiscard}
           disabled={isLoading}
         >
-          <Text style={styles.discardBtnText}>DESCARTAR</Text>
+          <Text style={styles.discardBtnText} numberOfLines={1}>DESCARTAR</Text>
         </TouchableOpacity>
 
         {isEditing && (
@@ -779,7 +817,7 @@ const ProductEditorScreen = ({ navigation, route }) => {
             disabled={isLoading}
           >
             <FontAwesome5 name="trash" size={16} color="#FFF" />
-            <Text style={styles.deleteBtnText}>BORRAR</Text>
+            <Text style={styles.deleteBtnText} numberOfLines={1}>BORRAR</Text>
           </TouchableOpacity>
         )}
 
@@ -793,7 +831,7 @@ const ProductEditorScreen = ({ navigation, route }) => {
           ) : (
             <>
               <FontAwesome5 name={isSuggestionFlow ? "paper-plane" : "save"} size={18} color="#FFF" />
-              <Text style={styles.saveBtnText}>
+              <Text style={styles.saveBtnText} numberOfLines={1}>
                 {isSuggestionFlow ? 'ENVIAR' : (isEditing ? 'GUARDAR' : 'CREAR')}
               </Text>
             </>

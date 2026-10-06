@@ -9,7 +9,9 @@ import {
   TextInput,
   Modal,
   ActivityIndicator,
-  Alert
+  Alert,
+  Platform,
+  StatusBar
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
@@ -27,8 +29,9 @@ const AdminUsersScreen = ({ navigation }) => {
   const { role } = useUser();
   const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
 
-  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
-
+  // El gate de rol va DESPUES de todos los hooks: `role` se resuelve de forma
+  // asincrona, y un return temprano hace que el numero de hooks cambie entre
+  // renders -> "Rendered more hooks than during the previous render" (pantalla en blanco).
   const { users, isSyncing, syncAllData, setUsers } = useDataSync();
   const [searchText, setSearchText] = useState('');
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -94,7 +97,7 @@ const AdminUsersScreen = ({ navigation }) => {
       flexDirection: 'row',
       alignItems: 'center',
       padding: spacing.md,
-      paddingTop: spacing.lg,
+      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + spacing.md : spacing.md,
       justifyContent: 'space-between',
     },
     headerTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
@@ -211,8 +214,10 @@ const AdminUsersScreen = ({ navigation }) => {
     </TouchableOpacity>
   );
 
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['left', 'right', 'bottom']}>
       <View style={[styles.header, { backgroundColor: colors.primary }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <FontAwesome5 name="arrow-left" size={20} color="#FFF" />

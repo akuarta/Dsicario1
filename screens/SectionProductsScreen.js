@@ -36,7 +36,7 @@ const SectionProductsScreen = ({ route, navigation }) => {
   }), [colors]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <CustomHeader title={sectionName || 'Sección'} showBack={true} />
       <FlatList
         data={products}

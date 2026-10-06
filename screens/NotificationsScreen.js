@@ -7,7 +7,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Switch,
-  Platform
+  Platform,
+  StatusBar
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
@@ -180,7 +181,7 @@ const NotificationsScreen = ({ navigation }) => {
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
-      padding: spacing.xl, alignItems: 'center', backgroundColor: colors.primary,
+      padding: spacing.xl, paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + spacing.xl : spacing.xl, alignItems: 'center', backgroundColor: colors.primary,
       borderBottomLeftRadius: 30, borderBottomRightRadius: 30, ...shadows.medium, marginBottom: spacing.lg,
     },
     backBtn: { position: 'absolute', top: spacing.xl, left: spacing.md, zIndex: 10, padding: 10 },
@@ -242,7 +243,7 @@ const NotificationsScreen = ({ navigation }) => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <FontAwesome5 name="arrow-left" size={20} color="#FFFFFF" />

@@ -1,7 +1,7 @@
 import { showAlert } from '../utils/showAlert';
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform, Image } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { FontAwesome5 } from '@expo/vector-icons';
@@ -19,6 +19,8 @@ const ProfileDrawerContent = (props) => {
   const { username, email, role, isClientMode, setIsClientMode, userId, userTypeId, firebaseUid } = useUser();
   const { clearCart, getTotalItems, activeStaffMode, setActiveStaffMode } = useCart();
   const totalItems = getTotalItems();
+  const insets = useSafeAreaInsets();
+  const topBleed = Platform.OS === 'web' ? 0 : (insets.top || 0);
   
   const roleLow = role ? role.toLowerCase() : '';
   const isAdmin = roleLow.includes('admin') || roleLow === 'owner';
@@ -53,10 +55,14 @@ const ProfileDrawerContent = (props) => {
   };
 
   const navigate = (screen) => {
+    props.navigation.navigate('MainTabs', { screen });
     props.navigation.closeDrawer();
-    setTimeout(() => {
-      props.navigation.navigate('MainTabs', { screen });
-    }, 350);
+  };
+
+  // Igual pero a una ruta del Drawer (no dentro de MainTabs).
+  const navigateDirect = (routeName, params) => {
+    props.navigation.navigate(routeName, params);
+    props.navigation.closeDrawer();
   };
 
   // Log de depuración para ver cambios de modo en tiempo real
@@ -70,21 +76,21 @@ const ProfileDrawerContent = (props) => {
       id: 10,
       title: 'Centro de Pedidos',
       icon: 'map-marked-alt',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'OrderCenter' }),
+      onPress: () => navigate('PedidosTab'),
       visible: (isAdmin || isCocina || isDelivery) && !isClientMode,
     },
     {
       id: 1,
       title: 'Comprar / Menú',
       icon: 'store',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'InicioTab' }),
+      onPress: () => navigate('InicioTab'),
       visible: isClientMode || !isStaff || isAdmin
     },
     {
       id: 13,
       title: 'Mi Carrito',
       icon: 'shopping-cart',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'CarritoTab' }),
+      onPress: () => navigate('CarritoTab'),
       showBadge: totalItems > 0,
       badgeCount: totalItems,
       visible: isClientMode || isAdmin
@@ -93,28 +99,28 @@ const ProfileDrawerContent = (props) => {
       id: 2,
       title: 'Historial de Compras',
       icon: 'history',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'Historial' }),
+      onPress: () => navigate('Historial'),
       visible: isClientMode || !isStaff
     },
     {
       id: 3,
       title: 'Favoritos',
       icon: 'heart',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'Favoritos' }),
+      onPress: () => navigate('Favoritos'),
       visible: isClientMode || !isStaff
     },
     {
       id: 4,
       title: 'Inventario Inteligente',
       icon: 'boxes',
-      onPress: () => props.navigation.navigate('Inventory'),
+      onPress: () => navigateDirect('Inventory'),
       visible: isAdmin
     },
     {
       id: 5,
       title: 'Configuraciones',
       icon: 'cog',
-      onPress: () => props.navigation.navigate('MainTabs', { screen: 'Configuracion' }),
+      onPress: () => navigate('Configuracion'),
     },
     {
       id: 6,
@@ -250,14 +256,14 @@ const ProfileDrawerContent = (props) => {
   });
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* ── Header con gradiente DSicario brand ── */}
         <LinearGradient
           colors={['#1A0005', '#A80015', '#8B000F']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={styles.headerGradient}
+          style={[styles.headerGradient, { marginTop: 0, paddingTop: 40 + topBleed }]}
         >
           <View style={styles.avatarRing}>
             <Image
@@ -284,7 +290,7 @@ const ProfileDrawerContent = (props) => {
         {isStaff && (
           <TouchableOpacity 
             style={[styles.modeSection, { backgroundColor: colors.primary + '15', marginTop: 10, borderBottomWidth: 0, borderRadius: 15, marginHorizontal: 10 }]}
-            onPress={() => props.navigation.navigate('MainTabs', { screen: 'StaffModeTab' })}
+            onPress={() => navigate('StaffModeTab')}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
               <View style={{ backgroundColor: colors.primary, padding: 8, borderRadius: 10, marginRight: 12 }}>

@@ -43,8 +43,9 @@ const InventoryScreen = ({ navigation }) => {
   const { role } = useUser();
   const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
 
-  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
-  
+  // El gate de rol va DESPUES de todos los hooks: `role` se resuelve de forma
+  // asincrona, y un return temprano hace que el numero de hooks cambie entre
+  // renders -> "Rendered more hooks than during the previous render" (pantalla en blanco).
   const [inventory, setInventory] = useState([]);
   const [filteredInventory, setFilteredInventory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -85,6 +86,7 @@ const InventoryScreen = ({ navigation }) => {
   });
 
   const loadInventory = useCallback(async (showLoading = true) => {
+    if (!isAdmin) return;
     if (showLoading) setIsLoading(true);
     try {
       const data = await fetchAlmacen();
@@ -96,14 +98,15 @@ const InventoryScreen = ({ navigation }) => {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     loadInventory();
     loadRecipes();
-  }, []);
+  }, [isAdmin]);
 
   const loadRecipes = async () => {
+    if (!isAdmin) return;
     try {
       console.log('🌐 [API] Cargando recetas...');
       const data = await fetchRecetas();
@@ -378,9 +381,11 @@ const InventoryScreen = ({ navigation }) => {
     );
   };
 
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
+
   return (
     <>
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['left', 'right', 'bottom']}>
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
       
       <LinearGradient
@@ -625,7 +630,49 @@ const InventoryScreen = ({ navigation }) => {
         </View>
       </Modal>
 
-      {/* Modal Selector Personalizado */}
+      {/* Modal Selector Personalizado (EMPAQUE / MEDIDA / PORCIÓN) */}
+      <Modal
+        visible={!!activePicker}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setActivePicker(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setActivePicker(null)}
+          />
+          <GlassPanel style={[styles.modalContent, { height: undefined, maxHeight: '60%', maxWidth: 400 }]}>
+            <View style={{ padding: 20, paddingTop: 10 }}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: colors.text.primary }]}>
+                  {activePicker?.title || 'Seleccionar'}
+                </Text>
+                <TouchableOpacity onPress={() => setActivePicker(null)} style={styles.closeButton}>
+                  <FontAwesome5 name="times" size={20} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {(activePicker?.options || []).map((opt, idx) => (
+                  <TouchableOpacity
+                    key={`${opt}-${idx}`}
+                    style={{ paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                    onPress={() => {
+                      if (activePicker?.field) {
+                        setNewItem(prev => ({ ...prev, [activePicker.field]: opt }));
+                      }
+                      setActivePicker(null);
+                    }}
+                  >
+                    <Text style={{ color: colors.text.primary, fontSize: 16 }}>{opt}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </GlassPanel>
+        </View>
+      </Modal>
 
       <TouchableOpacity 
         style={[styles.fab, { backgroundColor: colors.primary }]}
@@ -1260,6 +1307,13 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 500,
     maxHeight: '90%',
+    // En nativo el ScrollView interno (flex:1) colapsa si el padre no tiene
+    // altura explícita y el modal se ve como una franja blanca. En web el
+    // layout flex del navegador lo resolvía solo, por eso solo allá se veía bien.
+    ...Platform.select({
+      web: {},
+      default: { height: '85%' },
+    }),
     overflow: 'hidden',
     borderRadius: 30,
     elevation: 10,

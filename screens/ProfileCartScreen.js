@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { getThemeColors } from '../theme';
@@ -15,6 +15,7 @@ const ProfileCartScreen = ({ navigation }) => {
       flexDirection: 'row',
       alignItems: 'center',
       padding: 16,
+      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + 16 : 16,
     },
     backText: {
       marginLeft: 8,
@@ -40,7 +41,7 @@ const ProfileCartScreen = ({ navigation }) => {
   });
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
         <FontAwesome5 name="arrow-left" size={20} color={colors.primary} />
         <Text style={styles.backText}>Atrás</Text>

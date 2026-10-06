@@ -5,9 +5,10 @@ import {
   StyleSheet, 
   FlatList,
   TouchableOpacity,
-  Alert
+  Alert,
+  Platform
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import ProductItem from '../components/ProductItem';
 import { useFavorites } from '../contexts/FavoritesContext';
@@ -20,6 +21,8 @@ const FavoritesScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
   const globalStyles = useGlobalStyles(colors);
+  const insets = useSafeAreaInsets();
+  const topBleed = Platform.OS === 'web' ? 0 : (insets.top || 0);
   const { favorites, removeFromFavorites, clearFavorites } = useFavorites();
 
   const handleProductPress = useCallback((product) => {
@@ -52,6 +55,7 @@ const FavoritesScreen = ({ navigation }) => {
       justifyContent: 'space-between',
       alignItems: 'center',
       padding: spacing.md,
+      paddingTop: topBleed + spacing.md,
       backgroundColor: colors.primary,
     },
     headerTitle: {
@@ -82,7 +86,7 @@ const FavoritesScreen = ({ navigation }) => {
       zIndex: 10,
       ...shadows.small,
     },
-  }), [colors, darkMode]);
+  }), [colors, darkMode, topBleed]);
 
   const renderFavoriteItem = useCallback(({ item }) => (
     <View style={styles.itemContainer}>
@@ -122,7 +126,7 @@ const FavoritesScreen = ({ navigation }) => {
 
   if (favorites.length > 0) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
         <View style={styles.header}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <TouchableOpacity onPress={() => navigation.goBack()} style={{ paddingRight: 10, paddingVertical: 5 }}>
@@ -154,7 +158,7 @@ const FavoritesScreen = ({ navigation }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       {renderEmptyFavorites()}
     </SafeAreaView>
   );

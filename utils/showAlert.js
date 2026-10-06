@@ -4,9 +4,21 @@ import { Alert, Platform } from 'react-native';
  * Muestra una alerta compatible con web y móvil.
  * @param {string} title - Título de la alerta.
  * @param {string} message - Mensaje de la alerta.
- * @param {Array} [buttons] - Opcional. Botones para Alert.alert en móvil.
+ * @param {Array|Function} [buttons] - Opcional. Botones para Alert.alert en móvil.
+ *   También acepta una función suelta, que se trata como un único botón "Aceptar":
+ *   alguns call sites la pasaban así y, como no es un array, en nativo no se
+ *   renderizaba ningún botón y en web caía al `window.alert` sin acción posible
+ *   (el usuario veía el aviso pero no tenía forma de continuar).
  */
 export function showAlert(title, message, buttons) {
+  if (typeof buttons === 'function') {
+    const onPress = buttons;
+    buttons = [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Aceptar', onPress },
+    ];
+  }
+
   if (Platform.OS === 'web') {
     if (buttons && buttons.length > 0) {
       // 🕵️ Lógica inteligente para Web:

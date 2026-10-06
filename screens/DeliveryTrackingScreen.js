@@ -1,4 +1,5 @@
 import { showAlert } from '../utils/showAlert';
+import { openChat } from './ChatScreen';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   View, 
@@ -564,7 +565,7 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
 
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <View style={styles.floatingHeader}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <FontAwesome5 name="arrow-left" size={18} color={colors.text.primary} />
@@ -670,6 +671,19 @@ const DeliveryTrackingScreen = ({ navigation, route }) => {
               <View style={styles.riderActions}>
                 <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.primary }]} onPress={() => Linking.openURL(`tel:${orderDetails?.telefono}`)} activeOpacity={0.7}><FontAwesome5 name="phone" size={16} color="#FFF" /></TouchableOpacity>
                 <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#25D366', marginTop: 12 }]} onPress={() => Linking.openURL(`https://wa.me/${orderDetails?.whatsapp?.replace(/\D/g,'')}`)} activeOpacity={0.7}><FontAwesome5 name="whatsapp" size={18} color="#FFF" /></TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionButton, { backgroundColor: '#4285F4', marginTop: 12 }]}
+                  onPress={() => navigation.navigate('Chat', {
+                    orderId: orderId,
+                    peerName: `${orderDetails?.nombre || 'Repartidor'} ${orderDetails?.apellido || ''}`.trim(),
+                    myId: userId || email,
+                    myName: username || 'Cliente',
+                    myRole: 'cliente',
+                  })}
+                  activeOpacity={0.7}
+                >
+                  <FontAwesome5 name="comments" size={16} color="#FFF" />
+                </TouchableOpacity>
               </View>
             </GlassPanel>
           )}

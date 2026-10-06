@@ -10,9 +10,8 @@ import {
   Alert,
   Platform
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
-import * as Location from 'expo-location';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useUser } from '../contexts/UserContext';
@@ -24,7 +23,6 @@ import { saveUser } from '../utils/api';
 import Constants from 'expo-constants';
 import UpdateService from '../utils/UpdateService';
 import NotificationService from '../utils/notificationService';
-import LocationPickerModal from '../components/LocationPickerModal';
 import LoggerModal from '../components/LoggerModal';
 import { getFCMToken } from '../utils/fcm';
 import { CONFIG } from '../constants/Config';
@@ -60,6 +58,8 @@ const ConfigScreen = () => {
   const [notifications, setNotifications] = useState(getInitialNotifState);
   const { businessInfo } = useCart();
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+  const insets = useSafeAreaInsets();
+  const topBleed = Platform.OS === 'web' ? 0 : (insets.top || 0);
 
   const handleSyncProfile = async () => {
     if (!user?.email) return;
@@ -71,34 +71,11 @@ const ConfigScreen = () => {
     }
   };
 
-  // ✅ Nueva función para obtener la ubicación actual y rellenar lat/long en el modal de datos del negocio
-  const handleGetLocation = async () => {
-    try {
-      // Solicitar permiso si no se ha concedido (solo en dispositivos móviles)
-      if (Platform.OS !== 'web') {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          showAlert('Permiso', 'Permiso de ubicación denegado');
-          return;
-        }
-      }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      if (loc && loc.coords) {
-        const { latitude, longitude } = loc.coords;
-        setTempUser(prev => ({
-          ...prev,
-          latitude: latitude.toString(),
-          longitude: longitude.toString(),
-        }));
-        showAlert('Éxito', 'Ubicación obtenida y aplicada a los campos.');
-      } else {
-        showAlert('Error', 'No se pudo obtener la ubicación.');
-      }
-    } catch (e) {
-      console.warn('Error al obtener ubicación:', e);
-      showAlert('Error', 'Ocurrió un problema al obtener la ubicación.');
-    }
-  };
+  // (Aqui vivia `handleGetLocation`, que rellenaba lat/lng del negocio con el GPS.
+  //  Se elimino: era codigo muerto del modal de datos del negocio que ya no
+  //  existe, y llamaba a `setTempUser`, un setter que no esta definido en ningun
+  //  sitio -> reventaria si alguien lo reactivaba. La ubicacion del negocio se
+  //  gestiona ahora con LocationPickerModal desde ConfigPersonalDataScreen.)
 
   const handleCheckUpdates = async () => {
     setIsCheckingUpdates(true);
@@ -115,7 +92,12 @@ const ConfigScreen = () => {
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
-      padding: spacing.xl, alignItems: 'center', backgroundColor: colors.primary,
+      // Igual que Inicio: el rojo nace en el borde (paddingTop = inset),
+      // sin margen negativo ni SafeArea intermedio.
+      paddingTop: topBleed + 12,
+      paddingBottom: spacing.xl,
+      paddingHorizontal: spacing.xl,
+      alignItems: 'center', backgroundColor: colors.primary,
       borderBottomLeftRadius: 30, borderBottomRightRadius: 30, ...shadows.medium, marginBottom: spacing.lg,
     },
     backBtn: { position: 'absolute', top: spacing.xl, left: spacing.md, zIndex: 10, padding: 10 },
@@ -163,7 +145,7 @@ const ConfigScreen = () => {
     modalBtn: { flex: 1, padding: spacing.md, borderRadius: borders.radius.md, alignItems: 'center' },
     modalBtnCancel: { backgroundColor: colors.surface, marginRight: spacing.sm },
     modalBtnSave: { backgroundColor: colors.primary, marginLeft: spacing.sm }
-  }), [colors, darkMode]);
+  }), [colors, darkMode, topBleed]);
 
   const handleLogout = () => {
     showAlert('Cerrar Sesión', '¿Estás seguro de que deseas salir?', [
@@ -189,7 +171,7 @@ const ConfigScreen = () => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <ScrollView bounces={false} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
@@ -324,7 +306,7 @@ const ConfigScreen = () => {
       </ScrollView>
 
 
-    </SafeAreaView>
+    </View>
   );
 };
 

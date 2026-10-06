@@ -41,8 +41,9 @@ const AdminStaffScreen = ({ navigation }) => {
   const { role } = useUser();
   const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
 
-  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
-
+  // El gate de rol va DESPUES de todos los hooks: `role` se resuelve de forma
+  // asincrona, y un return temprano hace que el numero de hooks cambie entre
+  // renders -> "Rendered more hooks than during the previous render" (pantalla en blanco).
   const { users, isSyncing, syncAllData, setUsers } = useDataSync();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -427,6 +428,8 @@ const AdminStaffScreen = ({ navigation }) => {
     }
   }), [colors, darkMode]);
 
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
+
   const renderUserItem = ({ item }) => {
     // 🔍 Log temporal para depuración solicitado por el usuario
     console.log('Rendering user:', JSON.stringify(item, null, 2));
@@ -470,7 +473,7 @@ const AdminStaffScreen = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['left', 'right', 'bottom']}>
       <View style={[styles.header, { backgroundColor: colors.primary }]}>
         <TouchableOpacity 
           onPress={() => navigation.goBack()} 

@@ -7,7 +7,9 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  Alert
+  Alert,
+  Platform,
+  StatusBar
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
@@ -102,7 +104,7 @@ const PurchaseHistoryScreen = ({ navigation }) => {
     container: { flex: 1, backgroundColor: colors.background },
     header: {
       padding: spacing.md,
-      paddingTop: spacing.lg,
+      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + spacing.md : spacing.md,
       flexDirection: 'row',
       alignItems: 'center',
     },
@@ -196,7 +198,7 @@ const PurchaseHistoryScreen = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <FontAwesome5 name="chevron-left" size={18} color={colors.text.primary} />

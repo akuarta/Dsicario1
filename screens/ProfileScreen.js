@@ -7,7 +7,9 @@ import {
   ScrollView,
   Alert,
   Switch,
-  Image
+  Image,
+  Platform,
+  StatusBar
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useUser } from '../contexts/UserContext';
@@ -182,6 +184,7 @@ const ProfileScreen = ({ navigation }) => {
       backgroundColor: colors.primary,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.xl,
+      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + spacing.xl : spacing.xl,
     },
     
     profileInfo: {
@@ -317,7 +320,7 @@ const ProfileScreen = ({ navigation }) => {
   }), [colors, darkMode]);
 
   return (
-    <SafeAreaView style={[globalStyles.container, darkMode && { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[globalStyles.container, darkMode && { backgroundColor: colors.background }]} edges={['left', 'right', 'bottom']}>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>

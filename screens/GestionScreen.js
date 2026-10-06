@@ -12,7 +12,7 @@ import {
   ActivityIndicator,
   Platform
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useUser } from '../contexts/UserContext';
@@ -26,6 +26,8 @@ const GestionScreen = () => {
   const navigation = useNavigation();
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
+  const insets = useSafeAreaInsets();
+  const topBleed = Platform.OS === 'web' ? 0 : (insets.top || 0);
   const { role } = useUser();
   const { businessInfo, updateBusinessInfo } = useCart();
   const [isSaving, setIsSaving] = useState(false);
@@ -37,7 +39,7 @@ const GestionScreen = () => {
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
-      padding: spacing.xl, alignItems: 'center', backgroundColor: colors.primary,
+      padding: spacing.xl, paddingTop: topBleed + spacing.xl, alignItems: 'center', backgroundColor: colors.primary,
       borderBottomLeftRadius: 30, borderBottomRightRadius: 30, ...shadows.medium, marginBottom: spacing.lg,
     },
     backBtn: { position: 'absolute', top: spacing.xl, left: spacing.md, zIndex: 10, padding: 10 },
@@ -61,7 +63,7 @@ const GestionScreen = () => {
       justifyContent: 'center', alignItems: 'center', marginRight: spacing.md,
     },
     menuText: { flex: 1, fontSize: typography.sizes.md, color: colors.text.primary, fontWeight: typography.weights.medium },
-  }), [colors, darkMode]);
+  }), [colors, darkMode, topBleed]);
 
   const SettingItem = ({ icon, title, onPress, isSwitch, value }) => (
     <TouchableOpacity style={styles.menuItem} onPress={onPress} disabled={isSwitch} activeOpacity={0.7}>
@@ -78,7 +80,7 @@ const GestionScreen = () => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>

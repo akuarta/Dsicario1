@@ -12,7 +12,7 @@ import {
   Platform,
   StatusBar
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
@@ -28,6 +28,8 @@ import { generatePDFBase64 } from '../utils/pdfGenerator';
 const OrderCenterScreen = ({ navigation }) => {
   const { darkMode } = useThemeMode();
   const colors = getThemeColors(darkMode);
+  const insets = useSafeAreaInsets();
+  const topBleed = Platform.OS === 'web' ? 0 : (insets.top || 0);
   
   const { kitchenOrders: orders, isSyncing, syncAllData, setKitchenOrders: setOrders } = useDataSync();
   const { role, userId, email: userEmail, isClientMode } = useUser();
@@ -216,8 +218,9 @@ const OrderCenterScreen = ({ navigation }) => {
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
-      padding: spacing.sm,
-      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight + 10) : 35,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 10,
+      paddingTop: topBleed + 10,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
@@ -322,7 +325,7 @@ const OrderCenterScreen = ({ navigation }) => {
       color: colors.text.secondary,
       lineHeight: 18,
     }
-  }), [colors, darkMode]);
+  }), [colors, darkMode, topBleed]);
 
   const renderOrder = ({ item }) => {
     const id = item.id || item.ID_Orden;
@@ -488,7 +491,7 @@ const OrderCenterScreen = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['left', 'right', 'bottom']}>
       <View style={[styles.header, { backgroundColor: colors.primary }]}>
         <TouchableOpacity 
           onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('InicioTab')} 

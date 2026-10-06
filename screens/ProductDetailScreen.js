@@ -133,11 +133,26 @@ const ProductDetailScreen = ({ navigation, route }) => {
       shadowRadius: 10,
       zIndex: 100,
     },
-    imageContainer: { position: 'relative', height: 300, backgroundColor: colors.surface },
+    imageContainer: {
+      position: 'relative',
+      height: 300,
+      backgroundColor: colors.surface,
+      borderBottomLeftRadius: 28,
+      borderBottomRightRadius: 28,
+      overflow: 'hidden',
+    },
     productImage: { width: '100%', height: '100%' },
     imageOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 120, justifyContent: 'flex-end', padding: spacing.md },
     priceOverlay: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    subtotalOverlay: { fontSize: 24, fontWeight: 'bold', color: colors.primary },
+    subtotalOverlay: {
+      fontSize: 24,
+      fontWeight: 'bold',
+      color: colors.primary,
+      // Halo claro para legibilidad sobre la foto.
+      textShadowColor: 'rgba(255,255,255,0.95)',
+      textShadowOffset: { width: 0, height: 0 },
+      textShadowRadius: 8,
+    },
     contentContainer: { padding: spacing.md },
     productTitle: { fontSize: 28, fontWeight: 'bold', color: colors.text.primary, marginBottom: spacing.xs },
     categoryText: { fontSize: 12, fontWeight: 'bold', color: colors.primary, textTransform: 'uppercase', letterSpacing: 1 },
@@ -157,7 +172,8 @@ const ProductDetailScreen = ({ navigation, route }) => {
     reviewDate: { fontSize: 10, color: colors.text.disabled, marginTop: 5 },
     favoriteBtn: {
       position: 'absolute',
-      top: 20,
+      // Debajo del header flotante (inset + fila).
+      top: Platform.OS === 'web' ? 20 : 130,
       right: 20,
       width: 45,
       height: 45,
@@ -237,8 +253,8 @@ const ProductDetailScreen = ({ navigation, route }) => {
 
 
   return (
-    <SafeAreaView style={styles.container}>
-      <CustomHeader title={product.nombre} showBack={true} />
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+      <CustomHeader title={product.nombre} showBack={true} transparent overlay />
       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <View style={styles.imageContainer}>
           <Image source={{ uri: product.imagen }} style={styles.productImage} />
@@ -259,7 +275,7 @@ const ProductDetailScreen = ({ navigation, route }) => {
 
           <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.imageOverlay}>
             <View style={styles.priceOverlay}>
-              <Text style={{ color: '#FFF' }}>{quantity} unidad(es)</Text>
+              <Text style={{ color: '#FFF', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 }}>{quantity} unidad(es)</Text>
               <Text style={styles.subtotalOverlay}>{formatPrice(subtotal)}</Text>
             </View>
           </LinearGradient>

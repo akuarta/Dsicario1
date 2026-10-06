@@ -6,9 +6,10 @@ import {
   ScrollView, 
   TouchableOpacity, 
   StatusBar,
-  Dimensions
+  Dimensions,
+  Platform
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useUser } from '../contexts/UserContext';
@@ -35,11 +36,13 @@ const StaffModeScreen = () => {
   
   const isOwner = email?.toLowerCase()?.trim() === CONFIG.OWNER_EMAIL?.toLowerCase()?.trim();
   const isStaff = isCocina || isDelivery || isMesero || isAdmin || isOwner;
+  const insets = useSafeAreaInsets();
+  const topBleed = Platform.OS === 'web' ? 0 : (insets.top || 0);
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
-      paddingTop: spacing.xl + 10,
+      paddingTop: topBleed + spacing.xl + 10,
       paddingBottom: spacing.xl,
       paddingHorizontal: spacing.lg,
       borderBottomLeftRadius: 35,
@@ -111,7 +114,7 @@ const StaffModeScreen = () => {
       alignItems: 'center',
       marginRight: spacing.md,
     },
-    modeText: { flex: 1 },
+    modeText: { flex: 1, flexShrink: 1, minWidth: 0 },
     modeTitle: {
       fontSize: 17,
       fontWeight: 'bold',
@@ -150,7 +153,7 @@ const StaffModeScreen = () => {
       alignItems: 'center',
       marginRight: spacing.md,
     }
-  }), [colors, shadows]);
+  }), [colors, shadows, topBleed]);
 
   const staffModes = [
     {
@@ -184,8 +187,8 @@ const StaffModeScreen = () => {
 
   if (!isStaff) {
     return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" />
+      <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+        <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
         <LinearGradient colors={[colors.primary, colors.primary + 'DD']} style={styles.header}>
           <View style={styles.headerRow}>
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
@@ -210,8 +213,8 @@ const StaffModeScreen = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <LinearGradient 
         colors={[colors.primary, '#2C3E50']} 
         start={{ x: 0, y: 0 }} 
@@ -256,6 +259,8 @@ const StaffModeScreen = () => {
               paddingVertical: 8,
               borderRadius: 12,
               backgroundColor: isClientMode ? '#1E293B' : colors.primary,
+              marginLeft: 8,
+              flexShrink: 0,
             }}>
               <Text style={{ color: '#FFF', fontSize: 11, fontWeight: '800', letterSpacing: 0.5 }}>
                 {isClientMode ? 'TRABAJAR' : 'VER APP'}
@@ -278,14 +283,14 @@ const StaffModeScreen = () => {
               >
                 <View style={[
                   styles.modeCard, 
-                  activeStaffMode === mode.id && { borderColor: mode.color, borderWidth: 2, backgroundColor: mode.color + '05' }
+                  activeStaffMode === mode.id && { borderColor: mode.color, borderWidth: 2, backgroundColor: mode.color + '0A' }
                 ]}>
                   <View style={[styles.iconBox, { backgroundColor: mode.color }]}>
                     <MaterialCommunityIcons name={mode.icon} size={26} color="#FFF" />
                   </View>
                   <View style={styles.modeText}>
-                    <Text style={[styles.modeTitle, activeStaffMode === mode.id && { color: mode.color }]}>{mode.label}</Text>
-                    <Text style={styles.modeDesc}>{mode.sub}</Text>
+                    <Text style={styles.modeTitle} numberOfLines={2}>{mode.label}</Text>
+                    <Text style={styles.modeDesc} numberOfLines={2}>{mode.sub}</Text>
                   </View>
                   <View style={{ 
                     width: 24, 

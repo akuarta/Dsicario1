@@ -27,6 +27,9 @@ ios/.xcode.env.local
 
 # Firebase
 config/firebaseServiceAccount.json
+# Llaves de cuenta de servicio (NO versionar jamas)
+*-7809-*.json
+dsicario-*.json
 # Credenciales del keystore de produccion (NO versionar)
 credentials.json
 constants/PDFs/google-services.json

@@ -7,7 +7,8 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  Platform
+  Platform,
+  StatusBar
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
@@ -23,15 +24,16 @@ const AdminKitchenScreen = ({ navigation }) => {
   const { role } = useUser();
   const isAdmin = role?.toLowerCase() === 'admin' || role?.toLowerCase() === 'owner';
 
-  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
+  // El gate de rol va DESPUES de todos los hooks: `role` se resuelve de forma
+  // asincrona, y un return temprano hace que el numero de hooks cambie entre
+  // renders -> "Rendered more hooks than during the previous render" (pantalla en blanco).
   const [staff, setStaff] = useState([]);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState('today');
 
-  useEffect(() => { loadData(); }, []);
-
   const loadData = async () => {
+    if (!isAdmin) return;
     setLoading(true);
     try {
       const [allUsers, allOrders] = await Promise.all([fetchAllUsers(), fetchKitchenOrders()]);
@@ -47,6 +49,8 @@ const AdminKitchenScreen = ({ navigation }) => {
       setLoading(false);
     }
   };
+
+  useEffect(() => { loadData(); }, [isAdmin]);
 
   const getStatsForStaff = useCallback((staffEmail) => {
     const now = new Date();
@@ -125,7 +129,7 @@ const AdminKitchenScreen = ({ navigation }) => {
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
-      padding: spacing.xl, alignItems: 'center', backgroundColor: colors.primary,
+      padding: spacing.xl, paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + spacing.xl : spacing.xl, alignItems: 'center', backgroundColor: colors.primary,
       borderBottomLeftRadius: 30, borderBottomRightRadius: 30, ...shadows.medium, marginBottom: spacing.lg,
     },
     backBtn: { position: 'absolute', top: spacing.xl, left: spacing.md, zIndex: 10, padding: 10 },
@@ -165,6 +169,8 @@ const AdminKitchenScreen = ({ navigation }) => {
     emptyText: { textAlign: 'center', color: colors.text.secondary, marginTop: 60, fontSize: typography.sizes.md },
   }), [colors, darkMode]);
 
+  if (!isAdmin) return <AccessDeniedScreen navigation={navigation} />;
+
   const renderStaff = ({ item }) => {
     const stats = getStatsForStaff(item.Email || item.email || '');
     const periods = {
@@ -203,7 +209,7 @@ const AdminKitchenScreen = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <FontAwesome5 name="arrow-left" size={20} color="#FFFFFF" />

@@ -1,4 +1,6 @@
 import { showAlert } from '../utils/showAlert';
+import { openChat, RIDER_GREETING_KEY, DEFAULT_RIDER_GREETING } from './ChatScreen';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import QRCode from 'react-native-qrcode-svg';
 import {
@@ -13,6 +15,7 @@ import {
   Linking,
   StatusBar,
   Modal,
+  TextInput,
   Switch,
   Platform
 } from 'react-native';
@@ -21,7 +24,7 @@ import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-ico
 import * as Location from 'expo-location';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { getThemeColors, spacing, typography, borders, shadows } from '../theme/theme';
-import { fetchRiderOrders, fetchRiderStats, updateOrderStatus, pickupOrder, formatPrice, respondToOffer, updateDelivery, pingRider, getRouteDetails, getOptimizedMultiStopRoute, decodePolyline } from '../utils/api';
+import { fetchRiderOrders, fetchRiderStats, updateOrderStatus, pickupOrder, formatPrice, updateDelivery, pingRider, getRouteDetails, getOptimizedMultiStopRoute, decodePolyline } from '../utils/api';
 import { registerForPushNotifications, saveRiderPushToken, setupNotificationResponseListener } from '../utils/notifications';
 import { updateRiderLocation } from '../utils/locationService';
 import { useDataSync } from '../contexts/AppContext';
@@ -241,13 +244,42 @@ const RiderScreen = ({ navigation, route }) => {
   }, [currentRegion, activeTab, routeSegments, isLoadingRoutes]);
 
   const { isAutoSyncEnabled } = useDataSync();
-  const [proposal, setProposal] = useState(null);
-  const [timeLeft, setTimeLeft] = useState(20);
   const [showQR, setShowQR] = useState(false);
   const [activeQRData, setActiveQRData] = useState(null);
   const [selectedOrders, setSelectedOrders] = useState([]); // ✅ Estado para selección múltiple
-  const timerRef = useRef(null);
+  const [greetingEditorVisible, setGreetingEditorVisible] = useState(false);
+  const [greetingText, setGreetingText] = useState(DEFAULT_RIDER_GREETING);
   const isFetchingRef = useRef(false); // ✅ Previene llamadas concurrentes que causan stack overflow
+
+  // Editor del mensaje rápido (pulsación larga en el avión azul).
+  const openGreetingEditor = async () => {
+    try {
+      const saved = await AsyncStorage.getItem(RIDER_GREETING_KEY);
+      setGreetingText(saved && saved.trim() ? saved : DEFAULT_RIDER_GREETING);
+    } catch (_) {
+      setGreetingText(DEFAULT_RIDER_GREETING);
+    }
+    setGreetingEditorVisible(true);
+  };
+
+  const saveGreeting = async () => {
+    const text = greetingText.trim();
+    if (!text) return;
+    try {
+      await AsyncStorage.setItem(RIDER_GREETING_KEY, text);
+    } catch (err) {
+      console.error('[Rider] No se pudo guardar el mensaje rápido:', err);
+    }
+    setGreetingEditorVisible(false);
+  };
+
+  const resetGreeting = async () => {
+    try {
+      await AsyncStorage.removeItem(RIDER_GREETING_KEY);
+    } catch (_) {}
+    setGreetingText(DEFAULT_RIDER_GREETING);
+    setGreetingEditorVisible(false);
+  };
 
   // Sincronización de propuesta y contador
   const requestLocationPermission = async () => {
@@ -265,17 +297,9 @@ const RiderScreen = ({ navigation, route }) => {
   useEffect(() => {
     requestLocationPermission();
   }, []);
-// Existing effect for proposal sync follows below
-  useEffect(() => {
-    if (proposal && proposal.id) {
-      // Solo mostrar la propuesta, NO auto-rechazar (el modal global maneja el timeout)
-      setTimeLeft(20);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
-      setTimeLeft(20);
-    }
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [proposal]);
+
+  // La sincronizacion de propuestas vive en RiderProposalOverlay (App.js).
+  // Aqui solo se detectaba para alimentar el modal duplicado que se elimino.
 
   const [lastAssignedCount, setLastAssignedCount] = useState(0);
 
@@ -290,26 +314,10 @@ const RiderScreen = ({ navigation, route }) => {
         fetchRiderStats(riderId, user?.email)
       ]);
       
-      const currentProposal = orderData.find(o => {
-        const est = String(o.estado).toLowerCase().trim();
-        const estExcel = String(o.Estado || '').toLowerCase().trim();
-        return est === 'proposal' || est === 'propuesta' || estExcel === 'propuesta';
-      });
-      if (currentProposal && (!proposal || proposal.id !== currentProposal.id)) {
-          console.log('[RiderDebug] 📢 ¡Propuesta detectada!', currentProposal.id);
-          setProposal(currentProposal);
-          if (Platform.OS === 'web') {
-            import('../utils/notifications').then(m => {
-              m.sendWebBrowserNotification({
-                cliente: currentProposal.cliente || currentProposal.Cliente || 'Nuevo Pedido',
-                total: currentProposal.total || currentProposal.Total || 0,
-                orderId: currentProposal.id
-              });
-            });
-          }
-      } else if (!currentProposal && proposal) {
-          setProposal(null);
-      }
+      // Las propuestas ya no se rastrean aqui: RiderProposalOverlay las detecta
+      // y las responde (incluido el auto-rechazo a los 20s). Si se rastrearan
+      // aqui tambien, el polling de los 15s de esta pantalla marcaria el pedido
+      // como visto sin abrir ningun modal.
       const currentAssigned = orderData.filter(o => 
           (String(o.id_repartidor || '').toLowerCase() === String(riderId).toLowerCase()) && 
           ['ready', 'on_the_way'].includes(String(o.estado).toLowerCase())
@@ -330,21 +338,6 @@ const RiderScreen = ({ navigation, route }) => {
     } finally {
       isFetchingRef.current = false;
       setIsLoading(false);
-    }
-  };
-
-  const handleProposalResponse = async (accept) => {
-    if (!proposal) return;
-    setIsLoading(true);
-    try {
-        await respondToOffer(proposal.id, riderId, accept);
-        setProposal(null);
-        await loadData(true);
-        if (accept) setActiveTab('ready');
-    } catch (e) {
-        console.error('[Rider] Error enviando respuesta');
-    } finally {
-        setIsLoading(false);
     }
   };
 
@@ -652,11 +645,11 @@ const RiderScreen = ({ navigation, route }) => {
     statItem: { flex: 1, alignItems: 'center' },
     statDivider: { width: 1, height: '60%', backgroundColor: 'rgba(255,255,255,0.2)' },
     statLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 9, fontWeight: 'bold', marginBottom: 4 },
-    statValue: { color: '#FFF', fontSize: 13, fontWeight: '900' },
+    statValue: { color: '#FFF', fontSize: 12, fontWeight: '900' },
     tabContainer: { flexDirection: 'row', paddingHorizontal: spacing.md, marginTop: -15, zIndex: 10 },
-    tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, paddingVertical: 12, marginHorizontal: 4, borderRadius: 15, gap: 8, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 3 },
+    tab: { flex: 1, flexShrink: 1, minWidth: 0, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, paddingVertical: 8, paddingHorizontal: 2, marginHorizontal: 2, borderRadius: 15, gap: 2, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 3 },
     activeTab: { borderBottomWidth: 3, borderBottomColor: colors.primary },
-    tabText: { fontSize: 10, color: colors.text.secondary },
+    tabText: { fontSize: 9, color: colors.text.secondary, flexShrink: 1 },
     badgeCount: { backgroundColor: colors.primary, paddingHorizontal: 6, borderRadius: 10, marginLeft: 4 },
     badgeText: { color: '#FFF', fontSize: 9, fontWeight: 'bold' },
     content: { flex: 1, padding: spacing.md },
@@ -671,8 +664,8 @@ const RiderScreen = ({ navigation, route }) => {
     itemsBrief: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, padding: 8, borderRadius: 12, marginBottom: 15, gap: 8 },
     itemsText: { fontSize: 12, color: colors.text.secondary, flex: 1 },
     actionsRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    mainBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 14, gap: 10, elevation: 2 },
-    mainBtnText: { color: '#FFF', fontWeight: '900', fontSize: 12 },
+    mainBtn: { flex: 1, flexShrink: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, paddingHorizontal: 8, borderRadius: 14, gap: 8, elevation: 2 },
+    mainBtnText: { color: '#FFF', fontWeight: '900', fontSize: 11, flexShrink: 1, textAlign: 'center' },
     secondaryActions: { flexDirection: 'row', gap: 8 },
     circleBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', elevation: 3 },
     listContainer: { paddingBottom: 120, paddingTop: 20 },
@@ -751,6 +744,12 @@ const RiderScreen = ({ navigation, route }) => {
     // ✅ Estilos para recogida múltiple
     footerAction: { 
       padding: spacing.md, 
+      // La tab bar flotante global pasa POR ENCIMA de este pie: sin este
+      // colchón el botón queda tapado por ella.
+      ...Platform.select({
+        web: { paddingBottom: spacing.md },
+        default: { paddingBottom: 110 },
+      }),
       backgroundColor: colors.surface, 
       borderTopWidth: 1, 
       borderColor: colors.border,
@@ -773,14 +772,17 @@ const RiderScreen = ({ navigation, route }) => {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      paddingVertical: 18,
-      gap: 12
+      paddingVertical: 16,
+      paddingHorizontal: 12,
+      gap: 8
     },
     bulkPickupText: {
       color: '#FFF',
-      fontSize: 16,
+      fontSize: 13,
       fontWeight: '900',
-      letterSpacing: 1
+      letterSpacing: 0.5,
+      textAlign: 'center',
+      flexShrink: 1,
     },
     markerIconCircle: {
       width: 32,
@@ -912,8 +914,22 @@ const RiderScreen = ({ navigation, route }) => {
               <TouchableOpacity style={[styles.circleBtn, { backgroundColor: '#25D366' }]} onPress={() => handleAction('whatsapp', item.whatsapp)}>
                 <FontAwesome5 name="whatsapp" size={18} color="#FFF" />
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.circleBtn, { backgroundColor: '#4285F4' }]} onPress={() => handleAction('gps', item.direccion)}>
-                <Ionicons name="map" size={18} color="#FFF" />
+              <TouchableOpacity
+                style={[styles.circleBtn, { backgroundColor: '#4285F4' }]}
+                onPress={() => openChat(navigation, {
+                  orderId: item.id || item.ID_Pedido,
+                  peerName: item.Cliente || item.cliente || 'Cliente',
+                  myId: riderId,
+                  myName: username || 'Repartidor',
+                  myRole: 'rider',
+                  itemsSummary: (item.items || [])
+                    .slice(0, 3)
+                    .map((i) => `${i.cantidad || 1}x ${i.nombre || 'producto'}`)
+                    .join(', ') + ((item.items || []).length > 3 ? '…' : ''),
+                })}
+                onLongPress={openGreetingEditor}
+              >
+                <FontAwesome5 name="paper-plane" size={16} color="#FFF" />
               </TouchableOpacity>
             </View>
           </View>
@@ -924,8 +940,8 @@ const RiderScreen = ({ navigation, route }) => {
 
   return (
     <View style={{ flex: 1 }}>
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <LinearGradient colors={[colors.primary, '#E63946']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.statsHeader}>
         <View style={styles.headerTop}>
           <TouchableOpacity 
@@ -938,7 +954,7 @@ const RiderScreen = ({ navigation, route }) => {
           <View style={{ flex: 1 }}>
             <Text style={styles.riderName}>{stats.nombre !== 'Repartidor' ? stats.nombre : username}</Text>
           </View>
-          <TouchableOpacity onPress={() => handleAction('whatsapp', '8294451001')} style={{ marginRight: 15 }}>
+          <TouchableOpacity onPress={() => navigation.navigate('ChatList', { myId: riderId, myName: username || 'Repartidor' })} style={{ marginRight: 15 }}>
             <Ionicons name="chatbubble-ellipses-outline" size={24} color="#FFF" />
           </TouchableOpacity>
           <TouchableOpacity onPress={() => {
@@ -969,31 +985,31 @@ const RiderScreen = ({ navigation, route }) => {
 
 
         <View style={styles.statsGrid}>
-          <View style={styles.statItem}><Text style={styles.statLabel}>CARTERA</Text><Text style={styles.statValue}>{formatPrice(stats.cartera)}</Text></View>
+          <View style={styles.statItem}><Text style={styles.statLabel}>CARTERA</Text><Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{formatPrice(stats.cartera)}</Text></View>
           <View style={styles.statDivider} />
-          <View style={styles.statItem}><Text style={styles.statLabel}>POR ENTREGAR</Text><Text style={[styles.statValue, { color: '#FFD700' }]}>{formatPrice(stats.deuda)}</Text></View>
+          <View style={styles.statItem}><Text style={styles.statLabel}>POR ENTREGAR</Text><Text style={[styles.statValue, { color: '#FFD700' }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{formatPrice(stats.deuda)}</Text></View>
           <View style={styles.statDivider} />
-          <View style={styles.statItem}><Text style={styles.statLabel}>CREDITO DISP.</Text><Text style={[styles.statValue, { color: '#90EE90' }]}>{formatPrice(stats.cupo)}</Text></View>
+          <View style={styles.statItem}><Text style={styles.statLabel}>CREDITO DISP.</Text><Text style={[styles.statValue, { color: '#90EE90' }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{formatPrice(stats.cupo)}</Text></View>
         </View>
       </LinearGradient>
       <View style={styles.tabContainer}>
         <TouchableOpacity style={[styles.tab, activeTab === 'ready' && styles.activeTab]} onPress={() => setActiveTab('ready')}>
-          <MaterialCommunityIcons name="package-variant" size={20} color={activeTab === 'ready' ? colors.primary : colors.text.secondary} />
-          <Text style={[styles.tabText, activeTab === 'ready' && { color: colors.primary, fontWeight: 'bold' }]}>RECOGER</Text>
+          <MaterialCommunityIcons name="package-variant" size={16} color={activeTab === 'ready' ? colors.primary : colors.text.secondary} />
+          <Text style={[styles.tabText, activeTab === 'ready' && { color: colors.primary, fontWeight: 'bold' }]} numberOfLines={1}>RECOGER</Text>
           {orders.filter(o => ['pending', 'accepted', 'ready', 'listo'].includes(o.estado)).length > 0 && <View style={styles.badgeCount}><Text style={styles.badgeText}>{orders.filter(o => ['pending', 'accepted', 'ready', 'listo'].includes(o.estado)).length}</Text></View>}
         </TouchableOpacity>
         <TouchableOpacity style={[styles.tab, activeTab === 'on_the_way' && styles.activeTab]} onPress={() => setActiveTab('on_the_way')}>
-          <MaterialCommunityIcons name="truck-delivery" size={20} color={activeTab === 'on_the_way' ? colors.primary : colors.text.secondary} />
-          <Text style={[styles.tabText, activeTab === 'on_the_way' && { color: colors.primary, fontWeight: 'bold' }]}>EN CAMINO</Text>
+          <MaterialCommunityIcons name="truck-delivery" size={16} color={activeTab === 'on_the_way' ? colors.primary : colors.text.secondary} />
+          <Text style={[styles.tabText, activeTab === 'on_the_way' && { color: colors.primary, fontWeight: 'bold' }]} numberOfLines={1}>EN CAMINO</Text>
           {orders.filter(o => o.estado === 'on_the_way').length > 0 && <View style={styles.badgeCount}><Text style={styles.badgeText}>{orders.filter(o => o.estado === 'on_the_way').length}</Text></View>}
         </TouchableOpacity>
         <TouchableOpacity style={[styles.tab, activeTab === 'route' && styles.activeTab]} onPress={() => setActiveTab('route')}>
-          <MaterialCommunityIcons name="map-marker-path" size={20} color={activeTab === 'route' ? colors.primary : colors.text.secondary} />
-          <Text style={[styles.tabText, activeTab === 'route' && { color: colors.primary, fontWeight: 'bold' }]}>RUTA</Text>
+          <MaterialCommunityIcons name="map-marker-path" size={16} color={activeTab === 'route' ? colors.primary : colors.text.secondary} />
+          <Text style={[styles.tabText, activeTab === 'route' && { color: colors.primary, fontWeight: 'bold' }]} numberOfLines={1}>RUTA</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.tab, activeTab === 'delivered' && styles.activeTab]} onPress={() => setActiveTab('delivered')}>
-          <MaterialCommunityIcons name="history" size={20} color={activeTab === 'delivered' ? colors.primary : colors.text.secondary} />
-          <Text style={[styles.tabText, activeTab === 'delivered' && { color: colors.primary, fontWeight: 'bold' }]}>HISTORIAL</Text>
+          <MaterialCommunityIcons name="history" size={16} color={activeTab === 'delivered' ? colors.primary : colors.text.secondary} />
+          <Text style={[styles.tabText, activeTab === 'delivered' && { color: colors.primary, fontWeight: 'bold' }]} numberOfLines={1}>HISTORIAL</Text>
         </TouchableOpacity>
       </View>
       <View style={styles.content}>
@@ -1209,41 +1225,65 @@ const RiderScreen = ({ navigation, route }) => {
         </View>
       </Modal>
 
-      {/* 🚀 OVERLAY DE PROPUESTA FLOTANTE */}
-
-      <Modal visible={!!proposal} transparent animationType="fade" onRequestClose={() => handleProposalResponse(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: 20 }}>
-          <GlassPanel style={styles.proposalInner}>
-            <View style={styles.propHeader}>
-              <View style={styles.timerBadge}>
-                <Text style={styles.timerText}>{timeLeft}s</Text>
-              </View>
-              <View style={{ flex: 1, marginLeft: 10 }}>
-                <Text style={styles.propTitle}>¡Nueva Propuesta!</Text>
-                <Text style={styles.propClient}>{proposal?.cliente || 'Nuevo Cliente'}</Text>
-              </View>
-              <Text style={styles.propPrice}>RD${proposal?.total || '0'}</Text>
-            </View>
-
-            <View style={styles.propActions}>
-              <TouchableOpacity 
-                style={[styles.miniBtn, { backgroundColor: colors.error + '20' }]} 
-                onPress={() => handleProposalResponse(false)}
+      {/* ✏️ Editor del mensaje rápido (pulsación larga en el avión azul) */}
+      <Modal
+        visible={greetingEditorVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setGreetingEditorVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: 20, padding: 20, width: '100%' }}>
+            <Text style={{ fontSize: 17, fontWeight: '900', color: colors.text.primary, marginBottom: 6 }}>
+              Mensaje rápido
+            </Text>
+            <Text style={{ fontSize: 12, color: colors.text.secondary, marginBottom: 12 }}>
+              Usa {'{cliente}'}, {'{rider}'} y {'{items}'}: se reemplazan solos al enviar.
+            </Text>
+            <TextInput
+              style={{
+                backgroundColor: colors.background,
+                color: colors.text.primary,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 12,
+                padding: 12,
+                fontSize: 15,
+                minHeight: 110,
+                textAlignVertical: 'top',
+              }}
+              multiline
+              value={greetingText}
+              onChangeText={setGreetingText}
+            />
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+              <TouchableOpacity
+                style={{ flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.border }}
+                onPress={() => setGreetingEditorVisible(false)}
               >
-                <Text style={{ color: colors.error, fontWeight: 'bold' }}>RECHAZAR</Text>
+                <Text style={{ color: colors.text.secondary, fontWeight: '700' }}>Cancelar</Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.miniBtn, { backgroundColor: colors.success, flex: 2 }]} 
-                onPress={() => handleProposalResponse(true)}
+              <TouchableOpacity
+                style={{ flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.border }}
+                onPress={saveGreeting}
               >
-                <FontAwesome5 name="check" size={14} color="#FFF" />
-                <Text style={{ color: '#FFF', fontWeight: 'bold', marginLeft: 8 }}>ACEPTAR PEDIDO</Text>
+                <Text style={{ color: colors.text.secondary, fontWeight: '700' }}>Guardar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: 'center', backgroundColor: colors.primary }}
+                onPress={resetGreeting}
+              >
+                <FontAwesome5 name="paper-plane" size={16} color="#FFF" />
               </TouchableOpacity>
             </View>
-          </GlassPanel>
+          </View>
         </View>
       </Modal>
+
+      {/* 🚀 Las propuestas las muestra RiderProposalOverlay, montado globalmente en App.js.
+          Este modal duplicado se elimino: hacia polling por su cuenta, congelaba el
+          contador en "20s" y, con el auto-rechazo del overlay, habria disparado DOS
+          respuestas al backend para la misma propuesta. */}
       {/* ✅ Botón Global de Recogida (Siempre visible) */}
       {activeTab === 'ready' && (
         <View style={styles.footerAction}>
@@ -1261,8 +1301,8 @@ const RiderScreen = ({ navigation, route }) => {
               end={{ x: 1, y: 0 }} 
               style={styles.bulkGradient}
             >
-              <FontAwesome5 name="motorcycle" size={20} color="#FFF" />
-              <Text style={styles.bulkPickupText}>
+              <FontAwesome5 name="motorcycle" size={18} color="#FFF" />
+              <Text style={styles.bulkPickupText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
                 {selectedOrders.length > 0 
                   ? `RECOGER SELECCIONADOS (${selectedOrders.length})` 
                   : 'SELECCIONA PEDIDOS PARA RECOGER'}

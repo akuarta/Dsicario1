@@ -91,7 +91,7 @@ const LoginScreen = () => {
   const isDark = darkMode;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: isDark ? '#0F0F0F' : '#F7F7F7' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: isDark ? '#0F0F0F' : '#F7F7F7' }} edges={['left', 'right', 'bottom']}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView
           contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 40 }}

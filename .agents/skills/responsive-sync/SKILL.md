@@ -65,6 +65,26 @@ const styles = StyleSheet.create({
 - Bottom tabs MUST use `Platform.select()` for safe area handling.
 - Modal presentations differ: web uses overlays, mobile uses native modals.
 
+### 7. EDGE-TO-EDGE HEADERS (DSicario quality bar)
+- EVERY screen header MUST bleed to the top edge on native, behind the
+  system status bar (time/wifi/battery float over the header background).
+  NEVER leave a light/dark system band between the status icons and the header.
+- Proven pattern (verified on device via `adb screencap`):
+  - App root: `<StatusBar translucent backgroundColor="transparent" />`
+    with `barStyle` matching the header brightness of each screen
+    (a shared header component should render its own `<StatusBar>`).
+  - Screen root: plain `<View>` (NO `SafeAreaView` top padding), OR
+    `<SafeAreaView edges={['left','right','bottom']}>` (keeps bottom inset).
+  - Header style gets `paddingTop: insets.top` (from `useSafeAreaInsets()`,
+    native only, `0` on web) so content clears the icons while the
+    background starts at y=0.
+  - Drawer container background (`drawerStyle`) MUST match the header
+    gradient start color — React Navigation pads its own wrapper with it.
+- Web MUST stay untouched: gate everything with `Platform.select()`.
+- After ANY header/UI change, verify on a real device with
+  `adb shell screencap` + pull — NEVER trust Metro logs alone.
+  Negative-margin bleed tricks do NOT work reliably; prefer the pattern above.
+
 ## Output Validation Checklist
 Before delivering any UI change, verify:
 1. Does this change affect ONLY the target platform?

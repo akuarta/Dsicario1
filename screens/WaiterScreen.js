@@ -396,7 +396,7 @@ const WaiterScreen = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['left', 'right', 'bottom']}>
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
       
       {/* Modal de Carga para Borrado/Actualización */}

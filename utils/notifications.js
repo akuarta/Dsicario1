@@ -297,7 +297,8 @@ export const savePushToken = async (userId, pushToken, sheet = 'Usuarios', idFie
       console.warn('[Notif] ⚠️ GAS no confirmó el guardado del PushToken:', result);
     }
   } catch (e) {
-    console.error('[Notif] ❌ Error guardando PushToken:', e.message);
+    // Aviso de fondo: no usar console.error (abre el overlay/toast rojo en desarrollo).
+    console.log('[Notif] PushToken no guardado (reintenta solo):', e.message);
   }
 };
 
