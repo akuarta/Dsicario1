@@ -101,8 +101,12 @@ export const UpdateService = {
 
       return true;
     } catch (error) {
-      // Chequeo de fondo: no abrir overlay/toast rojo en desarrollo.
+      // Chequeo de fondo: console.log (no overlay rojo en desarrollo).
+      // Incluye la pista de permisos de la otra rama cuando aplique.
       console.log('[UpdateService] Sin actualización disponible o sin acceso:', error.code || error.message);
+      if (error.code === 'permission-denied') {
+        console.log('[UpdateService] Sin permisos: verifica las reglas de Firestore para /app_config/version_control');
+      }
       return false;
     }
   },
